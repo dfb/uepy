@@ -15,9 +15,14 @@
 	"Installed": false,
 	"Modules": [
 		{
-			"Name": "uepy",
+			"Name": "uepyEditor",
 			"Type": "Editor",
-			"LoadingPhase": "Default"
+			"LoadingPhase": "PreDefault"
+		},
+		{
+			"Name": "uepy",
+			"Type": "Runtime",
+			"LoadingPhase": "PreDefault"
 		}
 	]
 }

@@ -8,6 +8,10 @@
 #include "IImageWrapperModule.h"
 #include "ImageUtils.h"
 #include "Misc/FileHelper.h"
+#include <map>
+#include "PythonClass.h"
+
+static std::map<FString, py::object> pyClassMap; // class name --> python class
 
 UTexture2D *LoadTextureFromFile(FString path)
 {
@@ -56,40 +60,40 @@ UTexture2D *LoadTextureFromFile(FString path)
 }
 
 PYBIND11_EMBEDDED_MODULE(uepy, m) {
-    py::class_<UObject>(m, "UObject")
+    py::class_<UObject, UnrealTracker<UObject>>(m, "UObject")
         ;
 
-    py::class_<UStaticMesh>(m, "UStaticMesh")
+    py::class_<UStaticMesh, UnrealTracker<UStaticMesh>>(m, "UStaticMesh")
         ;
 
-    py::class_<UStaticMeshComponent>(m, "UStaticMeshComponent")
+    py::class_<UStaticMeshComponent, UnrealTracker<UStaticMeshComponent>>(m, "UStaticMeshComponent")
         .def("SetStaticMesh", [](UStaticMeshComponent& self, UStaticMesh *newMesh) -> bool { return self.SetStaticMesh(newMesh); })
         .def("SetMaterial", [](UStaticMeshComponent& self, int index, UMaterialInterface *newMat) -> void { self.SetMaterial(index, newMat); }) // technically, UMaterialInterface
         ;
 
-	py::class_<UWorld>(m, "UWorld")
+	py::class_<UWorld, UnrealTracker<UWorld>>(m, "UWorld")
 		;
 
-    py::class_<UMaterialInterface>(m, "UMaterialInterface");
+    py::class_<UMaterialInterface, UnrealTracker<UMaterialInterface>>(m, "UMaterialInterface");
 
-	py::class_<UMaterial, UMaterialInterface>(m, "UMaterial")
+	py::class_<UMaterial, UMaterialInterface, UnrealTracker<UMaterial>>(m, "UMaterial")
 		;
 
-	py::class_<UMaterialInstance, UMaterialInterface>(m, "UMaterialInstance");
-	py::class_<UMaterialInstanceDynamic, UMaterialInstance>(m, "UMaterialInstanceDynamic")
+	py::class_<UMaterialInstance, UMaterialInterface, UnrealTracker<UMaterialInstance>>(m, "UMaterialInstance");
+	py::class_<UMaterialInstanceDynamic, UMaterialInstance, UnrealTracker<UMaterialInstanceDynamic>>(m, "UMaterialInstanceDynamic")
         .def("SetTextureParameterValue", [](UMaterialInstanceDynamic& self, std::string paramName, UTexture2D* value) -> void { self.SetTextureParameterValue(UTF8_TO_TCHAR(paramName.c_str()), value); })
 		;
 
-	py::class_<UTexture2D>(m, "UTexture2D")
+	py::class_<UTexture2D, UnrealTracker<UTexture2D>>(m, "UTexture2D")
 		;
 
-    py::class_<UGameInstance>(m, "UGameInstance")
+    py::class_<UGameInstance, UnrealTracker<UGameInstance>>(m, "UGameInstance")
         ;
 
-    py::class_<AGameState>(m, "AGameState")
+    py::class_<AGameState, UnrealTracker<AGameState>>(m, "AGameState")
         ;
 
-    py::class_<AActor, UObject>(m, "AActor")
+    py::class_<AActor, UObject, UnrealTracker<AActor>>(m, "AActor")
         .def("GetWorld", [](AActor& self) -> UWorld* { return self.GetWorld(); }, py::return_value_policy::reference)
 		.def("SetActorLocation", [](AActor& self, FVector v) -> bool { return self.SetActorLocation(v); })
         .def("SetActorRotation", [](AActor& self, FRotator r) -> void { self.SetActorRotation(r); })
@@ -150,13 +154,66 @@ PYBIND11_EMBEDDED_MODULE(uepy, m) {
     {
         return UMaterialInstanceDynamic::Create(parent, owner);
     }, py::return_value_policy::reference);
+
+    m.def("RegisterPythonSubclass", [](py::str fqClassName, py::str engineParentClassPath, const py::object pyClass)
+    {
+        UClass *engineParentClass = FindObject<UClass>(ANY_PACKAGE, UTF8_TO_TCHAR(((std::string)engineParentClassPath).c_str()));
+        if (!engineParentClass->ImplementsInterface(UPyBridgeMixin::StaticClass()))
+        {
+            LERROR("Class does not implement IPyBridgeMixin");
+            return;
+        }
+
+        // TODO: allow re-creation of class instead of always new'ing it
+        std::string sname = fqClassName;
+        FString name(UTF8_TO_TCHAR(sname.c_str()));
+        pyClassMap[name] = pyClass; // GRR: saving the class to a map because I can't get the lambda below to work with captured arguments
+        UClass *engineClass = NewObject<UClass>(engineParentClass->GetOuter(), *name, RF_Public | RF_Transient | RF_MarkAsNative);
+        engineClass->ClassAddReferencedObjects = engineParentClass->ClassAddReferencedObjects;
+        engineClass->SetSuperStruct(engineParentClass);
+        LOG("FULL PATH: %s", *engineClass->GetPathName());
+        engineClass->PropertiesSize = engineParentClass->PropertiesSize;
+        engineClass->ClassFlags |= CLASS_Native;
+        engineClass->ClassFlags |= (engineParentClass->ClassFlags & (CLASS_Inherit | CLASS_ScriptInherit));
+        engineClass->Children = engineParentClass->Children;
+        engineClass->PropertyLink = engineParentClass->PropertyLink;
+        engineClass->ClassWithin = engineParentClass->ClassWithin;
+        engineClass->ClassConfigName = engineParentClass->ClassConfigName;
+        engineClass->ClassCastFlags = engineParentClass->ClassCastFlags;
+        engineClass->ClassConstructor = [](const FObjectInitializer& objInitializer)
+        {
+            UObject *engineObj = objInitializer.GetObj();
+            UClass *parentClass = engineObj->GetClass()->GetSuperClass();
+            if (parentClass && parentClass->ClassConstructor)
+                parentClass->ClassConstructor(objInitializer);
+            if (!engineObj->HasAnyFlags(RF_ClassDefaultObject))
+            {
+                try {
+                    IPyBridgeMixin *p = Cast<IPyBridgeMixin>(engineObj);
+                    FString className = engineObj->GetClass()->GetName();
+                    py::object& pyClass = pyClassMap[className];
+                    p->pyInst = pyClass(engineObj);
+				}
+				catch (std::exception e)
+				{
+					LOG("EXCEPTION %s", UTF8_TO_TCHAR(e.what()));
+				}
+            }
+        };
+
+        engineClass->ClearFunctionMapsCaches();
+        engineClass->Bind();
+        engineClass->StaticLink(true);
+        engineClass->GetDefaultObject();
+    });
 }
 
 void LoadPyModule()
 {
+    py::initialize_interpreter(); // we delay this call so that game modules have a chance to create their embedded py modules
     LOG("Loading engine_startup.py");
     try {
-		py::module::import("uepy");
+        py::module m = py::module::import("uepy");
 
         // add the Content/Scripts dir to sys.path so it can find engine_startup.py
         FString scriptsDir = FPaths::Combine(*FPaths::ProjectContentDir(), _T("Scripts"));
@@ -164,7 +221,7 @@ void LoadPyModule()
         sys.attr("path").attr("append")(*scriptsDir);
 
         py::module startup = py::module::import("engine_startup");
-        startup.reload();
+        //startup.reload();
 		startup.attr("Init")();
 	} catch (std::exception e)
     {

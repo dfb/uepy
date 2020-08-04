@@ -4,9 +4,59 @@
 
 #include "CoreMinimal.h"
 #include "Modules/ModuleManager.h"
+
+#pragma warning(push)
+#pragma warning (disable : 4686 4191 340)
 #include <pybind11/pybind11.h>
 #include <pybind11/embed.h>
+#pragma warning(pop)
+
 #include "Materials/MaterialInstanceDynamic.h"
+#include "uepy.generated.h"
+
+class FToolBarBuilder;
+class FMenuBuilder;
+
+class FuepyModule : public IModuleInterface
+{
+public:
+    virtual void StartupModule() override;
+    virtual void ShutdownModule() override;
+    virtual bool IsGameModule() const override { return true; }
+};
+
+UCLASS()
+class UEPY_API UPyObjectTracker : public UObject
+{
+    GENERATED_BODY()
+
+    UPROPERTY() TSet<UObject *> objects;
+public:
+    UPyObjectTracker()
+    {
+        this->AddToRoot();
+    }
+
+    void Track(UObject *o) { objects.Emplace(o); }
+    void Untrack(UObject *o) { objects.Remove(o); }
+};
+
+extern UPyObjectTracker *TRACKER;
+
+template <typename T> class UnrealTracker {
+    struct Deleter {
+        void operator()(T *t) { TRACKER->Untrack(t); }
+    };
+
+    std::unique_ptr<T, Deleter> ptr;
+public:
+    UnrealTracker(T *p) : ptr(p, Deleter()) { TRACKER->Track(p); };
+    T *get() { return ptr.get(); }
+};
+
+// Engine objects passed to Python have to be kept alive as long as Python is keeping a ref to them; we achieve this by connecting
+// them to the root set during that time - pybind's default holder is just unique_ptr, so we just wrap it to get the same effect.
+PYBIND11_DECLARE_HOLDER_TYPE(T, UnrealTracker<T>, true);
 
 #define UTYPE_HOOK(uclass) \
 	template<> struct polymorphic_type_hook<uclass> { \
@@ -33,25 +83,19 @@ namespace pybind11 {
 
 namespace py = pybind11;
 
-class FToolBarBuilder;
-class FMenuBuilder;
-
-class FuepyModule : public IModuleInterface
+// any engine class we want to extend via Python should implement the IPyBridgeMixin interface
+UINTERFACE()
+class UPyBridgeMixin : public UInterface
 {
-public:
-    virtual void StartupModule() override;
-    virtual void ShutdownModule() override;
-    virtual bool IsGameModule() const override { return true; }
-
-    /** This function will be bound to Command (by default it will bring up plugin window) */
-    void PluginButtonClicked();
-
-private:
-
-    void AddToolbarExtension(FToolBarBuilder& Builder);
-    void AddMenuExtension(FMenuBuilder& Builder);
-
-    TSharedRef<class SDockTab> OnSpawnPluginTab(const class FSpawnTabArgs& SpawnTabArgs);
-    TSharedPtr<class FUICommandList> PluginCommands;
+	GENERATED_BODY()
 };
+
+class IPyBridgeMixin
+{
+    GENERATED_BODY()
+
+public:
+    py::object pyInst;
+};
+
 
