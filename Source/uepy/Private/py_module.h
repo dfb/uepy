@@ -5,7 +5,8 @@
 
 namespace uepy {
 
-void LoadPyModule();
+// called once during launch, at engine post init
+void FinishPythonInit();
 
 }; // end of namespace uepy
 

@@ -46,7 +46,7 @@ public class uepy : ModuleRules
             }
         );
         if (Target.Configuration != UnrealTargetConfiguration.Shipping)
-            PrivateDependencyModuleNames.Add("UnrealEd");
+            PrivateDependencyModuleNames.Add("UnrealEd"); // for FEditorDelegates
         
         DynamicallyLoadedModuleNames.AddRange(
             new string[]

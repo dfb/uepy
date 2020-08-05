@@ -209,7 +209,7 @@ PYBIND11_EMBEDDED_MODULE(uepy, m) {
     });
 }
 
-void LoadPyModule()
+void FinishPythonInit()
 {
     py::initialize_interpreter(); // we delay this call so that game modules have a chance to create their embedded py modules
     LOG("Loading engine_startup.py");
@@ -221,6 +221,10 @@ void LoadPyModule()
         py::module sys = py::module::import("sys");
         sys.attr("path").attr("append")(*scriptsDir);
 
+        // now give all other modules a chance to startup as well
+        FPythonDelegates::LaunchInit.Broadcast(m);
+
+        // note that engine_startup.py's Init is called *after* all plugin/game modules have received the LaunchInit event!
         py::module startup = py::module::import("engine_startup");
         //startup.reload();
 		startup.attr("Init")();

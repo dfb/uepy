@@ -82,7 +82,7 @@ namespace py = pybind11;
 
 // any engine class we want to extend via Python should implement the IPyBridgeMixin interface
 UINTERFACE()
-class UPyBridgeMixin : public UInterface
+class UPyBridgeMixin : public UInterface // TODO: don't we need a UEPY_API here?
 {
 	GENERATED_BODY()
 };
@@ -95,4 +95,9 @@ public:
     py::object pyInst;
 };
 
+struct UEPY_API FPythonDelegates
+{
+	DECLARE_MULTICAST_DELEGATE_OneParam(FPythonEvent1, py::module&);
+    static FPythonEvent1 LaunchInit; // called during initial engine startup
+};
 
