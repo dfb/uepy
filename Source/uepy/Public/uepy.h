@@ -36,8 +36,8 @@ public:
 
     static FPyObjectTracker *Get();
 	virtual void AddReferencedObjects(FReferenceCollector& InCollector) override;
-    void Track(UObject *o) { o->AddToRoot(); objects.Emplace(o); }
-    void Untrack(UObject *o) { objects.Remove(o); }
+    void Track(UObject *o);
+    void Untrack(UObject *o);
 };
 
 template <typename T> class UnrealTracker {

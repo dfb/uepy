@@ -37,16 +37,16 @@ public class uepy : ModuleRules
         PrivateDependencyModuleNames.AddRange(
             new string[]
             {
-                "Projects",
-                "InputCore",
                 "CoreUObject",
                 "Engine",
+                "InputCore",
+                "Projects",
                 "Slate",
                 "SlateCore",
-                // ... add private dependencies that you statically link with here ...  
             }
-            );
-        
+        );
+        if (Target.Configuration != UnrealTargetConfiguration.Shipping)
+            PrivateDependencyModuleNames.Add("UnrealEd");
         
         DynamicallyLoadedModuleNames.AddRange(
             new string[]

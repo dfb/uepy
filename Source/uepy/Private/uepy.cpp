@@ -4,6 +4,10 @@
 #include "common.h"
 #include "py_module.h"
 
+#if WITH_EDITOR
+#include "Editor.h"
+#endif
+
 DEFINE_LOG_CATEGORY(UEPY);
 
 void FuepyModule::StartupModule()
@@ -30,8 +34,28 @@ FPyObjectTracker *FPyObjectTracker::Get()
 
         // wire up to receive GC events from the engine
         //FCoreUObjectDelegates::GetPreGarbageCollectDelegate().AddRaw(globalTracker, &FPyObjectTracker::OnPreGC);
+#if WITH_EDITOR
+        FEditorDelegates::PreBeginPIE.AddLambda([](bool b) { LOG("TTT PreBeginePIE"); });
+        FEditorDelegates::BeginPIE.AddLambda([](bool b) { LOG("TTT BeginPIE"); });
+        FEditorDelegates::PostPIEStarted.AddLambda([](bool b) { LOG("TTT PostPIEStarted"); });
+        FEditorDelegates::PrePIEEnded.AddLambda([](bool b) { LOG("TTT PrePIEEnded"); });
+        FEditorDelegates::EndPIE.AddLambda([](bool b) { LOG("TTT EndPIE"); });
+        FEditorDelegates::PrePIEEnded.AddLambda([](bool b) { LOG("TTT PrePIEEnded"); });
+#endif
     }
     return globalTracker;
+}
+
+void FPyObjectTracker::Track(UObject *o)
+{
+    LOG("TTT Track %s, %p", *o->GetName(), o);
+    objects.Emplace(o);
+}
+
+void FPyObjectTracker::Untrack(UObject *o)
+{
+    LOG("TTT Untrack %s, %p", *o->GetName(), o);
+    objects.Remove(o);
 }
 
 // called by the engine
