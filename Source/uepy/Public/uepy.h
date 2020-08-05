@@ -12,6 +12,7 @@
 #pragma warning(pop)
 
 #include "Materials/MaterialInstanceDynamic.h"
+#include "Runtime/CoreUObject/Public/UObject/GCObject.h"
 #include "uepy.generated.h"
 
 class FToolBarBuilder;
@@ -25,32 +26,28 @@ public:
     virtual bool IsGameModule() const override { return true; }
 };
 
-UCLASS()
-class UEPY_API UPyObjectTracker : public UObject
+class UEPY_API FPyObjectTracker : public FGCObject
 {
-    GENERATED_BODY()
-
-    UPROPERTY() TSet<UObject *> objects;
+    TSet<UObject *> objects;
 public:
-    UPyObjectTracker()
+    FPyObjectTracker()
     {
-        this->AddToRoot();
     }
 
-    void Track(UObject *o) { objects.Emplace(o); }
+    static FPyObjectTracker *Get();
+	virtual void AddReferencedObjects(FReferenceCollector& InCollector) override;
+    void Track(UObject *o) { o->AddToRoot(); objects.Emplace(o); }
     void Untrack(UObject *o) { objects.Remove(o); }
 };
 
-extern UPyObjectTracker *TRACKER;
-
 template <typename T> class UnrealTracker {
     struct Deleter {
-        void operator()(T *t) { TRACKER->Untrack(t); }
+        void operator()(T *t) { FPyObjectTracker::Get()->Untrack(t); }
     };
 
     std::unique_ptr<T, Deleter> ptr;
 public:
-    UnrealTracker(T *p) : ptr(p, Deleter()) { TRACKER->Track(p); };
+    UnrealTracker(T *p) : ptr(p, Deleter()) { FPyObjectTracker::Get()->Track(p); };
     T *get() { return ptr.get(); }
 };
 

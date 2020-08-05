@@ -204,6 +204,7 @@ PYBIND11_EMBEDDED_MODULE(uepy, m) {
         engineClass->ClearFunctionMapsCaches();
         engineClass->Bind();
         engineClass->StaticLink(true);
+        engineClass->AssembleReferenceTokenStream();
         engineClass->GetDefaultObject();
     });
 }
