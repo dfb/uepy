@@ -73,7 +73,14 @@ namespace pybind11 {
     UTYPE_HOOK(UMaterialInterface);
     UTYPE_HOOK(UObject);
     UTYPE_HOOK(UStaticMesh);
+
+    // I /think/ we want to order these bottom-up so the type hook checker finds the most specific type first. Maybe.
     UTYPE_HOOK(UStaticMeshComponent);
+    UTYPE_HOOK(UMeshComponent);
+    UTYPE_HOOK(UPrimitiveComponent);
+    UTYPE_HOOK(USceneComponent);
+    UTYPE_HOOK(UActorComponent);
+
     UTYPE_HOOK(UTexture2D);
     UTYPE_HOOK(UWorld);
 } // namespace pybind11
@@ -100,4 +107,18 @@ struct UEPY_API FPythonDelegates
 	DECLARE_MULTICAST_DELEGATE_OneParam(FPythonEvent1, py::module&);
     static FPythonEvent1 LaunchInit; // called during initial engine startup
 };
+
+/*
+// currently this exists just to expose RootComponent (protected) to Python
+// maybe we should instead just expose Get/SetRootComponent APIs that already exist on AActor?
+UCLASS()
+class UEPY_API AUEPyActor : public AActor, public IPyBridgeMixin
+{
+    GENERATED_BODY()
+
+public:
+    using AActor::RootComponent;
+};
+
+*/
 

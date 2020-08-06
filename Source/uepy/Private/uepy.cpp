@@ -19,6 +19,11 @@ void FuepyModule::StartupModule()
 
     // we need the engine to start up before we do much more Python stuff
     FCoreDelegates::OnPostEngineInit.AddStatic(&FinishPythonInit);
+
+#if WITH_EDITOR
+    FEditorDelegates::PreBeginPIE.AddStatic(&OnPreBeginPIE);
+#endif
+
 }
 
 void FuepyModule::ShutdownModule()
@@ -67,8 +72,17 @@ void FPyObjectTracker::Untrack(UObject *o)
 // called by the engine
 void FPyObjectTracker::AddReferencedObjects(FReferenceCollector& InCollector)
 {
+    TArray<UObject *> toRemove;
     for (UObject *obj : objects)
-        InCollector.AddReferencedObject(obj);
+    {
+        if (obj && obj->IsValidLowLevel())
+            InCollector.AddReferencedObject(obj);
+        else
+            toRemove.Emplace(obj);
+    }
+
+    for (UObject* obj : toRemove)
+        objects.Remove(obj);
 }
 
 IMPLEMENT_MODULE(FuepyModule, uepy)

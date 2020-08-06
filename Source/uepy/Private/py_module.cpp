@@ -61,15 +61,39 @@ UTexture2D *LoadTextureFromFile(FString path)
 
 PYBIND11_EMBEDDED_MODULE(uepy, m) {
     py::class_<UObject, UnrealTracker<UObject>>(m, "UObject")
+        // TODO: we could create a generic CreateDefaultSubobject utility func that takes a UClass of what to create
+        // and just return it as a UObject, though the caller would then need to also cast it, e.g.
+        // self.foo = uepy.AsUStaticMeshComponent(self.CreateDefaultSubObject(uepy.UStaticMeshComponent, 'mymesh'))
+        // which seems like a lot of typing, so for now I'm creating class-specific versions.
+        .def("CreateUStaticMeshComponent", [](UObject& self, py::str name)
+        {
+            std::string sname = name;
+            return self.CreateDefaultSubobject<UStaticMeshComponent>(UTF8_TO_TCHAR(sname.c_str()));
+        })
         ;
 
     py::class_<UStaticMesh, UnrealTracker<UStaticMesh>>(m, "UStaticMesh")
         ;
 
-    py::class_<UStaticMeshComponent, UnrealTracker<UStaticMeshComponent>>(m, "UStaticMeshComponent")
+    py::class_<UActorComponent, UObject, UnrealTracker<UActorComponent>>(m, "UActorComponent");
+    py::class_<USceneComponent, UActorComponent, UnrealTracker<USceneComponent>>(m, "USceneComponent")
+        .def("GetRelativeLocation", [](USceneComponent& self) { return self.RelativeLocation; }) // todo: GetRelativeLocation is added in 4.25
+        .def("SetRelativeLocation", [](USceneComponent& self, FVector v) { self.SetRelativeLocation(v); })
+        .def("GetRelativeRotation", [](USceneComponent& self) { return self.RelativeRotation; })
+        .def("SetRelativeRotation", [](USceneComponent& self, FRotator r) { self.SetRelativeRotation(r); })
+        .def("GetRelativeScale3D", [](USceneComponent& self) { return self.RelativeScale3D; })
+        .def("SetRelativeScale3D", [](USceneComponent& self, FVector v) { self.SetRelativeScale3D(v); })
+        .def("AttachToComponent", [](USceneComponent& self, USceneComponent *parent) { return self.AttachToComponent(parent, FAttachmentTransformRules::KeepRelativeTransform); }) // TODO: AttachmentRules, socket
+        ;
+    py::class_<UPrimitiveComponent, USceneComponent, UnrealTracker<UPrimitiveComponent>>(m, "UPrimitiveComponent");
+    py::class_<UMeshComponent, UPrimitiveComponent, UnrealTracker<UMeshComponent>>(m, "UMeshComponent");
+    py::class_<UStaticMeshComponent, UMeshComponent, UnrealTracker<UStaticMeshComponent>>(m, "UStaticMeshComponent")
         .def("SetStaticMesh", [](UStaticMeshComponent& self, UStaticMesh *newMesh) -> bool { return self.SetStaticMesh(newMesh); })
         .def("SetMaterial", [](UStaticMeshComponent& self, int index, UMaterialInterface *newMat) -> void { self.SetMaterial(index, newMat); }) // technically, UMaterialInterface
         ;
+
+    // TODO: I guess we do one of these for every exposed class?
+    m.def("AsUStaticMeshComponent", [](UObject *engineObj) -> UStaticMeshComponent* { return Cast<UStaticMeshComponent>(engineObj); }, py::return_value_policy::reference);
 
 	py::class_<UWorld, UnrealTracker<UWorld>>(m, "UWorld")
 		;
@@ -94,9 +118,13 @@ PYBIND11_EMBEDDED_MODULE(uepy, m) {
         ;
 
     py::class_<AActor, UObject, UnrealTracker<AActor>>(m, "AActor")
-        .def("GetWorld", [](AActor& self) -> UWorld* { return self.GetWorld(); }, py::return_value_policy::reference)
-		.def("SetActorLocation", [](AActor& self, FVector v) -> bool { return self.SetActorLocation(v); })
-        .def("SetActorRotation", [](AActor& self, FRotator r) -> void { self.SetActorRotation(r); })
+        .def("GetWorld", [](AActor& self) { return self.GetWorld(); }, py::return_value_policy::reference)
+		.def("GetActorLocation", [](AActor& self) { return self.GetActorLocation(); })
+		.def("SetActorLocation", [](AActor& self, FVector v) { return self.SetActorLocation(v); })
+        .def("GetActorRotation", [](AActor& self) { return self.GetActorRotation(); })
+        .def("SetActorRotation", [](AActor& self, FRotator r) { self.SetActorRotation(r); })
+        .def("SetRootComponent", [](AActor& self, USceneComponent *s) { self.SetRootComponent(s); })
+        .def("GetRootComponent", [](AActor&self) { return self.GetRootComponent(); })
         ;
 
     py::class_<FVector>(m, "FVector")
@@ -212,11 +240,11 @@ PYBIND11_EMBEDDED_MODULE(uepy, m) {
 void FinishPythonInit()
 {
     py::initialize_interpreter(); // we delay this call so that game modules have a chance to create their embedded py modules
-    LOG("Loading engine_startup.py");
+    LOG("Loading main.py");
     try {
         py::module m = py::module::import("uepy");
 
-        // add the Content/Scripts dir to sys.path so it can find engine_startup.py
+        // add the Content/Scripts dir to sys.path so it can find main.py
         FString scriptsDir = FPaths::Combine(*FPaths::ProjectContentDir(), _T("Scripts"));
         py::module sys = py::module::import("sys");
         sys.attr("path").attr("append")(*scriptsDir);
@@ -224,13 +252,30 @@ void FinishPythonInit()
         // now give all other modules a chance to startup as well
         FPythonDelegates::LaunchInit.Broadcast(m);
 
-        // note that engine_startup.py's Init is called *after* all plugin/game modules have received the LaunchInit event!
-        py::module startup = py::module::import("engine_startup");
-        //startup.reload();
-		startup.attr("Init")();
+        // note that main.py's Init is called *after* all plugin/game modules have received the LaunchInit event!
+        py::module main = py::module::import("main");
+        //main.reload();
+		main.attr("Init")();
 	} catch (std::exception e)
     {
         LOG("EXCEPTION %s", UTF8_TO_TCHAR(e.what()));
     }
 }
+
+#if WITH_EDITOR
+void OnPreBeginPIE(bool b)
+{
+    try
+    {
+        py::module main = py::module::import("main");
+        main.attr("OnPreBeginPIE")();
+    }
+    catch (std::exception e)
+    {
+        LOG("OnPreBeginPIE EXCEPTION %s", UTF8_TO_TCHAR(e.what()));
+    }
+}
+#endif
+
+
 
