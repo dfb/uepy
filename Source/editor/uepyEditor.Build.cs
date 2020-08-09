@@ -36,15 +36,16 @@ public class uepyEditor : ModuleRules
 		PrivateDependencyModuleNames.AddRange(
 			new string[]
 			{
-				"Projects",
-				"InputCore",
-				"UnrealEd",
-				"LevelEditor",
 				"CoreUObject",
+                "EditorStyle",
 				"Engine",
+				"InputCore",
+				"LevelEditor",
+				"Projects",
 				"Slate",
 				"SlateCore",
-				// ... add private dependencies that you statically link with here ...	
+				"UnrealEd",
+
 			}
 			);
 		

@@ -61,6 +61,9 @@ UTexture2D *LoadTextureFromFile(FString path)
 
 PYBIND11_EMBEDDED_MODULE(uepy, m) {
     py::class_<UObject, UnrealTracker<UObject>>(m, "UObject")
+        .def_static("StaticClass", []() { return UObject::StaticClass(); }) // TODO: we shouldn't need to do this for every class we expose
+        // TODO: for APIs that take a UClass, have a helper that calls StaticClass if needed to get from py class to UClass
+
         // TODO: we could create a generic CreateDefaultSubobject utility func that takes a UClass of what to create
         // and just return it as a UObject, though the caller would then need to also cast it, e.g.
         // self.foo = uepy.AsUStaticMeshComponent(self.CreateDefaultSubObject(uepy.UStaticMeshComponent, 'mymesh'))
@@ -71,12 +74,24 @@ PYBIND11_EMBEDDED_MODULE(uepy, m) {
             return self.CreateDefaultSubobject<UStaticMeshComponent>(UTF8_TO_TCHAR(sname.c_str()));
         })
         ;
-
-    py::class_<UStaticMesh, UnrealTracker<UStaticMesh>>(m, "UStaticMesh")
+    py::class_<UClass, UObject, UnrealTracker<UClass>>(m, "UClass") // TODO: UClass --> UStruct --> UField --> UObject
+        .def("ImplementsInterface", [](UClass& self, UClass *interfaceClass) { return self.ImplementsInterface(interfaceClass); })
         ;
 
-    py::class_<UActorComponent, UObject, UnrealTracker<UActorComponent>>(m, "UActorComponent");
+    py::class_<UInterface, UObject, UnrealTracker<UInterface>>(m, "UInterface")
+        .def_static("StaticClass", []() { return UInterface::StaticClass(); })
+        ;
+
+    py::class_<UStaticMesh, UnrealTracker<UStaticMesh>>(m, "UStaticMesh")
+        .def_static("StaticClass", []() { return UStaticMesh::StaticClass(); })
+        ;
+
+    py::class_<UActorComponent, UObject, UnrealTracker<UActorComponent>>(m, "UActorComponent")
+        .def_static("StaticClass", []() { return UActorComponent::StaticClass(); })
+        ;
+
     py::class_<USceneComponent, UActorComponent, UnrealTracker<USceneComponent>>(m, "USceneComponent")
+        .def_static("StaticClass", []() { return USceneComponent::StaticClass(); })
         .def("GetRelativeLocation", [](USceneComponent& self) { return self.RelativeLocation; }) // todo: GetRelativeLocation is added in 4.25
         .def("SetRelativeLocation", [](USceneComponent& self, FVector v) { self.SetRelativeLocation(v); })
         .def("GetRelativeRotation", [](USceneComponent& self) { return self.RelativeRotation; })
@@ -88,6 +103,7 @@ PYBIND11_EMBEDDED_MODULE(uepy, m) {
     py::class_<UPrimitiveComponent, USceneComponent, UnrealTracker<UPrimitiveComponent>>(m, "UPrimitiveComponent");
     py::class_<UMeshComponent, UPrimitiveComponent, UnrealTracker<UMeshComponent>>(m, "UMeshComponent");
     py::class_<UStaticMeshComponent, UMeshComponent, UnrealTracker<UStaticMeshComponent>>(m, "UStaticMeshComponent")
+        .def_static("StaticClass", []() { return UStaticMeshComponent::StaticClass(); })
         .def("SetStaticMesh", [](UStaticMeshComponent& self, UStaticMesh *newMesh) -> bool { return self.SetStaticMesh(newMesh); })
         .def("SetMaterial", [](UStaticMeshComponent& self, int index, UMaterialInterface *newMat) -> void { self.SetMaterial(index, newMat); }) // technically, UMaterialInterface
         ;
@@ -118,6 +134,7 @@ PYBIND11_EMBEDDED_MODULE(uepy, m) {
         ;
 
     py::class_<AActor, UObject, UnrealTracker<AActor>>(m, "AActor")
+        .def_static("StaticClass", []() { return AActor::StaticClass(); })
         .def("GetWorld", [](AActor& self) { return self.GetWorld(); }, py::return_value_policy::reference)
 		.def("GetActorLocation", [](AActor& self) { return self.GetActorLocation(); })
 		.def("SetActorLocation", [](AActor& self, FVector v) { return self.SetActorLocation(v); })
@@ -196,7 +213,11 @@ PYBIND11_EMBEDDED_MODULE(uepy, m) {
         std::string sname = fqClassName;
         FString name(UTF8_TO_TCHAR(sname.c_str()));
         pyClassMap[name] = pyClass; // GRR: saving the class to a map because I can't get the lambda below to work with captured arguments
-        UClass *engineClass = NewObject<UClass>(engineParentClass->GetOuter(), *name, RF_Public | RF_Transient | RF_MarkAsNative);
+
+        UClass *engineClass = FindObject<UClass>(ANY_PACKAGE, *name);
+        if (!engineClass)
+            engineClass = NewObject<UClass>(engineParentClass->GetOuter(), *name, RF_Public | RF_Transient | RF_MarkAsNative);
+
         engineClass->ClassAddReferencedObjects = engineParentClass->ClassAddReferencedObjects;
         engineClass->SetSuperStruct(engineParentClass);
         LOG("FULL PATH: %s", *engineClass->GetPathName());
@@ -228,6 +249,9 @@ PYBIND11_EMBEDDED_MODULE(uepy, m) {
 				}
             }
         };
+
+        for (FImplementedInterface& info : engineParentClass->Interfaces)
+            engineClass->Interfaces.Add(info);
 
         engineClass->ClearFunctionMapsCaches();
         engineClass->Bind();

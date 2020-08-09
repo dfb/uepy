@@ -71,7 +71,6 @@ namespace pybind11 {
     UTYPE_HOOK(UMaterialInstance);
     UTYPE_HOOK(UMaterialInstanceDynamic);
     UTYPE_HOOK(UMaterialInterface);
-    UTYPE_HOOK(UObject);
     UTYPE_HOOK(UStaticMesh);
 
     // I /think/ we want to order these bottom-up so the type hook checker finds the most specific type first. Maybe.
@@ -83,6 +82,11 @@ namespace pybind11 {
 
     UTYPE_HOOK(UTexture2D);
     UTYPE_HOOK(UWorld);
+
+    UTYPE_HOOK(UClass);
+    UTYPE_HOOK(UInterface);
+    UTYPE_HOOK(UObject);
+
 } // namespace pybind11
 
 namespace py = pybind11;
