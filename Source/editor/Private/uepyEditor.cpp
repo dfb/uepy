@@ -1,20 +1,15 @@
 #include "uepyEditor.h"
 #include "uepyStyle.h"
 #include "common.h"
-//#include "uepyCommands.h"
 #include "LevelEditor.h"
 #include "Widgets/Docking/SDockTab.h"
-#include "Widgets/Layout/SBox.h"
-#include "Widgets/Text/STextBlock.h"
 #include "Framework/MultiBox/MultiBoxBuilder.h"
-#include "Widgets/Input/SMultiLineEditableTextBox.h"
-
-#pragma warning(push)
-#pragma warning (disable : 4686 4191 340)
-#include <pybind11/pybind11.h>
-#include <pybind11/embed.h>
-#pragma warning(pop)
-namespace py = pybind11;
+#include "Components/CanvasPanel.h"
+#include "Components/CanvasPanelSlot.h"
+#include "Blueprint/WidgetTree.h"
+#include "Components/Button.h"
+#include "WorkspaceMenuStructure.h"
+#include "WorkspaceMenuStructureModule.h"
 
 static const FName consoleTabName("uepy Console");
 static const FName spawnerTabName("uepy Spawner");
@@ -34,6 +29,7 @@ void FuepyEditorModule::StartupModule()
     FuepyStyle::Initialize();
     FuepyStyle::ReloadTextures();
 
+    /*
     FuepyCommands::Register();
     
     PluginCommands = MakeShareable(new FUICommandList);
@@ -55,11 +51,14 @@ void FuepyEditorModule::StartupModule()
 
         LevelEditorModule.GetMenuExtensibilityManager()->AddExtender(MenuExtender);
     }
+    */
     
     FGlobalTabmanager::Get()->RegisterNomadTabSpawner(consoleTabName, FOnSpawnTab::CreateRaw(this, &FuepyEditorModule::OnSpawnConsole))
-        .SetDisplayName(FText::FromName(consoleTabName)).SetMenuType(ETabSpawnerMenuType::Hidden);
+        .SetDisplayName(FText::FromName(consoleTabName)).SetMenuType(ETabSpawnerMenuType::Enabled)
+		.SetGroup(WorkspaceMenu::GetMenuStructure().GetDeveloperToolsMiscCategory());
     FGlobalTabmanager::Get()->RegisterNomadTabSpawner(spawnerTabName, FOnSpawnTab::CreateRaw(this, &FuepyEditorModule::OnSpawnSpawner))
-        .SetDisplayName(FText::FromName(spawnerTabName)).SetMenuType(ETabSpawnerMenuType::Hidden);
+        .SetDisplayName(FText::FromName(spawnerTabName)).SetMenuType(ETabSpawnerMenuType::Enabled)
+		.SetGroup(WorkspaceMenu::GetMenuStructure().GetDeveloperToolsMiscCategory());
 }
 
 void FuepyEditorModule::ShutdownModule()
@@ -74,26 +73,6 @@ void FuepyEditorModule::ShutdownModule()
     FGlobalTabmanager::Get()->UnregisterNomadTabSpawner(spawnerTabName);
 }
 
-void FuepyEditorModule::OnTextCommitted(const FText& text, ETextCommit::Type type)
-{
-    if (type == ETextCommit::OnEnter && !text.IsEmpty())
-    {
-        FString stext = text.ToString();
-        UE_LOG(UEPYED, Log, TEXT("%s"), *stext);
-        replText->SetText(FText::FromString(TEXT("")));
-
-        try {
-            //py::exec(TCHAR_TO_UTF8(*stext)); <-- doesn't cause the output to be printed
-            PyObject* res = PyRun_String(TCHAR_TO_UTF8(*stext), Py_single_input, py::globals().ptr(), py::object().ptr());
-            if (!res)
-                throw py::error_already_set();
-        } catch (std::exception e)
-        {
-            UE_LOG(LogTemp, Error, TEXT("%s"), UTF8_TO_TCHAR(e.what()));
-        }
-    }
-}
-
 // spawns the actor spawner utility panel
 TSharedRef<SDockTab> FuepyEditorModule::OnSpawnSpawner(const FSpawnTabArgs& SpawnTabArgs)
 {
@@ -103,6 +82,20 @@ TSharedRef<SDockTab> FuepyEditorModule::OnSpawnSpawner(const FSpawnTabArgs& Spaw
         FText::FromString(TEXT("uepyEditor.cpp"))
         );
 
+    //auto poo = NewObject<UTestEditorWidget>();
+    UUserWidget* poo = CreateWidget<UTestEditorWidget>(GEditor->GetEditorWorldContext().World(), UTestEditorWidget::StaticClass());
+
+    TSharedPtr<SBox> box;
+    TSharedRef<SDockTab> tab = SNew(SDockTab)
+        .TabRole(ETabRole::NomadTab)
+        [
+            SAssignNew(box, SBox)
+            .HAlign(HAlign_Center)
+            .VAlign(VAlign_Center)
+        ];
+    box->SetContent(poo->TakeWidget());
+    return tab;
+    /*
     return SNew(SDockTab)
         .TabRole(ETabRole::NomadTab)
         [
@@ -110,54 +103,51 @@ TSharedRef<SDockTab> FuepyEditorModule::OnSpawnSpawner(const FSpawnTabArgs& Spaw
             .HAlign(HAlign_Center)
             .VAlign(VAlign_Center)
             [
-                SNew(STextBlock)
-                .Text(WidgetText)
+                //SNew(STextBlock)
+                //.Text(WidgetText)
+                poo->WidgetTree
             ]
         ];
+    */
 }
 
 // spawns the python interactive console
 TSharedRef<SDockTab> FuepyEditorModule::OnSpawnConsole(const FSpawnTabArgs& SpawnTabArgs)
 {
     return SNew(SDockTab)
-        .TabRole(ETabRole::NomadTab)
-        [
-            SNew(SVerticalBox)
-            +SVerticalBox::Slot()
-            .FillHeight(1)
-            [
-                SNew(SMultiLineEditableTextBox)
-                    .Style(FEditorStyle::Get(), "Log.TextBox")
-                    .TextStyle(FEditorStyle::Get(), "Log.Normal")
-                    .ForegroundColor(FLinearColor::Gray)
-                    .IsReadOnly(true)
-                    .AlwaysShowScrollbars(true)
-            ]
+           .TabRole(ETabRole::NomadTab)
+           [
+            SNew(SPythonConsole)
+           ];
+}
 
-            +SVerticalBox::Slot()
-            .AutoHeight()
-            [
-                SNew(SHorizontalBox)
-                +SHorizontalBox::Slot()
-                .FillWidth(3)
-                [
-                    SNew(SBorder)
-                    [
-                        SAssignNew(replText, SEditableText)
-                        .ClearKeyboardFocusOnCommit(false)
-                        .OnTextCommitted(FOnTextCommitted::CreateRaw(this, &FuepyEditorModule::OnTextCommitted))
-                    ]
-                ]
-                +SHorizontalBox::Slot()
-                .FillWidth(1)
-                [
-                    SNew(SBorder)
-                    [
-                        SNew(SEditableText)
-                    ]
-                ]
-            ]
-        ];
+TSharedRef<SWidget> UTestEditorWidget::RebuildWidget()
+{
+    if (!GetRootWidget())
+    {
+        UWidget *root = WidgetTree->ConstructWidget<UWidget>(UCanvasPanel::StaticClass(), TEXT("RootWidget"));
+
+        // try to configure it some if it has a canvas panel slot
+        UCanvasPanelSlot *rootSlot = Cast<UCanvasPanelSlot>(root->Slot);
+        if (rootSlot)
+        {
+            rootSlot->SetAnchors(FAnchors(0.0f, 0.0f, 1.0f, 1.0f));
+            rootSlot->SetOffsets(FMargin(0.0f, 0.0f));
+        }
+        WidgetTree->RootWidget = root;
+    }
+
+    TSharedRef<SWidget> ret = Super::RebuildWidget();
+    return ret;
+}
+
+void UTestEditorWidget::NativePreConstruct()
+{
+    Super::NativePreConstruct();
+    UButton *b = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass());
+    UCanvasPanel *root = Cast<UCanvasPanel>(WidgetTree->RootWidget);
+    root->AddChildToCanvas(b);
+    //UCanvasPanelSlot *rootSlot = Cast<UCanvasPanelSlot>(WidgetTree->RootWidget->Slot);
 }
 
 #undef LOCTEXT_NAMESPACE

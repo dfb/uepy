@@ -4,58 +4,61 @@ using System.Collections.Generic;
 
 public class uepyEditor : ModuleRules
 {
-	public uepyEditor(ReadOnlyTargetRules Target) : base(Target)
-	{
-		PCHUsage = ModuleRules.PCHUsageMode.UseExplicitOrSharedPCHs;
+    public uepyEditor(ReadOnlyTargetRules Target) : base(Target)
+    {
+        PCHUsage = ModuleRules.PCHUsageMode.UseExplicitOrSharedPCHs;
         bUseRTTI = true;
-		
-		PublicIncludePaths.AddRange(
-			new string[] {
+        
+        PublicIncludePaths.AddRange(
+            new string[] {
                 Path.Combine(ModuleDirectory, "../../pybind11/include"),
                 Path.Combine(ModuleDirectory, "../../python/include"),
-			});
+            });
         PublicLibraryPaths.Add(Path.Combine(ModuleDirectory, "../../python/libs"));
-				
-		
-		PrivateIncludePaths.AddRange(
-			new string[] {
-				// ... add other private include paths required here ...
-			}
-			);
-			
-		
-		PublicDependencyModuleNames.AddRange(
-			new string[]
-			{
-				"Core",
-				// ... add other public dependencies that you statically link with here ...
-			}
-			);
-			
-		
-		PrivateDependencyModuleNames.AddRange(
-			new string[]
-			{
-				"CoreUObject",
+                
+        
+        PrivateIncludePaths.AddRange(
+            new string[] {
+                // ... add other private include paths required here ...
+            }
+            );
+            
+        
+        PublicDependencyModuleNames.AddRange(
+            new string[]
+            {
+                "Core",
+                // ... add other public dependencies that you statically link with here ...
+            }
+            );
+            
+        
+        PrivateDependencyModuleNames.AddRange(
+            new string[]
+            {
+                "Blutility",
+                "CoreUObject",
                 "EditorStyle",
-				"Engine",
-				"InputCore",
-				"LevelEditor",
-				"Projects",
-				"Slate",
-				"SlateCore",
-				"UnrealEd",
+                "Engine",
+                "InputCore",
+                "LevelEditor",
+                "Projects",
+                "Slate",
+                "SlateCore",
+                "UMG",
+                "UnrealEd",
+                "WorkspaceMenuStructure",
 
-			}
-			);
-		
-		
-		DynamicallyLoadedModuleNames.AddRange(
-			new string[]
-			{
-				// ... add any modules that your module loads dynamically here ...
-			}
-			);
-	}
+            }
+            );
+        
+        
+        DynamicallyLoadedModuleNames.AddRange(
+            new string[]
+            {
+                // ... add any modules that your module loads dynamically here ...
+            }
+            );
+    }
 }
 
