@@ -45,6 +45,7 @@ public class uepyEditor : ModuleRules
                 "Projects",
                 "Slate",
                 "SlateCore",
+                "uepy",
                 "UMG",
                 "UnrealEd",
                 "WorkspaceMenuStructure",

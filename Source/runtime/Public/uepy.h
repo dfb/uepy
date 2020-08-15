@@ -13,6 +13,17 @@
 
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Runtime/CoreUObject/Public/UObject/GCObject.h"
+#include "Components/Button.h"
+#include "Components/CheckBox.h"
+#include "Components/ComboBoxString.h"
+#include "Components/EditableTextBox.h"
+#include "Components/HorizontalBox.h"
+#include "Components/TextBlock.h"
+#include "Components/HorizontalBox.h"
+#include "Components/HorizontalBoxSlot.h"
+#include "Components/VerticalBox.h"
+#include "Components/VerticalBoxSlot.h"
+#include "Components/Widget.h"
 #include "uepy.generated.h"
 
 class FToolBarBuilder;
@@ -85,6 +96,19 @@ namespace pybind11 {
 
     UTYPE_HOOK(UClass);
     UTYPE_HOOK(UInterface);
+
+    UTYPE_HOOK(UPanelSlot);
+    UTYPE_HOOK(UEditableTextBox);
+    UTYPE_HOOK(UVerticalBox);
+    UTYPE_HOOK(UHorizontalBox);
+    UTYPE_HOOK(UVerticalBoxSlot);
+    UTYPE_HOOK(UHorizontalBoxSlot);
+    UTYPE_HOOK(UCheckBox);
+    UTYPE_HOOK(UComboBoxString);
+    UTYPE_HOOK(UTextBlock);
+    UTYPE_HOOK(UButton);
+    UTYPE_HOOK(UWidget);
+
     UTYPE_HOOK(UObject);
 
 } // namespace pybind11
@@ -106,7 +130,7 @@ public:
     py::object pyInst;
 };
 
-struct UEPY_API FPythonDelegates
+struct UEPY_API FUEPyDelegates
 {
 	DECLARE_MULTICAST_DELEGATE_OneParam(FPythonEvent1, py::module&);
     static FPythonEvent1 LaunchInit; // called during initial engine startup
@@ -125,4 +149,23 @@ public:
 };
 
 */
+
+UCLASS()
+class UBasePythonDelegate : public UObject
+{
+    GENERATED_BODY()
+    
+public:
+    py::object callback;
+
+    // generic
+    UFUNCTION() void On() { callback(); }
+
+    // UComboBoxString
+    UFUNCTION() void OnUComboBoxString_HandleSelectionChanged(FString Item, ESelectInfo::Type SelectionType) { callback(*Item, (int)SelectionType); }
+
+    // UCheckBox
+    UFUNCTION() void OnUCheckBox_OnCheckStateChanged(bool checked) { callback(checked); }
+
+};
 

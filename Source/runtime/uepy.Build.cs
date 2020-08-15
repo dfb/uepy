@@ -43,6 +43,7 @@ public class uepy : ModuleRules
                 "Projects",
                 "Slate",
                 "SlateCore",
+                "UMG",
             }
         );
         if (Target.Configuration != UnrealTargetConfiguration.Shipping)

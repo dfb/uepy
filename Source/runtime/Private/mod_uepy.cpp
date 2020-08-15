@@ -1,4 +1,5 @@
-#include "py_module.h"
+// sets up the main 'uepy' builtin module
+#include "uepy.h"
 #include "common.h"
 #include "Kismet/GameplayStatics.h"
 #include "UObject/ConstructorHelpers.h"
@@ -59,6 +60,10 @@ UTexture2D *LoadTextureFromFile(FString path)
     return nullptr;
 }
 
+using namespace pybind11::literals;
+
+// this module is automagically loaded by virtual of the global declaration and the use of the embedded module macro
+// other builtin modules get added via FUEPythonDelegates::LaunchInit
 PYBIND11_EMBEDDED_MODULE(uepy, m) {
     py::class_<UObject, UnrealTracker<UObject>>(m, "UObject")
         .def_static("StaticClass", []() { return UObject::StaticClass(); }) // TODO: we shouldn't need to do this for every class we expose
@@ -145,17 +150,35 @@ PYBIND11_EMBEDDED_MODULE(uepy, m) {
         ;
 
     py::class_<FVector>(m, "FVector")
-        .def(py::init<float,float,float>())
+        .def(py::init<float,float,float>(), "x"_a=0.0f, "y"_a=0.0f, "z"_a=0.0f)
         .def_readwrite("x", &FVector::X)
+        .def_readwrite("X", &FVector::X)
         .def_readwrite("y", &FVector::Y)
+        .def_readwrite("Y", &FVector::Y)
         .def_readwrite("z", &FVector::Z)
+        .def_readwrite("Z", &FVector::Z)
         ;
 
     py::class_<FRotator>(m, "FRotator")
-        .def(py::init<float, float, float>())
+        .def(py::init<float, float, float>(), "pitch"_a=0.0f, "yaw"_a=0.0f, "roll"_a=0.0f) // weird order, but matches UE4
         .def_readwrite("roll", &FRotator::Roll)
+        .def_readwrite("Roll", &FRotator::Roll)
         .def_readwrite("pitch", &FRotator::Pitch)
+        .def_readwrite("Pitch", &FRotator::Pitch)
         .def_readwrite("yaw", &FRotator::Yaw)
+        .def_readwrite("Yaw", &FRotator::Yaw)
+        ;
+
+    py::class_<FMargin>(m, "FMargin")
+        .def(py::init<float,float,float,float>(), "left"_a=0.0f, "top"_a=0.0f, "right"_a=0.0f, "bottom"_a=0.0f)
+        .def_readwrite("left", &FMargin::Left)
+        .def_readwrite("Left", &FMargin::Left)
+        .def_readwrite("top", &FMargin::Top)
+        .def_readwrite("Top", &FMargin::Top)
+        .def_readwrite("right", &FMargin::Right)
+        .def_readwrite("Right", &FMargin::Right)
+        .def_readwrite("bottom", &FMargin::Bottom)
+        .def_readwrite("Bottom", &FMargin::Bottom)
         ;
 
     m.def("log", [](py::args args) -> void
@@ -209,7 +232,6 @@ PYBIND11_EMBEDDED_MODULE(uepy, m) {
             return;
         }
 
-        // TODO: allow re-creation of class instead of always new'ing it
         std::string sname = fqClassName;
         FString name(UTF8_TO_TCHAR(sname.c_str()));
         pyClassMap[name] = pyClass; // GRR: saving the class to a map because I can't get the lambda below to work with captured arguments
@@ -260,46 +282,4 @@ PYBIND11_EMBEDDED_MODULE(uepy, m) {
         engineClass->GetDefaultObject();
     });
 }
-
-void FinishPythonInit()
-{
-    py::initialize_interpreter(); // we delay this call so that game modules have a chance to create their embedded py modules
-    LOG("Loading main.py");
-    try {
-        py::module m = py::module::import("uepy");
-
-        // add the Content/Scripts dir to sys.path so it can find main.py
-        FString scriptsDir = FPaths::Combine(*FPaths::ProjectContentDir(), _T("Scripts"));
-        py::module sys = py::module::import("sys");
-        sys.attr("path").attr("append")(*scriptsDir);
-
-        // now give all other modules a chance to startup as well
-        FPythonDelegates::LaunchInit.Broadcast(m);
-
-        // note that main.py's Init is called *after* all plugin/game modules have received the LaunchInit event!
-        py::module main = py::module::import("main");
-        //main.reload();
-		main.attr("Init")();
-	} catch (std::exception e)
-    {
-        LOG("EXCEPTION %s", UTF8_TO_TCHAR(e.what()));
-    }
-}
-
-#if WITH_EDITOR
-void OnPreBeginPIE(bool b)
-{
-    try
-    {
-        py::module main = py::module::import("main");
-        main.attr("OnPreBeginPIE")();
-    }
-    catch (std::exception e)
-    {
-        LOG("OnPreBeginPIE EXCEPTION %s", UTF8_TO_TCHAR(e.what()));
-    }
-}
-#endif
-
-
 

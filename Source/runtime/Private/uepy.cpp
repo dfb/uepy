@@ -2,7 +2,7 @@
 
 #include "uepy.h"
 #include "common.h"
-#include "py_module.h"
+#include "mod_uepy_umg.h"
 
 #if WITH_EDITOR
 #include "Editor.h"
@@ -10,7 +10,50 @@
 
 DEFINE_LOG_CATEGORY(UEPY);
 
-FPythonDelegates::FPythonEvent1 FPythonDelegates::LaunchInit;
+FUEPyDelegates::FPythonEvent1 FUEPyDelegates::LaunchInit;
+
+void FinishPythonInit()
+{
+    py::initialize_interpreter(); // we delay this call so that game modules have a chance to create their embedded py modules
+    LOG("Loading main.py");
+    try {
+        py::module m = py::module::import("uepy");
+
+        // add the Content/Scripts dir to sys.path so it can find main.py
+        FString scriptsDir = FPaths::Combine(*FPaths::ProjectContentDir(), _T("Scripts"));
+        py::module sys = py::module::import("sys");
+        sys.attr("path").attr("append")(*scriptsDir);
+
+        // initialize any builtin modules
+        _LoadModuleUMG(m);
+
+        // now give all other modules a chance to startup as well
+        FUEPyDelegates::LaunchInit.Broadcast(m);
+
+        // note that main.py's Init is called *after* all plugin/game modules have received the LaunchInit event!
+        py::module main = py::module::import("main");
+        //main.reload();
+		main.attr("Init")();
+	} catch (std::exception e)
+    {
+        LOG("EXCEPTION %s", UTF8_TO_TCHAR(e.what()));
+    }
+}
+
+#if WITH_EDITOR
+void OnPreBeginPIE(bool b)
+{
+	try
+	{
+		py::module main = py::module::import("main");
+		main.attr("OnPreBeginPIE")();
+	}
+	catch (std::exception e)
+	{
+		LOG("OnPreBeginPIE EXCEPTION %s", UTF8_TO_TCHAR(e.what()));
+	}
+}
+#endif
 
 void FuepyModule::StartupModule()
 {
