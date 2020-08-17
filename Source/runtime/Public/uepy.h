@@ -26,6 +26,10 @@
 #include "Components/Widget.h"
 #include "uepy.generated.h"
 
+// pybind11 lets python exceptions bubble up to be C++ exceptions, which is rarely what we want, so
+// instead do try { ... } catchpy
+#define catchpy catch (std::exception e) { LERROR("%s", UTF8_TO_TCHAR(e.what())); }
+
 class FToolBarBuilder;
 class FMenuBuilder;
 

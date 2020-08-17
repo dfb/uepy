@@ -65,6 +65,13 @@ using namespace pybind11::literals;
 // this module is automagically loaded by virtual of the global declaration and the use of the embedded module macro
 // other builtin modules get added via FUEPythonDelegates::LaunchInit
 PYBIND11_EMBEDDED_MODULE(uepy, m) {
+
+#if WITH_EDITOR
+    m.attr("WITH_EDITOR") = true;
+#else
+    m.attr("WITH_EDITOR") = false;
+#endif
+
     py::class_<UObject, UnrealTracker<UObject>>(m, "UObject")
         .def_static("StaticClass", []() { return UObject::StaticClass(); }) // TODO: we shouldn't need to do this for every class we expose
         // TODO: for APIs that take a UClass, have a helper that calls StaticClass if needed to get from py class to UClass
@@ -223,13 +230,13 @@ PYBIND11_EMBEDDED_MODULE(uepy, m) {
         return UMaterialInstanceDynamic::Create(parent, owner);
     }, py::return_value_policy::reference);
 
-    m.def("RegisterPythonSubclass", [](py::str fqClassName, py::str engineParentClassPath, const py::object pyClass)
+    m.def("RegisterPythonSubclass", [](py::str fqClassName, py::str engineParentClassPath, const py::object pyClass) -> UClass*
     {
         UClass *engineParentClass = FindObject<UClass>(ANY_PACKAGE, UTF8_TO_TCHAR(((std::string)engineParentClassPath).c_str()));
         if (!engineParentClass->ImplementsInterface(UPyBridgeMixin::StaticClass()))
         {
             LERROR("Class does not implement IPyBridgeMixin");
-            return;
+            return nullptr;
         }
 
         std::string sname = fqClassName;
@@ -280,6 +287,14 @@ PYBIND11_EMBEDDED_MODULE(uepy, m) {
         engineClass->StaticLink(true);
         engineClass->AssembleReferenceTokenStream();
         engineClass->GetDefaultObject();
+        return engineClass;
     });
+
+    m.def("SpawnActor", [](UWorld *world, UClass *actorClass, FVector& location, FRotator& rotation)
+    {
+        FActorSpawnParameters info;
+        info.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+        return world->SpawnActor(actorClass, &location, &rotation, info);
+    }, py::arg("world"), py::arg("actorClass"), py::arg("location")=FVector(0,0,0), py::arg("rotation")=FRotator(0,0,0), py::return_value_policy::reference);
 }
 

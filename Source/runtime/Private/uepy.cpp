@@ -18,10 +18,15 @@ void FinishPythonInit()
     LOG("Loading main.py");
     try {
         py::module m = py::module::import("uepy");
+        py::module sys = py::module::import("sys");
+#if WITH_EDITOR
+        // add the Plugin Content/Scripts dir to sys.path so unpackaged code can be found
+        FString pluginScriptsDir = FPaths::Combine(*FPaths::ProjectPluginsDir(), _T("uepy"), _T("Content"), _T("Scripts"));
+        sys.attr("path").attr("append")(*pluginScriptsDir);
+#endif
 
         // add the Content/Scripts dir to sys.path so it can find main.py
         FString scriptsDir = FPaths::Combine(*FPaths::ProjectContentDir(), _T("Scripts"));
-        py::module sys = py::module::import("sys");
         sys.attr("path").attr("append")(*scriptsDir);
 
         // initialize any builtin modules
@@ -30,28 +35,23 @@ void FinishPythonInit()
         // now give all other modules a chance to startup as well
         FUEPyDelegates::LaunchInit.Broadcast(m);
 
+        // load plugin-provided Python code
+        py::module pluginMain = py::module::import("uepy_main");
+
         // note that main.py's Init is called *after* all plugin/game modules have received the LaunchInit event!
         py::module main = py::module::import("main");
         //main.reload();
-		main.attr("Init")();
-	} catch (std::exception e)
-    {
-        LOG("EXCEPTION %s", UTF8_TO_TCHAR(e.what()));
-    }
+        main.attr("Init")();
+    } catchpy;
 }
 
 #if WITH_EDITOR
 void OnPreBeginPIE(bool b)
 {
-	try
-	{
-		py::module main = py::module::import("main");
-		main.attr("OnPreBeginPIE")();
-	}
-	catch (std::exception e)
-	{
-		LOG("OnPreBeginPIE EXCEPTION %s", UTF8_TO_TCHAR(e.what()));
-	}
+    try {
+        py::module main = py::module::import("main");
+        main.attr("OnPreBeginPIE")();
+    } catchpy;
 }
 #endif
 
@@ -64,6 +64,7 @@ void FuepyModule::StartupModule()
     FCoreDelegates::OnPostEngineInit.AddStatic(&FinishPythonInit);
 
 #if WITH_EDITOR
+    // TODO: maybe this should live in uepyEditor?
     FEditorDelegates::PreBeginPIE.AddStatic(&OnPreBeginPIE);
 #endif
 
