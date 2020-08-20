@@ -64,13 +64,22 @@ using namespace pybind11::literals;
 
 // this module is automagically loaded by virtual of the global declaration and the use of the embedded module macro
 // other builtin modules get added via FUEPythonDelegates::LaunchInit
-PYBIND11_EMBEDDED_MODULE(uepy, m) {
+PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module uses _<name> and then we provide a <name> .py wrapper for additional stuffs
 
+    // note that WITH_EDITOR does not necessarily mean that the uepyEditor module will be loaded
 #if WITH_EDITOR
     m.attr("WITH_EDITOR") = true;
 #else
     m.attr("WITH_EDITOR") = false;
 #endif
+
+    m.attr("commandLineRaw") = FCommandLine::Get();
+
+    py::class_<FPaths>(m, "FPaths")
+        .def_static("ProjectDir", []() { return std::string(TCHAR_TO_UTF8(*FPaths::ProjectDir())); })
+        .def_static("ProjectContentDir", []() { return std::string(TCHAR_TO_UTF8(*FPaths::ProjectContentDir())); })
+        .def_static("ProjectPluginsDir", []() { return std::string(TCHAR_TO_UTF8(*FPaths::ProjectPluginsDir())); })
+        ;
 
     py::class_<UObject, UnrealTracker<UObject>>(m, "UObject")
         .def_static("StaticClass", []() { return UObject::StaticClass(); }) // TODO: we shouldn't need to do this for every class we expose
@@ -123,21 +132,40 @@ PYBIND11_EMBEDDED_MODULE(uepy, m) {
     // TODO: I guess we do one of these for every exposed class?
     m.def("AsUStaticMeshComponent", [](UObject *engineObj) -> UStaticMeshComponent* { return Cast<UStaticMeshComponent>(engineObj); }, py::return_value_policy::reference);
 
-	py::class_<UWorld, UnrealTracker<UWorld>>(m, "UWorld")
-		;
+    py::class_<UWorld, UnrealTracker<UWorld>>(m, "UWorld")
+        .def_property_readonly("WorldType", [](UWorld& self) { return (int)self.WorldType; })
+        ;
+
+    m.def("GetAllWorlds", []()
+    {
+        py::list ret;
+        for (TObjectIterator<UWorld> iter; iter; ++iter)
+            ret.append(*iter);
+        return ret;
+    });
+
+    m.def("GetAllActorsOfClass", [](UWorld *world, UClass *klass)
+    {
+        TArray<AActor*> actors;
+        UGameplayStatics::GetAllActorsOfClass(world, klass, actors);
+        py::list ret;
+        for (AActor *a : actors)
+            ret.append(a);
+        return ret;
+    });
 
     py::class_<UMaterialInterface, UnrealTracker<UMaterialInterface>>(m, "UMaterialInterface");
 
-	py::class_<UMaterial, UMaterialInterface, UnrealTracker<UMaterial>>(m, "UMaterial")
-		;
+    py::class_<UMaterial, UMaterialInterface, UnrealTracker<UMaterial>>(m, "UMaterial")
+        ;
 
-	py::class_<UMaterialInstance, UMaterialInterface, UnrealTracker<UMaterialInstance>>(m, "UMaterialInstance");
-	py::class_<UMaterialInstanceDynamic, UMaterialInstance, UnrealTracker<UMaterialInstanceDynamic>>(m, "UMaterialInstanceDynamic")
+    py::class_<UMaterialInstance, UMaterialInterface, UnrealTracker<UMaterialInstance>>(m, "UMaterialInstance");
+    py::class_<UMaterialInstanceDynamic, UMaterialInstance, UnrealTracker<UMaterialInstanceDynamic>>(m, "UMaterialInstanceDynamic")
         .def("SetTextureParameterValue", [](UMaterialInstanceDynamic& self, std::string paramName, UTexture2D* value) -> void { self.SetTextureParameterValue(UTF8_TO_TCHAR(paramName.c_str()), value); })
-		;
+        ;
 
-	py::class_<UTexture2D, UnrealTracker<UTexture2D>>(m, "UTexture2D")
-		;
+    py::class_<UTexture2D, UnrealTracker<UTexture2D>>(m, "UTexture2D")
+        ;
 
     py::class_<UGameInstance, UnrealTracker<UGameInstance>>(m, "UGameInstance")
         ;
@@ -148,12 +176,13 @@ PYBIND11_EMBEDDED_MODULE(uepy, m) {
     py::class_<AActor, UObject, UnrealTracker<AActor>>(m, "AActor")
         .def_static("StaticClass", []() { return AActor::StaticClass(); })
         .def("GetWorld", [](AActor& self) { return self.GetWorld(); }, py::return_value_policy::reference)
-		.def("GetActorLocation", [](AActor& self) { return self.GetActorLocation(); })
-		.def("SetActorLocation", [](AActor& self, FVector v) { return self.SetActorLocation(v); })
+        .def("GetActorLocation", [](AActor& self) { return self.GetActorLocation(); })
+        .def("SetActorLocation", [](AActor& self, FVector v) { return self.SetActorLocation(v); })
         .def("GetActorRotation", [](AActor& self) { return self.GetActorRotation(); })
         .def("SetActorRotation", [](AActor& self, FRotator r) { self.SetActorRotation(r); })
         .def("SetRootComponent", [](AActor& self, USceneComponent *s) { self.SetRootComponent(s); })
-        .def("GetRootComponent", [](AActor&self) { return self.GetRootComponent(); })
+        .def("GetRootComponent", [](AActor& self) { return self.GetRootComponent(); })
+        .def("Destroy", [](AActor& self) { self.Destroy(); })
         ;
 
     py::class_<FVector>(m, "FVector")
@@ -271,11 +300,8 @@ PYBIND11_EMBEDDED_MODULE(uepy, m) {
                     FString className = engineObj->GetClass()->GetName();
                     py::object& pyClass = pyClassMap[className];
                     p->pyInst = pyClass(engineObj);
-				}
-				catch (std::exception e)
-				{
-					LOG("EXCEPTION %s", UTF8_TO_TCHAR(e.what()));
-				}
+                }
+                catchpy;
             }
         };
 

@@ -140,19 +140,19 @@ struct UEPY_API FUEPyDelegates
     static FPythonEvent1 LaunchInit; // called during initial engine startup
 };
 
-/*
-// currently this exists just to expose RootComponent (protected) to Python
-// maybe we should instead just expose Get/SetRootComponent APIs that already exist on AActor?
+// part of our temp hack until GameState/GameInstance are in python
 UCLASS()
-class UEPY_API AUEPyActor : public AActor, public IPyBridgeMixin
+class UEPY_API AWorldHookActor : public AActor, public IPyBridgeMixin
 {
     GENERATED_BODY()
 
-public:
-    using AActor::RootComponent;
-};
+    AWorldHookActor();
+    virtual bool ShouldTickIfViewportsOnly() const override { return true; }
 
-*/
+protected:
+	virtual void BeginPlay() override;
+    virtual void Tick(float dt) override;
+};
 
 UCLASS()
 class UBasePythonDelegate : public UObject

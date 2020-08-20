@@ -11,7 +11,7 @@ void _LoadModuleEditor(py::module& uepy)
 {
     LOG("Creating Python module uepy.editor");
 
-    py::module m = uepy.def_submodule("editor");
+    py::module m = uepy.def_submodule("_editor");
 
     m.def("GetWorld", []() { return GEditor->GetEditorWorldContext().World(); }, py::return_value_policy::reference);
 

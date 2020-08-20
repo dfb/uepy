@@ -9,15 +9,15 @@
 #endif
 
 DEFINE_LOG_CATEGORY(UEPY);
+IMPLEMENT_MODULE(FuepyModule, uepy)
 
 FUEPyDelegates::FPythonEvent1 FUEPyDelegates::LaunchInit;
 
 void FinishPythonInit()
 {
     py::initialize_interpreter(); // we delay this call so that game modules have a chance to create their embedded py modules
-    LOG("Loading main.py");
     try {
-        py::module m = py::module::import("uepy");
+        py::module m = py::module::import("_uepy");
         py::module sys = py::module::import("sys");
 #if WITH_EDITOR
         // add the Plugin Content/Scripts dir to sys.path so unpackaged code can be found
@@ -35,10 +35,8 @@ void FinishPythonInit()
         // now give all other modules a chance to startup as well
         FUEPyDelegates::LaunchInit.Broadcast(m);
 
-        // load plugin-provided Python code
-        py::module pluginMain = py::module::import("uepy_main");
-
         // note that main.py's Init is called *after* all plugin/game modules have received the LaunchInit event!
+        LOG("Loading main.py");
         py::module main = py::module::import("main");
         //main.reload();
         main.attr("Init")();
@@ -129,5 +127,25 @@ void FPyObjectTracker::AddReferencedObjects(FReferenceCollector& InCollector)
         objects.Remove(obj);
 }
 
-IMPLEMENT_MODULE(FuepyModule, uepy)
+AWorldHookActor::AWorldHookActor()
+{
+	PrimaryActorTick.bCanEverTick = true;
+}
+
+void AWorldHookActor::BeginPlay()
+{
+    try {
+        Super::BeginPlay();
+        pyInst.attr("BeginPlay")();
+    } catchpy;
+}
+
+void AWorldHookActor::Tick(float DeltaTime)
+{
+    try {
+        Super::Tick(DeltaTime);
+        pyInst.attr("Tick")(DeltaTime);
+	} catchpy;
+}
+
 

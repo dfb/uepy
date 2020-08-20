@@ -59,7 +59,7 @@ void _LoadModuleUMG(py::module& uepy)
 {
     LOG("Creating Python module uepy.umg");
 
-    py::module m = uepy.def_submodule("umg");
+    py::module m = uepy.def_submodule("_umg");
 
     // e.g. "WidgetBlueprintGeneratedClass'/Game/Blueprints/Foo" --> UUserWidget UClass for that BP
     m.def("GetUserWidgetClassFromReference", [](std::string refPath) { return LoadClass<UUserWidget>(NULL, UTF8_TO_TCHAR(refPath.c_str())); });
