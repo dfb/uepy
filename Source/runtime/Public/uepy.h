@@ -119,14 +119,14 @@ namespace pybind11 {
 
 namespace py = pybind11;
 
-// any engine class we want to extend via Python should implement the IPyBridgeMixin interface
+// any engine class we want to extend via Python should implement the IUEPYGlueMixin interface
 UINTERFACE()
-class UPyBridgeMixin : public UInterface // TODO: don't we need a UEPY_API here?
+class UUEPYGlueMixin : public UInterface // TODO: don't we need a UEPY_API here?
 {
 	GENERATED_BODY()
 };
 
-class IPyBridgeMixin
+class IUEPYGlueMixin
 {
     GENERATED_BODY()
 
@@ -138,20 +138,6 @@ struct UEPY_API FUEPyDelegates
 {
 	DECLARE_MULTICAST_DELEGATE_OneParam(FPythonEvent1, py::module&);
     static FPythonEvent1 LaunchInit; // called during initial engine startup
-};
-
-// part of our temp hack until GameState/GameInstance are in python
-UCLASS()
-class UEPY_API AWorldHookActor : public AActor, public IPyBridgeMixin
-{
-    GENERATED_BODY()
-
-    AWorldHookActor();
-    virtual bool ShouldTickIfViewportsOnly() const override { return true; }
-
-protected:
-	virtual void BeginPlay() override;
-    virtual void Tick(float dt) override;
 };
 
 UCLASS()
@@ -171,5 +157,36 @@ public:
     // UCheckBox
     UFUNCTION() void OnUCheckBox_OnCheckStateChanged(bool checked) { callback(checked); }
 
+};
+
+// Generic glue class for cases where you just want to subclass AActor in Python directly
+UCLASS()
+class UEPY_API AActor_CGLUE : public AActor, public IUEPYGlueMixin
+{
+    GENERATED_BODY()
+
+    AActor_CGLUE();
+
+public:
+    void SuperBeginPlay();
+    void SuperTick(float dt);
+
+protected:
+	virtual void BeginPlay() override;
+    virtual void Tick(float dt) override;
+};
+
+// part of our temp hack until GameState/GameInstance are in python
+UCLASS()
+class UEPY_API AWorldHookActor : public AActor, public IUEPYGlueMixin // TODO: get rid of this completely - we don't need it even now
+{
+    GENERATED_BODY()
+
+    AWorldHookActor();
+    virtual bool ShouldTickIfViewportsOnly() const override { return true; }
+
+protected:
+	virtual void BeginPlay() override;
+    virtual void Tick(float dt) override;
 };
 

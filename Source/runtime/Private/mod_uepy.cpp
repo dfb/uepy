@@ -66,6 +66,9 @@ using namespace pybind11::literals;
 // other builtin modules get added via FUEPythonDelegates::LaunchInit
 PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module uses _<name> and then we provide a <name> .py wrapper for additional stuffs
 
+    // ALL Python-subclassable classes should live here (i.e. all C++ _CGLUE classes should be exposed via this submodule)
+    py::module glueclasses = m.def_submodule("glueclasses");
+
     // note that WITH_EDITOR does not necessarily mean that the uepyEditor module will be loaded
 #if WITH_EDITOR
     m.attr("WITH_EDITOR") = true;
@@ -125,12 +128,10 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
     py::class_<UMeshComponent, UPrimitiveComponent, UnrealTracker<UMeshComponent>>(m, "UMeshComponent");
     py::class_<UStaticMeshComponent, UMeshComponent, UnrealTracker<UStaticMeshComponent>>(m, "UStaticMeshComponent")
         .def_static("StaticClass", []() { return UStaticMeshComponent::StaticClass(); })
+        .def_static("Cast", [](UObject *obj) { return Cast<UStaticMeshComponent>(obj); }, py::return_value_policy::reference)
         .def("SetStaticMesh", [](UStaticMeshComponent& self, UStaticMesh *newMesh) -> bool { return self.SetStaticMesh(newMesh); })
         .def("SetMaterial", [](UStaticMeshComponent& self, int index, UMaterialInterface *newMat) -> void { self.SetMaterial(index, newMat); }) // technically, UMaterialInterface
         ;
-
-    // TODO: I guess we do one of these for every exposed class?
-    m.def("AsUStaticMeshComponent", [](UObject *engineObj) -> UStaticMeshComponent* { return Cast<UStaticMeshComponent>(engineObj); }, py::return_value_policy::reference);
 
     py::class_<UWorld, UnrealTracker<UWorld>>(m, "UWorld")
         .def_property_readonly("WorldType", [](UWorld& self) { return (int)self.WorldType; })
@@ -259,12 +260,12 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         return UMaterialInstanceDynamic::Create(parent, owner);
     }, py::return_value_policy::reference);
 
-    m.def("RegisterPythonSubclass", [](py::str fqClassName, py::str engineParentClassPath, const py::object pyClass) -> UClass*
+    m.def("RegisterPythonSubclass", [](py::str fqClassName, UClass *engineParentClass, const py::object pyClass) -> UClass*
     {
-        UClass *engineParentClass = FindObject<UClass>(ANY_PACKAGE, UTF8_TO_TCHAR(((std::string)engineParentClassPath).c_str()));
-        if (!engineParentClass->ImplementsInterface(UPyBridgeMixin::StaticClass()))
+        //UClass *engineParentClass = FindObject<UClass>(ANY_PACKAGE, UTF8_TO_TCHAR(((std::string)engineParentClassPath).c_str()));
+        if (!engineParentClass->ImplementsInterface(UUEPYGlueMixin::StaticClass()))
         {
-            LERROR("Class does not implement IPyBridgeMixin");
+            LERROR("Class does not implement IUEPYGlueMixin");
             return nullptr;
         }
 
@@ -293,13 +294,13 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
             UClass *parentClass = engineObj->GetClass()->GetSuperClass();
             if (parentClass && parentClass->ClassConstructor)
                 parentClass->ClassConstructor(objInitializer);
-            if (!engineObj->HasAnyFlags(RF_ClassDefaultObject))
+            if (!engineObj->HasAnyFlags(RF_ClassDefaultObject)) // during CDO creation, we don't want to create a pyinst
             {
                 try {
-                    IPyBridgeMixin *p = Cast<IPyBridgeMixin>(engineObj);
+                    IUEPYGlueMixin *p = Cast<IUEPYGlueMixin>(engineObj);
                     FString className = engineObj->GetClass()->GetName();
                     py::object& pyClass = pyClassMap[className];
-                    p->pyInst = pyClass(engineObj);
+                    p->pyInst = pyClass(engineObj); // the metaclass in uepy.__init__ requires engineObj to be passed as the first param; it gobbles it up and auto-sets self.engineObj on the new instance
                 }
                 catchpy;
             }
@@ -322,5 +323,12 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         info.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
         return world->SpawnActor(actorClass, &location, &rotation, info);
     }, py::arg("world"), py::arg("actorClass"), py::arg("location")=FVector(0,0,0), py::arg("rotation")=FRotator(0,0,0), py::return_value_policy::reference);
+
+    py::class_<AActor_CGLUE, AActor, UnrealTracker<AActor_CGLUE>>(glueclasses, "AActor_CGLUE")
+        .def_static("StaticClass", []() { return AActor_CGLUE::StaticClass(); }) // TODO: I think this can go away once we have the C++ APIs take PyClassOrUClass
+        .def_static("Cast", [](UObject *obj) { return Cast<AActor_CGLUE>(obj); }, py::return_value_policy::reference)
+        .def("SuperBeginPlay", [](AActor_CGLUE& self) { self.SuperBeginPlay(); })
+        .def("SuperTick", [](AActor_CGLUE& self, float dt) { self.SuperTick(dt); })
+        ;
 }
 

@@ -8,7 +8,7 @@
 
 // base UMG widget from which others can derive
 UCLASS()
-class UEPY_API UPyUserWidget : public UUserWidget, public IPyBridgeMixin
+class UEPY_API UUserWidget_CGLUE : public UUserWidget, public IUEPYGlueMixin
 {
     GENERATED_BODY()
     

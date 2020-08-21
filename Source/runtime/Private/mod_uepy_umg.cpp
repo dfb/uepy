@@ -24,10 +24,9 @@ UObject-based, and is instead all TSharedRef/TSharedPtr, which means we'd need t
 pointers since UE4 doesn't use std::shared_ptr. Maybe at some point we should do that, but for now, it's easiest to just stick to
 UObject-based stuff, which means subclassing UUserWidget I guess!
 
-
 */
 
-TSharedRef<SWidget> UPyUserWidget::RebuildWidget()
+TSharedRef<SWidget> UUserWidget_CGLUE::RebuildWidget()
 {
     if (!GetRootWidget())
     {
@@ -46,11 +45,12 @@ TSharedRef<SWidget> UPyUserWidget::RebuildWidget()
     return Super::RebuildWidget();
 }
 
-void UPyUserWidget::NativePreConstruct()
+void UUserWidget_CGLUE::NativePreConstruct()
 {
     Super::NativePreConstruct();
     try {
-        pyInst.attr("Construct")(GetRootWidget());
+        UWidget *root = GetRootWidget();
+        pyInst.attr("Construct")(root);
     } catchpy;
 }
 
@@ -60,6 +60,7 @@ void _LoadModuleUMG(py::module& uepy)
     LOG("Creating Python module uepy.umg");
 
     py::module m = uepy.def_submodule("_umg");
+    py::object glueclasses = uepy.attr("glueclasses");
 
     // e.g. "WidgetBlueprintGeneratedClass'/Game/Blueprints/Foo" --> UUserWidget UClass for that BP
     m.def("GetUserWidgetClassFromReference", [](std::string refPath) { return LoadClass<UUserWidget>(NULL, UTF8_TO_TCHAR(refPath.c_str())); });
@@ -73,11 +74,11 @@ void _LoadModuleUMG(py::module& uepy)
         ;
 
     py::class_<UUserWidget, UWidget, UnrealTracker<UUserWidget>>(m, "UUserWiget");
-    py::class_<UPyUserWidget, UUserWidget, UnrealTracker<UPyUserWidget>>(m, "UPyUserWidget")
-        .def_static("StaticClass", []() { return UPyUserWidget::StaticClass(); });
-        ;
 
-    m.def("AsUPyUserWidget", [](UObject *engineObj) -> UPyUserWidget* { return Cast<UPyUserWidget>(engineObj); }, py::return_value_policy::reference);
+    py::class_<UUserWidget_CGLUE, UUserWidget, UnrealTracker<UUserWidget_CGLUE>>(glueclasses, "UUserWidget_CGLUE")
+        .def_static("StaticClass", []() { return UUserWidget_CGLUE::StaticClass(); })
+        .def_static("Cast", [](UObject *w) { return Cast<UUserWidget_CGLUE>(w); }, py::return_value_policy::reference)
+        ;
 
     py::class_<UPanelWidget, UWidget, UnrealTracker<UPanelWidget>>(m, "UPanelWidget")
         .def_static("StaticClass", []() { return UPanelWidget::StaticClass(); });
@@ -85,13 +86,13 @@ void _LoadModuleUMG(py::module& uepy)
 
     py::class_<UVerticalBox, UPanelWidget, UnrealTracker<UVerticalBox>>(m, "UVerticalBox")
         .def_static("StaticClass", []() { return UVerticalBox::StaticClass(); })
-        .def_static("Cast", [](UWidget *w) { return Cast<UVerticalBox>(w); })
+        .def_static("Cast", [](UWidget *w) { return Cast<UVerticalBox>(w); }, py::return_value_policy::reference)
         .def("AddChild", [](UVerticalBox& self, UWidget *child) { return self.AddChild(child); })
         ;
 
     py::class_<UHorizontalBox, UPanelWidget, UnrealTracker<UHorizontalBox>>(m, "UHorizontalBox")
         .def_static("StaticClass", []() { return UHorizontalBox::StaticClass(); })
-        .def_static("Cast", [](UWidget *w) { return Cast<UHorizontalBox>(w); })
+        .def_static("Cast", [](UWidget *w) { return Cast<UHorizontalBox>(w); }, py::return_value_policy::reference)
         .def("AddChild", [](UHorizontalBox& self, UWidget *child) { return self.AddChild(child); })
         ;
 
@@ -99,13 +100,13 @@ void _LoadModuleUMG(py::module& uepy)
 
     py::class_<UVerticalBoxSlot, UPanelSlot, UnrealTracker<UVerticalBoxSlot>>(m, "UVerticalBoxSlot")
         .def_static("StaticClass", []() { return UVerticalBoxSlot::StaticClass(); })
-        .def_static("Cast", [](UPanelSlot *slot) { return Cast<UVerticalBoxSlot>(slot); })
+        .def_static("Cast", [](UPanelSlot *slot) { return Cast<UVerticalBoxSlot>(slot); }, py::return_value_policy::reference)
         .def("SetPadding", [](UVerticalBoxSlot& self, FMargin& m) { self.SetPadding(m); })
         ;
 
     py::class_<UHorizontalBoxSlot, UPanelSlot, UnrealTracker<UHorizontalBoxSlot>>(m, "UHorizontalBoxSlot")
         .def_static("StaticClass", []() { return UHorizontalBoxSlot::StaticClass(); })
-        .def_static("Cast", [](UPanelSlot *slot) { return Cast<UHorizontalBoxSlot>(slot); })
+        .def_static("Cast", [](UPanelSlot *slot) { return Cast<UHorizontalBoxSlot>(slot); }, py::return_value_policy::reference)
         .def("SetPadding", [](UHorizontalBoxSlot& self, FMargin& m) { self.SetPadding(m); })
         .def("SetVerticalAlignment", [](UHorizontalBoxSlot& self, int a) { self.SetVerticalAlignment((EVerticalAlignment)a); })
         ;
@@ -113,7 +114,7 @@ void _LoadModuleUMG(py::module& uepy)
     py::class_<UTextBlock, UWidget, UnrealTracker<UTextBlock>>(m, "UTextBlock") // note: there is an unexposed intermediate type in between this and UWidget
         .def_static("StaticClass", []() { return UTextBlock::StaticClass(); })
         .def("SetText", [](UTextBlock& self, std::string newText) { self.SetText(FText::FromString(newText.c_str())); })
-        .def_static("Cast", [](UWidget *obj) { return Cast<UTextBlock>(obj); })
+        .def_static("Cast", [](UWidget *obj) { return Cast<UTextBlock>(obj); }, py::return_value_policy::reference)
         ;
 
     py::class_<UContentWidget, UPanelWidget, UnrealTracker<UContentWidget>>(m, "UContentWidget")
@@ -121,7 +122,7 @@ void _LoadModuleUMG(py::module& uepy)
 
     py::class_<UButton, UContentWidget, UnrealTracker<UButton>>(m, "UButton")
         .def_static("StaticClass", []() { return UButton::StaticClass(); })
-        .def_static("Cast", [](UObject *obj) { return Cast<UButton>(obj); })
+        .def_static("Cast", [](UObject *obj) { return Cast<UButton>(obj); }, py::return_value_policy::reference)
         .def("BindOnClicked", [](UButton& self, py::object callback)
         {
             UBasePythonDelegate* delegate = NewObject<UBasePythonDelegate>();
@@ -132,7 +133,7 @@ void _LoadModuleUMG(py::module& uepy)
 
     py::class_<UComboBoxString, UWidget, UnrealTracker<UComboBoxString>>(m, "UComboBoxString")
         .def_static("StaticClass", []() { return UComboBoxString::StaticClass(); })
-        .def_static("Cast", [](UObject *obj) { return Cast<UComboBoxString>(obj); })
+        .def_static("Cast", [](UObject *obj) { return Cast<UComboBoxString>(obj); }, py::return_value_policy::reference)
         .def("AddOption", [](UComboBoxString& self, std::string o) { self.AddOption(o.c_str()); })
         .def("ClearOptions", [](UComboBoxString& self) { self.ClearOptions(); })
         .def("RefreshOptions", [](UComboBoxString& self) { self.RefreshOptions(); })
@@ -151,7 +152,7 @@ void _LoadModuleUMG(py::module& uepy)
 
     py::class_<UCheckBox, UContentWidget, UnrealTracker<UCheckBox>>(m, "UCheckBox")
         .def_static("StaticClass", []() { return UCheckBox::StaticClass(); })
-        .def_static("Cast", [](UObject *obj) { return Cast<UCheckBox>(obj); })
+        .def_static("Cast", [](UObject *obj) { return Cast<UCheckBox>(obj); }, py::return_value_policy::reference)
         .def("IsChecked", [](UCheckBox& self) { return self.IsChecked(); })
         .def("SetIsChecked", [](UCheckBox& self, bool b) { self.SetIsChecked(b); })
         .def("BindOnCheckStateChanged", [](UCheckBox& self, py::object callback)
@@ -165,7 +166,7 @@ void _LoadModuleUMG(py::module& uepy)
 
     py::class_<UEditableTextBox, UWidget, UnrealTracker<UEditableTextBox>>(m, "UEditableTextBox")
         .def_static("StaticClass", []() { return UEditableTextBox::StaticClass(); })
-        .def_static("Cast", [](UObject *obj) { return Cast<UEditableTextBox>(obj); })
+        .def_static("Cast", [](UObject *obj) { return Cast<UEditableTextBox>(obj); }, py::return_value_policy::reference)
         ;
 }
 

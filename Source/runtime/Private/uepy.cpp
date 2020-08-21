@@ -127,9 +127,18 @@ void FPyObjectTracker::AddReferencedObjects(FReferenceCollector& InCollector)
         objects.Remove(obj);
 }
 
+// AActor_CGLUE
+AActor_CGLUE::AActor_CGLUE() { PrimaryActorTick.bCanEverTick = true; } // TODO: make this controllable from Python
+void AActor_CGLUE::BeginPlay() { try { pyInst.attr("BeginPlay")(); } catchpy; }
+void AActor_CGLUE::Tick(float dt) { try { pyInst.attr("Tick")(dt); } catchpy; }
+void AActor_CGLUE::SuperBeginPlay() { Super::BeginPlay(); }
+void AActor_CGLUE::SuperTick(float dt) { Super::Tick(dt); }
+
+// TODO: destroy me
 AWorldHookActor::AWorldHookActor()
 {
 	PrimaryActorTick.bCanEverTick = true;
+    bAllowTickBeforeBeginPlay = true;
 }
 
 void AWorldHookActor::BeginPlay()
