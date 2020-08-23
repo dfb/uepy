@@ -9,7 +9,7 @@ actor-spawning API). So instead of subclassing directly, we achieve the same res
 and then have them work together. For each C++ class we want to be subclassable in Python, we create:
 
 1. A C++ glue class (naming convention: C++ class name + `_CGLUE"`, e.g. `AActor_CGLUE`)
-    1. It implements the IUEPyGlueMixin interface (a thin subclass that has a Python instance attached to it).
+    1. It implements the IUEPyGlueMixin interface (a thin mixin that has a Python instance attached to it).
     1. For each overrideable method, it provides an implementation that calls the same method on the Python instance
     1. For each overrideable method, it provides a SuperXXX version so that Python instances can call e.g. Super::BeginPlay as needed
     1. The code to expose the C++ glue class /always/ exposes it via the builtin `_uepy._glueClasses` module. (even those coming from game modules)
@@ -47,6 +47,9 @@ but uepy.AActor is the C++ AActor class exposed to Python via pybind11, so that 
 - obj.is_a
 - conventions: use engine naming, e.g. resist the temptation to expose FVector as Vector, or AActor as Actor - just causes confusion later on
     - member vars included, but if you /must/ override them, also include the original. Ex: we expose FRotator.yaw but also FRotator.Yaw
+- dev scratchpad / sourcewatcher
+- main.py module
+- editor_spawner example
 
 # Why?
 

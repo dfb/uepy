@@ -65,7 +65,11 @@ void _LoadModuleUMG(py::module& uepy)
     // e.g. "WidgetBlueprintGeneratedClass'/Game/Blueprints/Foo" --> UUserWidget UClass for that BP
     m.def("GetUserWidgetClassFromReference", [](std::string refPath) { return LoadClass<UUserWidget>(NULL, UTF8_TO_TCHAR(refPath.c_str())); });
 
-    m.def("CreateWidget", [](UObject* owner, UClass *widgetClass, std::string name) { return NewObject<UWidget>(owner, widgetClass, name.c_str(), RF_Transactional); }, py::return_value_policy::reference);
+    m.def("CreateWidget", [](UObject* owner, py::object& _widgetClass, std::string name)
+    {
+        UClass *widgetClass = PyObjectToUClass(_widgetClass);
+        return NewObject<UWidget>(owner, widgetClass, name.c_str(), RF_Transactional);
+    }, py::return_value_policy::reference);
 
     py::class_<UVisual, UObject, UnrealTracker<UVisual>>(m, "UVisual");
 

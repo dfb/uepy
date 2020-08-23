@@ -85,8 +85,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         ;
 
     py::class_<UObject, UnrealTracker<UObject>>(m, "UObject")
-        .def_static("StaticClass", []() { return UObject::StaticClass(); }) // TODO: we shouldn't need to do this for every class we expose
-        // TODO: for APIs that take a UClass, have a helper that calls StaticClass if needed to get from py class to UClass
+        .def_static("StaticClass", []() { return UObject::StaticClass(); })
 
         // TODO: we could create a generic CreateDefaultSubobject utility func that takes a UClass of what to create
         // and just return it as a UObject, though the caller would then need to also cast it, e.g.
@@ -99,7 +98,11 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         })
         ;
     py::class_<UClass, UObject, UnrealTracker<UClass>>(m, "UClass") // TODO: UClass --> UStruct --> UField --> UObject
-        .def("ImplementsInterface", [](UClass& self, UClass *interfaceClass) { return self.ImplementsInterface(interfaceClass); })
+        .def("ImplementsInterface", [](UClass& self, py::object interfaceClass)
+        {
+            UClass *k = PyObjectToUClass(interfaceClass);
+            return k ? self.ImplementsInterface(k) : false;
+        })
         ;
 
     py::class_<UInterface, UObject, UnrealTracker<UInterface>>(m, "UInterface")
@@ -145,13 +148,17 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         return ret;
     });
 
-    m.def("GetAllActorsOfClass", [](UWorld *world, UClass *klass)
+    m.def("GetAllActorsOfClass", [](UWorld *world, py::object& _klass)
     {
         TArray<AActor*> actors;
-        UGameplayStatics::GetAllActorsOfClass(world, klass, actors);
         py::list ret;
-        for (AActor *a : actors)
-            ret.append(a);
+        UClass *klass = PyObjectToUClass(_klass);
+        if (klass)
+        {
+            UGameplayStatics::GetAllActorsOfClass(world, klass, actors);
+            for (AActor *a : actors)
+                ret.append(a);
+        }
         return ret;
     });
 
@@ -317,8 +324,11 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         return engineClass;
     });
 
-    m.def("SpawnActor", [](UWorld *world, UClass *actorClass, FVector& location, FRotator& rotation)
+    m.def("SpawnActor", [](UWorld *world, py::object& _actorClass, FVector& location, FRotator& rotation)
     {
+        UClass *actorClass = PyObjectToUClass(_actorClass);
+        if (!actorClass)
+            return (AActor*)nullptr;
         FActorSpawnParameters info;
         info.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
         return world->SpawnActor(actorClass, &location, &rotation, info);

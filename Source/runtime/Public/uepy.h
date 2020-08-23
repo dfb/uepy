@@ -176,17 +176,8 @@ protected:
     virtual void Tick(float dt) override;
 };
 
-// part of our temp hack until GameState/GameInstance are in python
-UCLASS()
-class UEPY_API AWorldHookActor : public AActor, public IUEPYGlueMixin // TODO: get rid of this completely - we don't need it even now
-{
-    GENERATED_BODY()
-
-    AWorldHookActor();
-    virtual bool ShouldTickIfViewportsOnly() const override { return true; }
-
-protected:
-	virtual void BeginPlay() override;
-    virtual void Tick(float dt) override;
-};
+// helper class for any API that accepts as an argument a UClass parameter. Allows the caller to pass in
+// a UClass pointer, a C++ class that has been exposed via pybind11, or a Python class object that is a subclass
+// of a glue class. In all cases, it finds the appropriate UClass object and returns it.
+UEPY_API UClass *PyObjectToUClass(py::object& klassThing);
 

@@ -15,8 +15,9 @@ void _LoadModuleEditor(py::module& uepy)
 
     m.def("GetWorld", []() { return GEditor->GetEditorWorldContext().World(); }, py::return_value_policy::reference);
 
-    m.def("RegisterNomadTabSpawner", [](UClass *menuWidgetClass, std::string menuName)
+    m.def("RegisterNomadTabSpawner", [](py::object& _menuWidgetClass, std::string menuName)
     {
+        UClass *menuWidgetClass = PyObjectToUClass(_menuWidgetClass);
         auto tabMgr = FGlobalTabmanager::Get();
         FName tabName(menuName.c_str());
         tabMgr->UnregisterNomadTabSpawner(tabName);

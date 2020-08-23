@@ -134,27 +134,27 @@ void AActor_CGLUE::Tick(float dt) { try { pyInst.attr("Tick")(dt); } catchpy; }
 void AActor_CGLUE::SuperBeginPlay() { Super::BeginPlay(); }
 void AActor_CGLUE::SuperTick(float dt) { Super::Tick(dt); }
 
-// TODO: destroy me
-AWorldHookActor::AWorldHookActor()
+UClass *PyObjectToUClass(py::object& klassThing)
 {
-	PrimaryActorTick.bCanEverTick = true;
-    bAllowTickBeforeBeginPlay = true;
-}
+    // see if it's a registered subclass of a glue class
+    if (py::hasattr(klassThing, "engineClass"))
+        return klassThing.attr("engineClass").cast<UClass*>();
 
-void AWorldHookActor::BeginPlay()
-{
-    try {
-        Super::BeginPlay();
-        pyInst.attr("BeginPlay")();
-    } catchpy;
-}
+    // see if it's a glue class
+    if (py::hasattr(klassThing, "cppGlueClass"))
+        return klassThing.attr("cppGlueClass").attr("StaticClass")().cast<UClass*>()->GetSuperClass();
 
-void AWorldHookActor::Tick(float DeltaTime)
-{
+    // see if it'll cast to a UClass directly (i.e. caller already called StaticClass)
     try {
-        Super::Tick(DeltaTime);
-        pyInst.attr("Tick")(DeltaTime);
-	} catchpy;
+        return klassThing.cast<UClass*>();
+    }
+    catch (std::exception e)
+    {
+        // maybe it's a pybind11-exposed class?
+        if (py::hasattr(klassThing, "StaticClass"))
+            return klassThing.attr("StaticClass")().cast<UClass*>();
+        return nullptr;
+    }
 }
 
 

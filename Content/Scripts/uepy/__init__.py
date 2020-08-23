@@ -59,7 +59,6 @@ def FindGlueClass(klass):
 class PyGlueMetaclass(type):
     def __new__(metaclass, name, bases, dct):
         isGlueClass = not bases # (a glue class has no bases)
-        log('XXX :::: CREATING CLASS', name, 'bases:', bases, 'mc:', metaclass)
 
         # Each UClass in UE4 has to have a unique name, but with separate directories, we could potentially have
         # a naming collision. So internally we name each class <objectLib>__<class>, which should be
@@ -76,15 +75,12 @@ class PyGlueMetaclass(type):
             # so that we can automatically cast its engineObj when creating instances.
             pyGlueClass = FindGlueClass(newPyClass)
             assert pyGlueClass, 'Failed to find py glue class for ' + repr((name, bases))
-            log('XXX  pyGlueClass:', pyGlueClass)
 
             # We've found the Python side of the glue class, now get the C++ side as that's what we need to use to register
             # with the engine
             cppGlueClassName = pyGlueClass.__name__[:-6] + '_CGLUE'
-            log('CPP GCN:', cppGlueClassName, dir(glueclasses))
             cppGlueClass = getattr(glueclasses, cppGlueClassName, None)
             assert cppGlueClass, 'Failed to find C++ glue class for ' + repr((name, bases))
-            log('XXX  cppGlueClass:', cppGlueClass, cppGlueClass.StaticClass())
             newPyClass.cppGlueClass = cppGlueClass
 
             # Register this class with UE4 so that BPs, the editor, the level, etc. can all refer to it by name
