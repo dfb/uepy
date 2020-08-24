@@ -56,6 +56,10 @@ def FindGlueClass(klass):
             return g
     return None
 
+_allClasses = {} # class name -> class object of all registered non-glue Python subclasses that extend engine classes
+def GetPythonEngineSubclasses():
+    return list(_allClasses.values())
+
 class PyGlueMetaclass(type):
     def __new__(metaclass, name, bases, dct):
         isGlueClass = not bases # (a glue class has no bases)
@@ -71,6 +75,8 @@ class PyGlueMetaclass(type):
 
         newPyClass = super().__new__(metaclass, name, bases, dct)
         if not isGlueClass:
+            _allClasses[name] = newPyClass
+
             # A glue class has no base classes, so this class is /not/ a glue class, so we need to find its glue class
             # so that we can automatically cast its engineObj when creating instances.
             pyGlueClass = FindGlueClass(newPyClass)

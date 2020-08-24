@@ -46,5 +46,7 @@ void _LoadModuleEditor(py::module& uepy)
         .SetGroup(WorkspaceMenu::GetMenuStructure().GetDeveloperToolsMiscCategory());
     });
 
+    m.def("DeselectAllActors", []() { GEditor->SelectNone(true, true, false); });
+    m.def("SelectActor", [](AActor *actor) { GEditor->SelectActor(actor, true, true); });
 }
 

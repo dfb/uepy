@@ -119,6 +119,12 @@ void _LoadModuleUMG(py::module& uepy)
         .def_static("StaticClass", []() { return UTextBlock::StaticClass(); })
         .def("SetText", [](UTextBlock& self, std::string newText) { self.SetText(FText::FromString(newText.c_str())); })
         .def_static("Cast", [](UWidget *obj) { return Cast<UTextBlock>(obj); }, py::return_value_policy::reference)
+        .def("SetFontSize", [](UTextBlock& self, int newSize)
+        {
+            FSlateFontInfo& sfi = self.Font;
+            sfi.Size = newSize;
+            self.SetFont(sfi);
+        })
         ;
 
     py::class_<UContentWidget, UPanelWidget, UnrealTracker<UContentWidget>>(m, "UContentWidget")
@@ -145,6 +151,11 @@ void _LoadModuleUMG(py::module& uepy)
         .def("SetSelectedIndex", [](UComboBoxString& self, int i) { self.SetSelectedIndex(i); })
         .def("GetSelectedOption", [](UComboBoxString& self) { return *self.GetSelectedOption(); })
         .def("GetSelectedIndex", [](UComboBoxString& self) { return self.GetSelectedIndex(); })
+        .def("SetFontSize", [](UComboBoxString& self, int newSize)
+        {
+            FSlateFontInfo& sfi = self.Font;
+            sfi.Size = newSize;
+        })
         .def("BindOnSelectionChanged", [](UComboBoxString& self, py::object callback)
         {
             UBasePythonDelegate* delegate = NewObject<UBasePythonDelegate>();

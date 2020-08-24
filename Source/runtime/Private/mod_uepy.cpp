@@ -78,6 +78,16 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
 
     m.attr("commandLineRaw") = FCommandLine::Get();
 
+    // given an engine obj that you know to actually be a Python-implemented, get the associated Python instance from it (or None if you were wrong)
+    m.def("PyInst", [](UObject *obj)
+    {
+        py::object ret = py::none();
+        IUEPYGlueMixin *p = Cast<IUEPYGlueMixin>(obj);
+        if (p)
+            ret = p->pyInst;
+        return ret;
+    });
+
     py::class_<FPaths>(m, "FPaths")
         .def_static("ProjectDir", []() { return std::string(TCHAR_TO_UTF8(*FPaths::ProjectDir())); })
         .def_static("ProjectContentDir", []() { return std::string(TCHAR_TO_UTF8(*FPaths::ProjectContentDir())); })
