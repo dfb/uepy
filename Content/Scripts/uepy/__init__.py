@@ -127,5 +127,21 @@ class AActor_PGLUE(metaclass=PyGlueMetaclass):
 class UUserWidget_PGLUE(metaclass=PyGlueMetaclass):
     '''Base class of all Python subclasses from AActor-derived C++ classes'''
 
+class UEPYAssistantActor(AActor_PGLUE):
+    '''Spawn one of these into a level to have it watch for source code changes and automatically reload modified code.
+    Attempts to load the module specified in self.mainModuleName; override the default value prior to BeginPlay.'''
+    def __init__(self):
+        self.SetActorTickEnabled(True)
+        self.mainModuleName = 'scratchpad'
 
+    def BeginPlay(self):
+        import sourcewatcher as S
+        reload(S)
+        S.log = log
+        S.logTB = logTB
+        self.watcher = S.SourceWatcher(self.mainModuleName)
+        self.SuperBeginPlay()
+
+    def Tick(self, dt):
+        self.watcher.Check()
 
