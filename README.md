@@ -41,6 +41,24 @@ Net result: even though we don't have true Python subclassing, it gets pretty cl
 Note: the `_PGLUE` convention exists because usually the normal class will also be exposed to Python, e.g. AActor_PGLUE is the class to subclass from,
 but uepy.AActor is the C++ AActor class exposed to Python via pybind11, so that you can use pointers to AActor from Python.
 
+# Installation
+
+Eventually I hope to make this less manual, but for now:
+
+- In your UE4 project, create a Plugins directory
+- Clone uepy into it (afterwards, yourprj/Plugins/uepy/uepy.uplugin should exist, among other things)
+- Inside Plugins/uepy, create a 'python' directory to hold whatever 64-bit version of Python you intend to use (I've tried 3.6.7 and 3.8.5). The final layout needs to be like:
+    - Plugins/uepy/python/include # containing stuff like `eval.h` and `import.h`
+    - Plugins/uepy/python/libs # containing stuff like `python3.lib`
+    - Plugins/uepy/python # containing stuff like `_ctypes.pyd` and `select.pyd`
+
+    There are probably much better ways to set this up, but this is what I did:
+    - download the Windows x64 embeddable zip file and unzip it into Plugins/uepy/python
+    - use e.g. the web installer from python.org to install the same version of Python. During the installation process, set a custom install location to some temp directory, uncheck all the options to register programs, modify your path, etc., but do check the option to download debugging symbols
+    - after installation, move the libs and include folders to Plugins/uepy/python and then erase that temporary installation
+- Inside Plugins/uepy, clone pybind11 so that you end up with e.g. `Plugins/uepy/pybind11/include/pybind11/eval.h`
+- In uepy/Source/editor/uepyEditor.Build.cs and uepy/Source/runtime/uepy.Build.cs, modify the pythonXX.lib filename (in the PublicAdditionalLibraries line) as needed (i.e. depending on the version of Python you're using).
+
 # other stuff to document
 
 - python and uobject instance life cycles
@@ -50,6 +68,7 @@ but uepy.AActor is the C++ AActor class exposed to Python via pybind11, so that 
 - dev scratchpad / sourcewatcher
 - main.py module
 - editor_spawner example
+- so far I've been using VS2017 Community Edition. I hope to move to VS2019 soon (when I move to UE4.25 probably).
 
 # Why?
 
@@ -57,3 +76,4 @@ but uepy.AActor is the C++ AActor class exposed to Python via pybind11, so that 
 - UE4 provides Blueprints, but they don't scale well (spaghetti BPs are a nightmare) and they are in binary (can't diff, can't merge, etc.)
 - [UnrealEnginePython](https://github.com/20tab/UnrealEnginePython) was pretty good, but it's been abandoned.
 - We get some nice goodies like support for third-party actors, being able to develop against a packaged build
+

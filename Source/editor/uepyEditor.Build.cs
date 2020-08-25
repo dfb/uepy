@@ -15,7 +15,7 @@ public class uepyEditor : ModuleRules
                 Path.Combine(ModuleDirectory, "../../python/include"),
             });
         // PublicLibraryPaths.Add(Path.Combine(ModuleDirectory, "../../python/libs"));
-        PublicAdditionalLibraries.Add(Path.Combine(ModuleDirectory, "../../python/libs/python36.lib"));
+        PublicAdditionalLibraries.Add(Path.Combine(ModuleDirectory, "../../python/libs/python38.lib"));
 
 
 
