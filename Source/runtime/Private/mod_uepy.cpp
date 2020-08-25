@@ -43,7 +43,7 @@ UTexture2D *LoadTextureFromFile(FString path)
         return nullptr;
     }
 
-    const TArray<uint8>* uncompressedData = nullptr;
+    const TArray<uint8> *uncompressedData;
     if (imageWrapper->GetRaw(ERGBFormat::BGRA, 8, uncompressedData))
     {
         UTexture2D *tex = UTexture2D::CreateTransient(imageWrapper->GetWidth(), imageWrapper->GetHeight(), PF_B8G8R8A8);
@@ -201,6 +201,10 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("SetRootComponent", [](AActor& self, USceneComponent *s) { self.SetRootComponent(s); })
         .def("GetRootComponent", [](AActor& self) { return self.GetRootComponent(); })
         .def("Destroy", [](AActor& self) { self.Destroy(); })
+        .def("IsActorTickEnabled", [](AActor& self) { return self.IsActorTickEnabled(); })
+        .def("SetActorTickEnabled", [](AActor& self, bool enabled) { self.SetActorTickEnabled(enabled); })
+        .def("SetActorTickInterval", [](AActor& self, float interval) { self.SetActorTickInterval(interval); })
+        .def("GetActorTickInterval", [](AActor& self) { return self.GetActorTickInterval(); })
         ;
 
     py::class_<FVector>(m, "FVector")

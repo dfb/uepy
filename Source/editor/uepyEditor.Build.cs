@@ -8,15 +8,17 @@ public class uepyEditor : ModuleRules
     {
         PCHUsage = ModuleRules.PCHUsageMode.UseExplicitOrSharedPCHs;
         bUseRTTI = true;
-        
+
         PublicIncludePaths.AddRange(
             new string[] {
                 Path.Combine(ModuleDirectory, "../../pybind11/include"),
                 Path.Combine(ModuleDirectory, "../../python/include"),
             });
-        PublicLibraryPaths.Add(Path.Combine(ModuleDirectory, "../../python/libs"));
-                
-        
+        // PublicLibraryPaths.Add(Path.Combine(ModuleDirectory, "../../python/libs"));
+        PublicAdditionalLibraries.Add(Path.Combine(ModuleDirectory, "../../python/libs/python36.lib"));
+
+
+
         PrivateIncludePaths.AddRange(
             new string[] {
                 // ... add other private include paths required here ...

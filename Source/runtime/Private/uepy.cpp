@@ -128,7 +128,7 @@ void FPyObjectTracker::AddReferencedObjects(FReferenceCollector& InCollector)
 }
 
 // AActor_CGLUE
-AActor_CGLUE::AActor_CGLUE() { PrimaryActorTick.bCanEverTick = true; } // TODO: make this controllable from Python
+AActor_CGLUE::AActor_CGLUE() { PrimaryActorTick.bCanEverTick = true; PrimaryActorTick.bStartWithTickEnabled = false; }
 void AActor_CGLUE::BeginPlay() { try { pyInst.attr("BeginPlay")(); } catchpy; }
 void AActor_CGLUE::Tick(float dt) { try { pyInst.attr("Tick")(dt); } catchpy; }
 void AActor_CGLUE::SuperBeginPlay() { Super::BeginPlay(); }

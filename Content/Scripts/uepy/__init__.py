@@ -119,6 +119,10 @@ class AActor_PGLUE(metaclass=PyGlueMetaclass):
     def Tick(self, dt): pass
     def SuperBeginPlay(self): self.engineObj.SuperBeginPlay() # TODO: it'd be nice to make this call happen via super().BeginPlay() at some point
     def SuperTick(self, dt): self.engineObj.SuperTick(dt) # # TODO: ditto
+    def IsActorTickEnabled(self): return self.engineObj.IsActorTickEnabled()
+    def SetActorTickEnabled(self, e): self.engineObj.SetActorTickEnabled(e)
+    def SetActorTickInterval(self, i): self.engineObj.SetActorTickInterval(i)
+    def GetActorTickInterval(self): return self.engineObj.GetActorTickInterval()
 
 class UUserWidget_PGLUE(metaclass=PyGlueMetaclass):
     '''Base class of all Python subclasses from AActor-derived C++ classes'''
