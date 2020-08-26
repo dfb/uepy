@@ -195,9 +195,11 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def_static("StaticClass", []() { return AActor::StaticClass(); })
         .def("GetWorld", [](AActor& self) { return self.GetWorld(); }, py::return_value_policy::reference)
         .def("GetActorLocation", [](AActor& self) { return self.GetActorLocation(); })
-        .def("SetActorLocation", [](AActor& self, FVector v) { return self.SetActorLocation(v); })
+        .def("SetActorLocation", [](AActor& self, FVector& v) { return self.SetActorLocation(v); })
         .def("GetActorRotation", [](AActor& self) { return self.GetActorRotation(); })
-        .def("SetActorRotation", [](AActor& self, FRotator r) { self.SetActorRotation(r); })
+        .def("SetActorRotation", [](AActor& self, FRotator& r) { self.SetActorRotation(r); })
+        .def("SetActorTransform", [](AActor& self, FTransform& t) { self.SetActorTransform(t); })
+        .def("GetActorTransform", [](AActor& self) { return self.GetActorTransform(); })
         .def("SetRootComponent", [](AActor& self, USceneComponent *s) { self.SetRootComponent(s); })
         .def("GetRootComponent", [](AActor& self) { return self.GetRootComponent(); })
         .def("Destroy", [](AActor& self) { self.Destroy(); })
@@ -225,6 +227,16 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def_readwrite("Pitch", &FRotator::Pitch)
         .def_readwrite("yaw", &FRotator::Yaw)
         .def_readwrite("Yaw", &FRotator::Yaw)
+        ;
+
+    py::class_<FTransform>(m, "FTransform")
+        .def("Rotator", [](FTransform& self) { return self.Rotator(); })
+        .def("GetTranslation", [](FTransform& self) { return self.GetTranslation(); })
+        .def("GetLocation", [](FTransform& self) { return self.GetLocation(); })
+        .def("SetTranslation", [](FTransform& self, FVector& t) { self.SetTranslation(t); })
+        .def("SetLocation", [](FTransform& self, FVector& t) { self.SetLocation(t); })
+        .def("GetScale3D", [](FTransform& self) { return self.GetScale3D(); })
+        .def("SetScale3D", [](FTransform& self, FVector& v) { self.SetScale3D(v); })
         ;
 
     py::class_<FMargin>(m, "FMargin")
