@@ -11,6 +11,7 @@
 #include "WorkspaceMenuStructure.h"
 #include "WorkspaceMenuStructureModule.h"
 #include "mod_uepy_editor.h"
+#include "SPythonConsole.h"
 
 static const FName consoleTabName("uepy Console");
 

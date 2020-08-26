@@ -10,7 +10,6 @@
 #include "ImageUtils.h"
 #include "Misc/FileHelper.h"
 #include <map>
-#include "PythonClass.h"
 
 static std::map<FString, py::object> pyClassMap; // class name --> python class
 
