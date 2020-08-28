@@ -294,6 +294,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
 
     m.def("RegisterPythonSubclass", [](py::str fqClassName, UClass *engineParentClass, const py::object pyClass) -> UClass*
     {
+        std::string sname = fqClassName;
         //UClass *engineParentClass = FindObject<UClass>(ANY_PACKAGE, UTF8_TO_TCHAR(((std::string)engineParentClassPath).c_str()));
         if (!engineParentClass->ImplementsInterface(UUEPYGlueMixin::StaticClass()))
         {
@@ -301,7 +302,6 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
             return nullptr;
         }
 
-        std::string sname = fqClassName;
         FString name(UTF8_TO_TCHAR(sname.c_str()));
         pyClassMap[name] = pyClass; // GRR: saving the class to a map because I can't get the lambda below to work with captured arguments
 

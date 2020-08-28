@@ -69,6 +69,10 @@ Eventually I hope to make this less manual, but for now:
 - main.py module
 - editor_spawner example
 - so far I've been using VS2017 Community Edition. I hope to move to VS2019 soon (when I move to UE4.25 probably).
+- add bUseRTTI = true; to build.cs
+- every code that exposes a C++ class should probably expose a Cast method
+- every glue class must implement StaticClass!
+- it's ok for PGLUE classes to subclass other PGLUE classes
 
 # Why?
 
