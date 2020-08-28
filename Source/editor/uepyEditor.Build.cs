@@ -30,6 +30,7 @@ public class uepyEditor : ModuleRules
             new string[]
             {
                 "Core",
+                "uepy",
                 // ... add other public dependencies that you statically link with here ...
             }
             );
@@ -47,7 +48,6 @@ public class uepyEditor : ModuleRules
                 "Projects",
                 "Slate",
                 "SlateCore",
-                "uepy",
                 "UMG",
                 "UnrealEd",
                 "WorkspaceMenuStructure",

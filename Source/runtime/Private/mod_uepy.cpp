@@ -137,7 +137,10 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("AttachToComponent", [](USceneComponent& self, USceneComponent *parent) { return self.AttachToComponent(parent, FAttachmentTransformRules::KeepRelativeTransform); }) // TODO: AttachmentRules, socket
         ;
     py::class_<UPrimitiveComponent, USceneComponent, UnrealTracker<UPrimitiveComponent>>(m, "UPrimitiveComponent");
-    py::class_<UMeshComponent, UPrimitiveComponent, UnrealTracker<UMeshComponent>>(m, "UMeshComponent");
+    py::class_<UMeshComponent, UPrimitiveComponent, UnrealTracker<UMeshComponent>>(m, "UMeshComponent")
+        .def("SetCollisionObjectType", [](UMeshComponent& self, int c) { self.SetCollisionObjectType((ECollisionChannel)c); })
+        ;
+
     py::class_<UStaticMeshComponent, UMeshComponent, UnrealTracker<UStaticMeshComponent>>(m, "UStaticMeshComponent")
         .def_static("StaticClass", []() { return UStaticMeshComponent::StaticClass(); })
         .def_static("Cast", [](UObject *obj) { return Cast<UStaticMeshComponent>(obj); }, py::return_value_policy::reference)
