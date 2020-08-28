@@ -211,6 +211,14 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("GetActorTickInterval", [](AActor& self) { return self.GetActorTickInterval(); })
         ;
 
+    py::class_<FVector2D>(m, "FVector2D")
+        .def(py::init<float,float>(), "x"_a=0.0f, "y"_a=0.0f)
+        .def_readwrite("x", &FVector2D::X)
+        .def_readwrite("X", &FVector2D::X)
+        .def_readwrite("y", &FVector2D::Y)
+        .def_readwrite("Y", &FVector2D::Y)
+        ;
+
     py::class_<FVector>(m, "FVector")
         .def(py::init<float,float,float>(), "x"_a=0.0f, "y"_a=0.0f, "z"_a=0.0f)
         .def_readwrite("x", &FVector::X)
@@ -239,6 +247,18 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("SetLocation", [](FTransform& self, FVector& t) { self.SetLocation(t); })
         .def("GetScale3D", [](FTransform& self) { return self.GetScale3D(); })
         .def("SetScale3D", [](FTransform& self, FVector& v) { self.SetScale3D(v); })
+        ;
+
+    py::class_<FLinearColor>(m, "FLinearColor")
+        .def(py::init<float, float, float, float>(), "r"_a=0.0f, "g"_a=0.0f, "b"_a=0.0f, "a"_a=0.0f)
+        .def_readwrite("R", &FLinearColor::R)
+        .def_readwrite("r", &FLinearColor::R)
+        .def_readwrite("G", &FLinearColor::G)
+        .def_readwrite("g", &FLinearColor::G)
+        .def_readwrite("B", &FLinearColor::B)
+        .def_readwrite("b", &FLinearColor::B)
+        .def_readwrite("A", &FLinearColor::A)
+        .def_readwrite("a", &FLinearColor::A)
         ;
 
     py::class_<FMargin>(m, "FMargin")
