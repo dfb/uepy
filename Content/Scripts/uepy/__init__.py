@@ -149,3 +149,12 @@ class UEPYAssistantActor(AActor_PGLUE):
     def Tick(self, dt):
         self.watcher.Check()
 
+def CPROPS(cls, *propNames):
+    '''Creates Python read/write properties for C++ properties'''
+    for _name in propNames:
+        def setup(name):
+            def _get(self): return getattr(self.engineObj, name)
+            def _set(self, value): setattr(self.engineObj, name, value)
+            setattr(cls, name, property(_get, _set))
+        setup(_name) # create a closure so we don't lose the name
+

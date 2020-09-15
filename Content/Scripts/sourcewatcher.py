@@ -128,7 +128,7 @@ class ModuleInfoTracker:
         '''Returns True if the given filename is in one of our source roots'''
         if not filename:
             return False
-        f = filename.lower().strip().replace('\\','/')
+        f = os.path.abspath(filename).lower().strip().replace('\\','/')
         for src in self.sourceRoots:
             if f.startswith(src):
                 return True
