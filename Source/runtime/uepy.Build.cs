@@ -38,9 +38,12 @@ public class uepy : ModuleRules
         PrivateDependencyModuleNames.AddRange(
             new string[]
             {
+                "AudioMixer",
+                "Core",
                 "CoreUObject",
                 "Engine",
                 "InputCore",
+                "MediaAssets",
                 "Projects",
                 "Slate",
                 "SlateCore",

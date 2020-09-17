@@ -9,6 +9,9 @@
 #include "IImageWrapperModule.h"
 #include "ImageUtils.h"
 #include "Misc/FileHelper.h"
+#include "MediaPlayer.h"
+#include "MediaSoundComponent.h"
+#include "FileMediaSource.h"
 #include <map>
 
 static std::map<FString, py::object> pyClassMap; // class name --> python class
@@ -124,6 +127,10 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
 
     py::class_<UActorComponent, UObject, UnrealTracker<UActorComponent>>(m, "UActorComponent")
         .def_static("StaticClass", []() { return UActorComponent::StaticClass(); })
+        .def("SetActive", [](UActorComponent& self, bool a) { self.SetActive(a); })
+        .def("IsRegistered", [](UActorComponent& self) { return self.IsRegistered(); })
+        .def("RegisterComponent", [](UActorComponent& self) { self.RegisterComponent(); })
+        .def("UnregisterComponent", [](UActorComponent& self) { self.UnregisterComponent(); })
         ;
 
     py::class_<USceneComponent, UActorComponent, UnrealTracker<USceneComponent>>(m, "USceneComponent")
@@ -135,7 +142,9 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("GetRelativeScale3D", [](USceneComponent& self) { return self.RelativeScale3D; })
         .def("SetRelativeScale3D", [](USceneComponent& self, FVector v) { self.SetRelativeScale3D(v); })
         .def("AttachToComponent", [](USceneComponent& self, USceneComponent *parent) { return self.AttachToComponent(parent, FAttachmentTransformRules::KeepRelativeTransform); }) // TODO: AttachmentRules, socket
+        .def("DetachFromComponent", [](USceneComponent& self) { self.DetachFromComponent(FDetachmentTransformRules::KeepWorldTransform); })
         ;
+
     py::class_<UPrimitiveComponent, USceneComponent, UnrealTracker<UPrimitiveComponent>>(m, "UPrimitiveComponent");
     py::class_<UMeshComponent, UPrimitiveComponent, UnrealTracker<UMeshComponent>>(m, "UMeshComponent")
         .def("SetCollisionObjectType", [](UMeshComponent& self, int c) { self.SetCollisionObjectType((ECollisionChannel)c); })
@@ -173,6 +182,10 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         }
         return ret;
     });
+
+    py::class_<UGameplayStatics, UObject, UnrealTracker<UGameplayStatics>>(m, "UGameplayStatics") // not sure that it makes sense to really expose this fully
+        .def_static("GetGameInstance", [](UWorld *world) { return UGameplayStatics::GetGameInstance(world); })
+        ;
 
     py::class_<UMaterialInterface, UnrealTracker<UMaterialInterface>>(m, "UMaterialInterface");
 
@@ -382,11 +395,65 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         return world->SpawnActor(actorClass, &location, &rotation, info);
     }, py::arg("world"), py::arg("actorClass"), py::arg("location")=FVector(0,0,0), py::arg("rotation")=FRotator(0,0,0), py::return_value_policy::reference);
 
+    m.def("NewObject", [](py::object& _class, UObject *owner)
+    {
+        UClass *klass = PyObjectToUClass(_class);
+        if (!owner)
+            owner = GetTransientPackage();
+        UObject *obj = NewObject<UObject>(owner, klass);
+        if (obj)
+            obj->PostLoad(); // ? is this right ?
+        return obj;
+	});
+
     py::class_<AActor_CGLUE, AActor, UnrealTracker<AActor_CGLUE>>(glueclasses, "AActor_CGLUE")
         .def_static("StaticClass", []() { return AActor_CGLUE::StaticClass(); }) // TODO: I think this can go away once we have the C++ APIs take PyClassOrUClass
         .def_static("Cast", [](UObject *obj) { return Cast<AActor_CGLUE>(obj); }, py::return_value_policy::reference)
         .def("SuperBeginPlay", [](AActor_CGLUE& self) { self.SuperBeginPlay(); })
         .def("SuperTick", [](AActor_CGLUE& self, float dt) { self.SuperTick(dt); })
         ;
+
+	py::class_<USoundClass, UObject, UnrealTracker<USoundClass>>(m, "USoundClass")
+		.def_static("StaticClass", []() { return USoundClass::StaticClass(); })
+		.def_static("Cast", [](UObject *obj) { return Cast<USoundClass>(obj); }, py::return_value_policy::reference)
+		;
+
+	py::class_<UMediaPlayer, UObject, UnrealTracker<UMediaPlayer>>(m, "UMediaPlayer")
+		.def_static("StaticClass", []() { return UMediaPlayer::StaticClass(); })
+		.def_static("Cast", [](UObject *obj) { return Cast<UMediaPlayer>(obj); }, py::return_value_policy::reference)
+		// TODO: bind/unbind OnEndReached, OnMediaOpenFailed
+		.def("OpenSource", [](UMediaPlayer& self, UMediaSource* source) { return self.OpenSource(source); })
+		.def("SetRate", [](UMediaPlayer& self, float rate) { return self.SetRate(rate); })
+		.def("GetDuration", [](UMediaPlayer& self) { return self.GetDuration().GetTotalSeconds(); })
+		.def("GetTime", [](UMediaPlayer& self) { return self.GetTime().GetTotalSeconds(); })
+		;
+
+	py::class_<UFileMediaSource, UObject, UnrealTracker<UFileMediaSource>>(m, "UFileMediaSource") // TODO: actually it's UFileMediaSource<--UBaseMediaSource<--UMediaSource<--UObject
+		.def_static("StaticClass", []() { return UFileMediaSource::StaticClass(); })
+		.def_static("Cast", [](UObject *obj) { return Cast<UFileMediaSource>(obj); }, py::return_value_policy::reference)
+		.def("SetFilePath", [](UFileMediaSource& self, py::str path) { std::string p = path; self.SetFilePath(p.c_str()); })
+		;
+
+	py::class_<UAudioComponent, USceneComponent, UnrealTracker<UAudioComponent>>(m, "UAudioComponent")
+		.def_static("StaticClass", []() { return UAudioComponent::StaticClass(); })
+		.def_static("Cast", [](UObject *obj) { return Cast<UAudioComponent>(obj); }, py::return_value_policy::reference)
+		.def_readwrite("VolumeMultiplier", &UAudioComponent::VolumeMultiplier)
+		;
+
+    py::class_<USynthComponent, USceneComponent, UnrealTracker<USynthComponent>>(m, "USynthComponent")
+		.def_readwrite("SoundClass", &USynthComponent::SoundClass)
+		.def_property("bIsUISound", [](USynthComponent& self) { return self.bIsUISound; }, [](USynthComponent& self, bool b) { self.bIsUISound = b; }) // for some reason I couldn't bind this prop directly. Maybe because it's a uint8?
+		.def_property("bAllowSpatialization", [](USynthComponent& self) { return self.bAllowSpatialization; }, [](USynthComponent& self, bool b) { self.bAllowSpatialization = b; }) // ditto
+		.def_static("StaticClass", []() { return USynthComponent::StaticClass(); })
+		.def_static("Cast", [](UObject *obj) { return Cast<USynthComponent>(obj); }, py::return_value_policy::reference)
+        ;
+
+	py::class_<UMediaSoundComponent, USynthComponent, UnrealTracker<UMediaSoundComponent>>(m, "UMediaSoundComponent")
+		.def_static("StaticClass", []() { return UMediaSoundComponent::StaticClass(); })
+		.def_static("Cast", [](UObject *obj) { return Cast<UMediaSoundComponent>(obj); }, py::return_value_policy::reference)
+		.def("SetMediaPlayer", [](UMediaSoundComponent& self, UMediaPlayer* player) { self.SetMediaPlayer(player); })
+		.def("SetVolumeMultiplier", [](UMediaSoundComponent& self, float m) { self.SetVolumeMultiplier(m); })
+		.def("GetAudioComponent", [](UMediaSoundComponent& self) { return self.GetAudioComponent(); })
+		;
 }
 

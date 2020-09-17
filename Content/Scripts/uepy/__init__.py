@@ -1,7 +1,7 @@
 from _uepy import *
 
 from importlib import reload
-import sys, shlex
+import sys, shlex, json
 
 from . import enums
 
@@ -19,6 +19,26 @@ del OutRedir
 
 # some stuff for interactive
 __builtins__['reload'] = reload
+
+class Bag(dict):
+    def __setattr__(self, k, v): self[k] = v
+
+    def __getattr__(self, k):
+        try: return self[k]
+        except KeyError: raise AttributeError('No such attribute %r' % k)
+
+    def __delattr__(self, k):
+        try: del self[k]
+        except KeyError: raise AttributeError('No such attribute %r' % k)
+
+    @staticmethod
+    def FromJSON(j):
+        return json.loads(j, object_pairs_hook=Bag)
+
+    def ToJSON(self, indent=0):
+        if indent > 0:
+            return json.dumps(self, indent=indent, sort_keys=True)
+        return json.dumps(self)
 
 # The command line args passed to UE4, not including "sys.argv[0]" (the application)
 # NOTE: UE4 strips out quotes before it gets to any of our code, so pretty much anything with spaces in

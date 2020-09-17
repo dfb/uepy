@@ -30,6 +30,9 @@
 // instead do try { ... } catchpy
 #define catchpy catch (std::exception e) { LERROR("%s", UTF8_TO_TCHAR(e.what())); }
 
+// std::string --> FString, sort of
+#define FSTR(stdstr) UTF8_TO_TCHAR((stdstr).c_str())
+
 class FToolBarBuilder;
 class FMenuBuilder;
 
