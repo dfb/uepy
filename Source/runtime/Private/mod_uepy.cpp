@@ -2,6 +2,7 @@
 #include "uepy.h"
 #include "common.h"
 #include "Kismet/GameplayStatics.h"
+#include "Kismet/KismetMathLibrary.h"
 #include "UObject/ConstructorHelpers.h"
 #include "Engine/GameInstance.h"
 #include "GameFramework/GameState.h"
@@ -98,6 +99,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
 
     py::class_<UObject, UnrealTracker<UObject>>(m, "UObject")
         .def_static("StaticClass", []() { return UObject::StaticClass(); })
+        .def("GetClass", [](UObject& self) { return self.GetClass(); })
 
         // TODO: we could create a generic CreateDefaultSubobject utility func that takes a UClass of what to create
         // and just return it as a UObject, though the caller would then need to also cast it, e.g.
@@ -185,6 +187,13 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
 
     py::class_<UGameplayStatics, UObject, UnrealTracker<UGameplayStatics>>(m, "UGameplayStatics") // not sure that it makes sense to really expose this fully
         .def_static("GetGameInstance", [](UWorld *world) { return UGameplayStatics::GetGameInstance(world); })
+        .def_static("GetGameState", [](UWorld *world) { return UGameplayStatics::GetGameState(world); })
+        ;
+
+    py::class_<UKismetMathLibrary, UObject, UnrealTracker<UKismetMathLibrary>>(m, "UKismetMatchLibrary")
+        .def_static("TEase", [](FTransform& a, FTransform& b, float alpha, int easingFunc, float blend, int steps) { return UKismetMathLibrary::TEase(a, b, alpha, (EEasingFunc::Type)easingFunc, blend, steps); })
+        .def_static("VEase", [](FVector& a, FVector& b, float alpha, int easingFunc, float blend, int steps) { return UKismetMathLibrary::VEase(a, b, alpha, (EEasingFunc::Type)easingFunc, blend, steps); })
+        .def_static("REase", [](FRotator& a, FRotator& b, float alpha, bool shortestPath, int easingFunc, float blend, int steps) { return UKismetMathLibrary::REase(a, b, alpha, shortestPath, (EEasingFunc::Type)easingFunc, blend, steps); })
         ;
 
     py::class_<UMaterialInterface, UnrealTracker<UMaterialInterface>>(m, "UMaterialInterface");
@@ -200,10 +209,9 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
     py::class_<UTexture2D, UnrealTracker<UTexture2D>>(m, "UTexture2D")
         ;
 
-    py::class_<UGameInstance, UnrealTracker<UGameInstance>>(m, "UGameInstance")
-        ;
-
-    py::class_<AGameState, UnrealTracker<AGameState>>(m, "AGameState")
+    py::class_<UGameInstance, UObject, UnrealTracker<UGameInstance>>(m, "UGameInstance")
+        .def_static("StaticClass", []() { return UGameInstance::StaticClass(); })
+        .def_static("Cast", [](UObject *w) { return Cast<UGameInstance>(w); }, py::return_value_policy::reference)
         ;
 
     py::class_<AActor, UObject, UnrealTracker<AActor>>(m, "AActor")
@@ -224,12 +232,21 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("GetActorTickInterval", [](AActor& self) { return self.GetActorTickInterval(); })
         ;
 
+    py::class_<AGameStateBase, AActor, UnrealTracker<AGameStateBase>>(m, "AGameStateBase")
+        ;
+    py::class_<AGameState, AGameStateBase, UnrealTracker<AGameState>>(m, "AGameState")
+        ;
+
     py::class_<FVector2D>(m, "FVector2D")
         .def(py::init<float,float>(), "x"_a=0.0f, "y"_a=0.0f)
         .def_readwrite("x", &FVector2D::X)
         .def_readwrite("X", &FVector2D::X)
         .def_readwrite("y", &FVector2D::Y)
         .def_readwrite("Y", &FVector2D::Y)
+        .def(py::self + py::self)
+        .def(-py::self)
+        .def(float() * py::self)
+        .def(py::self * float())
         ;
 
     py::class_<FVector>(m, "FVector")
@@ -240,6 +257,10 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def_readwrite("Y", &FVector::Y)
         .def_readwrite("z", &FVector::Z)
         .def_readwrite("Z", &FVector::Z)
+        .def(py::self + py::self)
+        .def(-py::self)
+        .def(float() * py::self)
+        .def(py::self * float())
         ;
 
     py::class_<FRotator>(m, "FRotator")
@@ -250,6 +271,8 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def_readwrite("Pitch", &FRotator::Pitch)
         .def_readwrite("yaw", &FRotator::Yaw)
         .def_readwrite("Yaw", &FRotator::Yaw)
+        .def("RotateVector", [](FRotator& self, FVector& v) { return self.RotateVector(v); })
+        .def("UnrotateVector", [](FRotator& self, FVector& v) { return self.UnrotateVector(v); })
         ;
 
     py::class_<FTransform>(m, "FTransform")

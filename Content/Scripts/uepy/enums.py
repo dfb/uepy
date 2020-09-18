@@ -23,3 +23,6 @@ class ECollisionChannel:
     ECC_Vehicle = 6
     ECC_Destructible = 7
 
+class EEasingFunc:
+    Linear, Step, SinusoidalIn, SinusoidalOut, SinusoidalInOut, EaseIn, EaseOut, EaseInOut, ExpoIn, ExpoOut, ExpoInOut, CircularIn, CircularOut, CircularInOut = range(14)
+

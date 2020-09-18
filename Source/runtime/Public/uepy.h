@@ -9,6 +9,7 @@
 #pragma warning (disable : 4686 4191 340)
 #include <pybind11/pybind11.h>
 #include <pybind11/embed.h>
+#include <pybind11/operators.h>
 #pragma warning(pop)
 
 #include "Materials/MaterialInstanceDynamic.h"

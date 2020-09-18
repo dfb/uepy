@@ -41,6 +41,8 @@ Net result: even though we don't have true Python subclassing, it gets pretty cl
 Note: the `_PGLUE` convention exists because usually the normal class will also be exposed to Python, e.g. AActor_PGLUE is the class to subclass from,
 but uepy.AActor is the C++ AActor class exposed to Python via pybind11, so that you can use pointers to AActor from Python.
 
+Note: if a method you want to override in Python is declared as a BlueprintNativeEvent, then you need to override `MethodName_Implementation`, not `MethondName`.
+
 # Installation
 
 Eventually I hope to make this less manual, but for now:
