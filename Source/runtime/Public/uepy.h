@@ -79,13 +79,16 @@ public:
     // generic
     UFUNCTION() void On() { if (valid) callback(); }
     // UComboBoxString
-    UFUNCTION() void OnUComboBoxString_HandleSelectionChanged(FString Item, ESelectInfo::Type SelectionType) { if (valid) callback(*Item, (int)SelectionType); }
+    UFUNCTION() void UComboBoxString_OnHandleSelectionChanged(FString Item, ESelectInfo::Type SelectionType) { if (valid) callback(*Item, (int)SelectionType); }
 
     // UCheckBox
-    UFUNCTION() void OnUCheckBox_CheckStateChanged(bool checked) { if (valid) callback(checked); }
+    UFUNCTION() void UCheckBox_OnCheckStateChanged(bool checked) { if (valid) callback(checked); }
 
     // AActor
-    UFUNCTION() void OnAActor_EndPlay(AActor *actor, EEndPlayReason::Type reason) { if (valid) callback(actor, (int)reason); }
+    UFUNCTION() void AActor_OnEndPlay(AActor *actor, EEndPlayReason::Type reason) { if (valid) callback(actor, (int)reason); }
+
+    // UMediaPlayer
+    UFUNCTION() void UMediaPlayer_OnMediaOpenFailed(FString failedURL) { std::string s = TCHAR_TO_UTF8(*failedURL); callback(s); }
 };
 
 // a singleton that taps into the engine's garbage collection system to keep some engine objects alive as long as they are

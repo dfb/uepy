@@ -230,8 +230,8 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("SetActorTickEnabled", [](AActor& self, bool enabled) { self.SetActorTickEnabled(enabled); })
         .def("SetActorTickInterval", [](AActor& self, float interval) { self.SetActorTickInterval(interval); })
         .def("GetActorTickInterval", [](AActor& self) { return self.GetActorTickInterval(); })
-        .def("BindOnEndPlay", [](AActor* self, py::object callback) { UEPY_BIND(self, OnEndPlay, OnAActor_EndPlay, callback); })
-        .def("UnbindOnEndPlay", [](AActor* self, py::object callback) { UEPY_UNBIND(self, OnEndPlay, OnAActor_EndPlay, callback); })
+        .def("BindOnEndPlay", [](AActor* self, py::object callback) { UEPY_BIND(self, OnEndPlay, AActor_OnEndPlay, callback); })
+        .def("UnbindOnEndPlay", [](AActor* self, py::object callback) { UEPY_UNBIND(self, OnEndPlay, AActor_OnEndPlay, callback); })
         ;
 
     py::class_<AGameStateBase, AActor, UnrealTracker<AGameStateBase>>(m, "AGameStateBase")
@@ -451,7 +451,10 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
 		.def("SetRate", [](UMediaPlayer& self, float rate) { return self.SetRate(rate); })
 		.def("GetDuration", [](UMediaPlayer& self) { return self.GetDuration().GetTotalSeconds(); })
 		.def("GetTime", [](UMediaPlayer& self) { return self.GetTime().GetTotalSeconds(); })
-		;
+        .def("BindOnEndReached", [](UMediaPlayer* self, py::object callback) { UEPY_BIND(self, OnEndReached, On, callback); })
+        .def("UnbindOnEndReached", [](UMediaPlayer* self, py::object callback) { UEPY_UNBIND(self, OnEndReached, On, callback); })
+        .def("BindOnMediaOpenFailed", [](UMediaPlayer&self, py::object callback) { UEPY_UNBIND(self, OnMediaOpenFailed, UMediaPlayer_OnMediaOpenFailed); })
+        .def("UnbindOnMediaOpenFailed", [](UMediaPlayer&self, py::object callback) { UEPY_BIND(self, OnMediaOpenFailed, UMediaPlayer_OnMediaOpenFailed); })
 
 	py::class_<UFileMediaSource, UObject, UnrealTracker<UFileMediaSource>>(m, "UFileMediaSource") // TODO: actually it's UFileMediaSource<--UBaseMediaSource<--UMediaSource<--UObject
 		.def_static("StaticClass", []() { return UFileMediaSource::StaticClass(); })

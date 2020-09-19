@@ -152,8 +152,8 @@ void _LoadModuleUMG(py::module& uepy)
             FSlateFontInfo& sfi = self.Font;
             sfi.Size = newSize;
         })
-        .def("BindOnSelectionChanged", [](UComboBoxString* self, py::object callback) { UEPY_BIND(self, OnSelectionChanged, OnUComboBoxString_HandleSelectionChanged, callback); })
-        .def("UnbindOnSelectionChanged", [](UComboBoxString* self, py::object callback) { UEPY_UNBIND(self, OnSelectionChanged, OnUComboBoxString_HandleSelectionChanged, callback); })
+        .def("BindOnSelectionChanged", [](UComboBoxString* self, py::object callback) { UEPY_BIND(self, OnSelectionChanged, UComboBoxString_OnHandleSelectionChanged, callback); })
+        .def("UnbindOnSelectionChanged", [](UComboBoxString* self, py::object callback) { UEPY_UNBIND(self, OnSelectionChanged, UComboBoxString_OnHandleSelectionChanged, callback); })
         ;
 
     py::class_<UCheckBox, UContentWidget, UnrealTracker<UCheckBox>>(m, "UCheckBox")
@@ -161,8 +161,8 @@ void _LoadModuleUMG(py::module& uepy)
         .def_static("Cast", [](UObject *obj) { return Cast<UCheckBox>(obj); }, py::return_value_policy::reference)
         .def("IsChecked", [](UCheckBox& self) { return self.IsChecked(); })
         .def("SetIsChecked", [](UCheckBox& self, bool b) { self.SetIsChecked(b); })
-        .def("BindOnCheckStateChanged", [](UCheckBox* self, py::object callback) { UEPY_BIND(self, OnCheckStateChanged, OnUCheckBox_CheckStateChanged, callback); })
-        .def("UnbindOnCheckStateChanged", [](UCheckBox* self, py::object callback) { UEPY_UNBIND(self, OnCheckStateChanged, OnUCheckBox_CheckStateChanged, callback); })
+        .def("BindOnCheckStateChanged", [](UCheckBox* self, py::object callback) { UEPY_BIND(self, OnCheckStateChanged, UCheckBox_OnCheckStateChanged, callback); })
+        .def("UnbindOnCheckStateChanged", [](UCheckBox* self, py::object callback) { UEPY_UNBIND(self, OnCheckStateChanged, UCheckBox_OnCheckStateChanged, callback); })
         ;
 
     py::class_<UEditableTextBox, UWidget, UnrealTracker<UEditableTextBox>>(m, "UEditableTextBox")

@@ -63,6 +63,7 @@ Eventually I hope to make this less manual, but for now:
 
 # other stuff to document
 
+- we had to make some minor changes to pybind11 (check --> pybind11_check)
 - python and uobject instance life cycles
 - obj.is_a
 - conventions: use engine naming, e.g. resist the temptation to expose FVector as Vector, or AActor as Actor - just causes confusion later on
