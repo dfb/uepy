@@ -28,6 +28,9 @@
 #include "Components/VerticalBox.h"
 #include "Components/VerticalBoxSlot.h"
 #include "Components/Widget.h"
+#include "MediaPlayer.h"
+#include "MediaSoundComponent.h"
+#include "FileMediaSource.h"
 #include "uepy.generated.h"
 
 namespace py = pybind11;
@@ -192,6 +195,11 @@ namespace pybind11 {
     UTYPE_HOOK(UTextBlock);
     UTYPE_HOOK(UButton);
     UTYPE_HOOK(UWidget);
+
+    UTYPE_HOOK(UMediaPlayer);
+    UTYPE_HOOK(USoundClass);
+    UTYPE_HOOK(UFileMediaSource);
+    UTYPE_HOOK(UMediaSoundComponent);
 
     UTYPE_HOOK(UObject);
 

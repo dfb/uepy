@@ -10,9 +10,6 @@
 #include "IImageWrapperModule.h"
 #include "ImageUtils.h"
 #include "Misc/FileHelper.h"
-#include "MediaPlayer.h"
-#include "MediaSoundComponent.h"
-#include "FileMediaSource.h"
 #include <map>
 
 static std::map<FString, py::object> pyClassMap; // class name --> python class
@@ -278,7 +275,10 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         ;
 
     py::class_<FTransform>(m, "FTransform")
+        .def(py::init<>())
         .def("Rotator", [](FTransform& self) { return self.Rotator(); })
+        .def("GetRotation", [](FTransform& self) { return self.Rotator(); })
+        .def("SetRotation", [](FTransform& self, FRotator& r) { FQuat q(r); self.SetRotation(q); })
         .def("GetTranslation", [](FTransform& self) { return self.GetTranslation(); })
         .def("GetLocation", [](FTransform& self) { return self.GetLocation(); })
         .def("SetTranslation", [](FTransform& self, FVector& t) { self.SetTranslation(t); })
@@ -451,12 +451,18 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
 		.def("SetRate", [](UMediaPlayer& self, float rate) { return self.SetRate(rate); })
 		.def("GetDuration", [](UMediaPlayer& self) { return self.GetDuration().GetTotalSeconds(); })
 		.def("GetTime", [](UMediaPlayer& self) { return self.GetTime().GetTotalSeconds(); })
-        .def("BindOnEndReached", [](UMediaPlayer* self, py::object callback) { UEPY_BIND(self, OnEndReached, On, callback); })
-        .def("UnbindOnEndReached", [](UMediaPlayer* self, py::object callback) { UEPY_UNBIND(self, OnEndReached, On, callback); })
-        .def("BindOnMediaOpenFailed", [](UMediaPlayer&self, py::object callback) { UEPY_UNBIND(self, OnMediaOpenFailed, UMediaPlayer_OnMediaOpenFailed); })
-        .def("UnbindOnMediaOpenFailed", [](UMediaPlayer&self, py::object callback) { UEPY_BIND(self, OnMediaOpenFailed, UMediaPlayer_OnMediaOpenFailed); })
+		.def("BindOnEndReached", [](UMediaPlayer* self, py::object callback) { UEPY_BIND(self, OnEndReached, On, callback); })
+		.def("UnbindOnEndReached", [](UMediaPlayer* self, py::object callback) { UEPY_UNBIND(self, OnEndReached, On, callback); })
+		.def("BindOnMediaOpenFailed", [](UMediaPlayer* self, py::object callback) { UEPY_UNBIND(self, OnMediaOpenFailed, UMediaPlayer_OnMediaOpenFailed, callback); })
+		.def("UnbindOnMediaOpenFailed", [](UMediaPlayer* self, py::object callback) { UEPY_BIND(self, OnMediaOpenFailed, UMediaPlayer_OnMediaOpenFailed, callback); })
+		;
 
-	py::class_<UFileMediaSource, UObject, UnrealTracker<UFileMediaSource>>(m, "UFileMediaSource") // TODO: actually it's UFileMediaSource<--UBaseMediaSource<--UMediaSource<--UObject
+    py::class_<UMediaSource, UObject, UnrealTracker<UMediaSource>>(m, "UMediaSource")
+		.def_static("StaticClass", []() { return UMediaSource::StaticClass(); })
+		.def_static("Cast", [](UObject *obj) { return Cast<UMediaSource>(obj); }, py::return_value_policy::reference)
+        ;
+
+	py::class_<UFileMediaSource, UMediaSource, UnrealTracker<UFileMediaSource>>(m, "UFileMediaSource") // TODO: actually it's UFileMediaSource<--UBaseMediaSource<--UMediaSource
 		.def_static("StaticClass", []() { return UFileMediaSource::StaticClass(); })
 		.def_static("Cast", [](UObject *obj) { return Cast<UFileMediaSource>(obj); }, py::return_value_policy::reference)
 		.def("SetFilePath", [](UFileMediaSource& self, py::str path) { std::string p = path; self.SetFilePath(p.c_str()); })
