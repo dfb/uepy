@@ -230,6 +230,8 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("SetActorTickEnabled", [](AActor& self, bool enabled) { self.SetActorTickEnabled(enabled); })
         .def("SetActorTickInterval", [](AActor& self, float interval) { self.SetActorTickInterval(interval); })
         .def("GetActorTickInterval", [](AActor& self) { return self.GetActorTickInterval(); })
+        .def("BindOnEndPlay", [](AActor* self, py::object callback) { UEPY_BIND(self, OnEndPlay, OnAActor_EndPlay, callback); })
+        .def("UnbindOnEndPlay", [](AActor* self, py::object callback) { UEPY_UNBIND(self, OnEndPlay, OnAActor_EndPlay, callback); })
         ;
 
     py::class_<AGameStateBase, AActor, UnrealTracker<AGameStateBase>>(m, "AGameStateBase")

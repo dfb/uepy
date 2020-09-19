@@ -130,16 +130,12 @@ void _LoadModuleUMG(py::module& uepy)
     py::class_<UContentWidget, UPanelWidget, UnrealTracker<UContentWidget>>(m, "UContentWidget")
         .def("SetContent", [](UContentWidget& self, UWidget *obj) { return self.SetContent(obj); });
 
-    py::class_<UButton, UContentWidget, UnrealTracker<UButton>>(m, "UButton")
-        .def_static("StaticClass", []() { return UButton::StaticClass(); })
-        .def_static("Cast", [](UObject *obj) { return Cast<UButton>(obj); }, py::return_value_policy::reference)
-        .def("BindOnClicked", [](UButton& self, py::object callback)
-        {
-            UBasePythonDelegate* delegate = NewObject<UBasePythonDelegate>();
-            delegate->callback = callback;
-            self.OnClicked.AddDynamic(delegate, &UBasePythonDelegate::On);
-            return (UObject*)delegate; // TODO: this is a temp hack so the caller can keep it alive by saving a ref to it :-/
-        });
+	py::class_<UButton, UContentWidget, UnrealTracker<UButton>>(m, "UButton")
+		.def_static("StaticClass", []() { return UButton::StaticClass(); })
+		.def_static("Cast", [](UObject *obj) { return Cast<UButton>(obj); }, py::return_value_policy::reference)
+        .def("BindOnClicked", [](UButton* self, py::object callback) { UEPY_BIND(self, OnClicked, On, callback); })
+		.def("UnbindOnClicked", [](UButton* self, py::object callback) { UEPY_UNBIND(self, OnClicked, On, callback); })
+		;
 
     py::class_<UComboBoxString, UWidget, UnrealTracker<UComboBoxString>>(m, "UComboBoxString")
         .def_static("StaticClass", []() { return UComboBoxString::StaticClass(); })
@@ -156,13 +152,8 @@ void _LoadModuleUMG(py::module& uepy)
             FSlateFontInfo& sfi = self.Font;
             sfi.Size = newSize;
         })
-        .def("BindOnSelectionChanged", [](UComboBoxString& self, py::object callback)
-        {
-            UBasePythonDelegate* delegate = NewObject<UBasePythonDelegate>();
-            delegate->callback = callback;
-            self.OnSelectionChanged.AddDynamic(delegate, &UBasePythonDelegate::OnUComboBoxString_HandleSelectionChanged);
-            return (UObject*)delegate; // TODO: this is a temp hack so the caller can keep it alive by saving a ref to it :-/
-        })
+        .def("BindOnSelectionChanged", [](UComboBoxString* self, py::object callback) { UEPY_BIND(self, OnSelectionChanged, OnUComboBoxString_HandleSelectionChanged, callback); })
+        .def("UnbindOnSelectionChanged", [](UComboBoxString* self, py::object callback) { UEPY_UNBIND(self, OnSelectionChanged, OnUComboBoxString_HandleSelectionChanged, callback); })
         ;
 
     py::class_<UCheckBox, UContentWidget, UnrealTracker<UCheckBox>>(m, "UCheckBox")
@@ -170,13 +161,8 @@ void _LoadModuleUMG(py::module& uepy)
         .def_static("Cast", [](UObject *obj) { return Cast<UCheckBox>(obj); }, py::return_value_policy::reference)
         .def("IsChecked", [](UCheckBox& self) { return self.IsChecked(); })
         .def("SetIsChecked", [](UCheckBox& self, bool b) { self.SetIsChecked(b); })
-        .def("BindOnCheckStateChanged", [](UCheckBox& self, py::object callback)
-        {
-            UBasePythonDelegate* delegate = NewObject<UBasePythonDelegate>();
-            delegate->callback = callback;
-            self.OnCheckStateChanged.AddDynamic(delegate, &UBasePythonDelegate::OnUCheckBox_OnCheckStateChanged);
-            return (UObject*)delegate; // TODO: this is a temp hack so the caller can keep it alive by saving a ref to it :-/
-        })
+        .def("BindOnCheckStateChanged", [](UCheckBox* self, py::object callback) { UEPY_BIND(self, OnCheckStateChanged, OnUCheckBox_CheckStateChanged, callback); })
+        .def("UnbindOnCheckStateChanged", [](UCheckBox* self, py::object callback) { UEPY_UNBIND(self, OnCheckStateChanged, OnUCheckBox_CheckStateChanged, callback); })
         ;
 
     py::class_<UEditableTextBox, UWidget, UnrealTracker<UEditableTextBox>>(m, "UEditableTextBox")

@@ -9,7 +9,7 @@ actor-spawning API). So instead of subclassing directly, we achieve the same res
 and then have them work together. For each C++ class we want to be subclassable in Python, we create:
 
 1. A C++ glue class (naming convention: C++ class name + `_CGLUE"`, e.g. `AActor_CGLUE`)
-    1. It implements the IUEPyGlueMixin interface (a thin mixin that has a Python instance attached to it).
+    1. It implements the IUEPYGlueMixin interface (a thin mixin that has a Python instance attached to it).
     1. For each overrideable method, it provides an implementation that calls the same method on the Python instance
     1. For each overrideable method, it provides a SuperXXX version so that Python instances can call e.g. Super::BeginPlay as needed
     1. The code to expose the C++ glue class /always/ exposes it via the builtin `_uepy._glueClasses` module. (even those coming from game modules)

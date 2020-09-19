@@ -55,7 +55,6 @@ void OnPreBeginPIE(bool b)
 
 void FuepyModule::StartupModule()
 {
-    // This code will execute after your module is loaded into memory; the exact timing is specified in the .uplugin file per-module
     FPyObjectTracker::Get();
 
     // we need the engine to start up before we do much more Python stuff
@@ -90,9 +89,15 @@ FPyObjectTracker *FPyObjectTracker::Get()
         FEditorDelegates::PrePIEEnded.AddLambda([](bool b) { LOG("TRK PrePIEEnded"); });
         FEditorDelegates::EndPIE.AddLambda([](bool b)
         {
+            globalTracker->Purge();
             LOG("TRK EndPIE");
             for (auto obj : globalTracker->objects)
-                LOG("TRK post-PIE: %s %p", *obj->GetName(), obj);
+                LOG("TRK post-PIE obj: %s %p", *obj->GetName(), obj);
+            for (auto d : globalTracker->delegates)
+            {
+                if (d->valid)
+                    LOG("TRK post-PIE delegate: %p (engineObj %p), mc:%s, pyDel:%s", d, d->engineObj, *d->mcDelName, *d->pyDelMethodName);
+            }
         });
 #endif
     }
@@ -111,20 +116,76 @@ void FPyObjectTracker::Untrack(UObject *o)
     objects.Remove(o);
 }
 
-// called by the engine
-void FPyObjectTracker::AddReferencedObjects(FReferenceCollector& InCollector)
+UBasePythonDelegate *UBasePythonDelegate::Create(UObject *engineObj, FString _mcDelName, FString _pyDelMethodName, py::object pyCB)
+{
+    UBasePythonDelegate* delegate = NewObject<UBasePythonDelegate>();
+    delegate->valid = true;
+    delegate->engineObj = engineObj;
+    delegate->mcDelName = _mcDelName;
+    delegate->pyDelMethodName = _pyDelMethodName;
+    delegate->callback = py::object(pyCB); // this increfs pyCB, which seems wrong, but in the end, seems to work. I spent a whole day trying to get weakrefs to handle it right, but to no avail.
+    return delegate;
+}
+
+bool UBasePythonDelegate::Matches(UObject *_engineObj, FString& _mcDelName, FString& _pyDelMethodName, py::object _pyCB)
+{
+    return engineObj == (void*)_engineObj && mcDelName == _mcDelName && pyDelMethodName == _pyDelMethodName && callback.ptr() == _pyCB.ptr();
+}
+
+UBasePythonDelegate *FPyObjectTracker::CreateDelegate(UObject *engineObj, const char *mcDelName, const char *pyDelMethodName, py::object pyCB)
+{
+    UBasePythonDelegate* delegate = UBasePythonDelegate::Create(engineObj, UTF8_TO_TCHAR(mcDelName), UTF8_TO_TCHAR(pyDelMethodName), pyCB);
+    delegates.Emplace(delegate);
+    return delegate;
+}
+
+UBasePythonDelegate *FPyObjectTracker::FindDelegate(UObject *engineObj, const char *mcDelName, const char *pyDelMethodName, py::object pyCB)
+{
+    FString findMCDelName = UTF8_TO_TCHAR(mcDelName);
+    FString findPyDelMethodName = UTF8_TO_TCHAR(pyDelMethodName);
+    for (UBasePythonDelegate* delegate : delegates)
+        if (delegate->Matches(engineObj, findMCDelName, findPyDelMethodName, pyCB))
+            return delegate;
+    return nullptr;
+}
+
+// removes any objects we should no longer be tracking
+void FPyObjectTracker::Purge()
 {
     TArray<UObject *> toRemove;
     for (UObject *obj : objects)
     {
-        if (obj && obj->IsValidLowLevel())
-            InCollector.AddReferencedObject(obj);
-        else
+        if (!obj || !obj->IsValidLowLevel())
             toRemove.Emplace(obj);
+    }
+
+    for (UBasePythonDelegate *delegate : delegates)
+    {
+        if (!delegate->valid || !delegate->IsValidLowLevel() || !delegate->engineObj || !delegate->engineObj->IsValidLowLevel() || !delegate->callback || Py_REFCNT(delegate->callback.ptr()) <= 1)
+        {
+            if (delegate->callback)
+            {
+                delegate->callback.release();
+                delegate->valid = false;
+            }
+            toRemove.Emplace(delegate);
+        }
     }
 
     for (UObject* obj : toRemove)
         objects.Remove(obj);
+}
+
+// called by the engine
+void FPyObjectTracker::AddReferencedObjects(FReferenceCollector& InCollector)
+{
+    Purge();
+    for (UObject *obj : objects)
+        InCollector.AddReferencedObject(obj);
+
+    // clear out any delegates whose pyinst is not longer valid
+    for (UBasePythonDelegate *delegate : delegates)
+        InCollector.AddReferencedObject(delegate);
 }
 
 // AActor_CGLUE
@@ -144,15 +205,16 @@ UClass *PyObjectToUClass(py::object& klassThing)
     if (py::hasattr(klassThing, "cppGlueClass"))
         return klassThing.attr("cppGlueClass").attr("StaticClass")().cast<UClass*>()->GetSuperClass();
 
+    // maybe it's a pybind11-exposed class?
+    if (py::hasattr(klassThing, "StaticClass"))
+        return klassThing.attr("StaticClass")().cast<UClass*>();
+
     // see if it'll cast to a UClass directly (i.e. caller already called StaticClass)
     try {
         return klassThing.cast<UClass*>();
     }
-    catch (std::exception e)
+    catch (std::exception e) // this logs a "pybind11::cast_error at memory location" error even though we are catching it
     {
-        // maybe it's a pybind11-exposed class?
-        if (py::hasattr(klassThing, "StaticClass"))
-            return klassThing.attr("StaticClass")().cast<UClass*>();
         return nullptr;
     }
 }

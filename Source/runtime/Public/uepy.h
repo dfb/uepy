@@ -7,9 +7,12 @@
 
 #pragma warning(push)
 #pragma warning (disable : 4686 4191 340)
+#pragma push_macro("check")
+#undef check
 #include <pybind11/pybind11.h>
 #include <pybind11/embed.h>
 #include <pybind11/operators.h>
+#pragma pop_macro("check")
 #pragma warning(pop)
 
 #include "Materials/MaterialInstanceDynamic.h"
@@ -26,6 +29,8 @@
 #include "Components/VerticalBoxSlot.h"
 #include "Components/Widget.h"
 #include "uepy.generated.h"
+
+namespace py = pybind11;
 
 // pybind11 lets python exceptions bubble up to be C++ exceptions, which is rarely what we want, so
 // instead do try { ... } catchpy
@@ -45,18 +50,63 @@ public:
     virtual bool IsGameModule() const override { return true; }
 };
 
+// base class (and maybe the only class?) that acts as an intermediary when binding a python callback function to a
+// multicast delegate on an engine object. Since the binding can't happen directly (obviously), we create an intermediate
+// object that can bind to an engine object and then forwards the event to the python callback.
+// TODO: an alternative approach would be to use lambdas instead of defining a new method, but I couldn't come up with
+// anything that was simpler in the end, especially in terms of reuse.
+UCLASS()
+class UBasePythonDelegate : public UObject
+{
+    GENERATED_BODY()
+
+public:
+    bool valid; // becomes false once the python callback is GC'd
+    py::object callback;
+    py::object cleanup;
+
+    // these members are kept for debugging and so we can later unbind
+    UObject *engineObj; // N.B. this is a pointer to a UObject just so we can test to compare addresses, but we don't maintain a ref to it
+    FString mcDelName; // the name of the multicast delegate
+    FString pyDelMethodName; // the name of one of our On* methods
+
+public:
+    static UBasePythonDelegate *Create(UObject *engineObj, FString mcDelName, FString pyDelMethodName, py::object pyCB);
+    bool Matches(UObject *engineObj, FString& mcDelName, FString& pyDelMethodName, py::object pyCB);
+
+    // Each different method signature for different multicast events needs a method here (or in a subclass I guess)
+
+    // generic
+    UFUNCTION() void On() { if (valid) callback(); }
+    // UComboBoxString
+    UFUNCTION() void OnUComboBoxString_HandleSelectionChanged(FString Item, ESelectInfo::Type SelectionType) { if (valid) callback(*Item, (int)SelectionType); }
+
+    // UCheckBox
+    UFUNCTION() void OnUCheckBox_CheckStateChanged(bool checked) { if (valid) callback(checked); }
+
+    // AActor
+    UFUNCTION() void OnAActor_EndPlay(AActor *actor, EEndPlayReason::Type reason) { if (valid) callback(actor, (int)reason); }
+};
+
+// a singleton that taps into the engine's garbage collection system to keep some engine objects alive as long as they are
+// being referenced from Python
 class UEPY_API FPyObjectTracker : public FGCObject
 {
-    TSet<UObject *> objects;
+    TSet<UObject *> objects; // engine objects we force to stay alive because they are being referenced in Python
+    TArray<UBasePythonDelegate*> delegates; // bound delegates we need to keep alive so they don't get cleaned up by the engine since nobody references them directly
+
 public:
-    FPyObjectTracker()
-    {
-    }
+    FPyObjectTracker() {};
+
+    // used for binding engine multicast delegates to python functions
+    UBasePythonDelegate *CreateDelegate(UObject *engineObj, const char *mcDelName, const char *pyDelMethodName, py::object pyCB);
+    UBasePythonDelegate *FindDelegate(UObject *engineObj, const char *mcDelName, const char *pyDelMethodName, py::object pyCB);
 
     static FPyObjectTracker *Get();
 	virtual void AddReferencedObjects(FReferenceCollector& InCollector) override;
     void Track(UObject *o);
     void Untrack(UObject *o);
+    void Purge();
 };
 
 template <typename T> class UnrealTracker {
@@ -69,6 +119,29 @@ public:
     UnrealTracker(T *p) : ptr(p, Deleter()) { FPyObjectTracker::Get()->Track(p); };
     T *get() { return ptr.get(); }
 };
+
+// macros for binding a Python function to an engine object's multicast delegate
+// engineObj - a UObject* to the engine object that has a delegate to bind to
+// mcDel- the name of the multicast delegate member var on engineObj
+// pyDelMethod- the name of one of the On* methods defined in UBasePythonDelegate
+// pyCB - the Python function to be called when the delegate event fires
+// Example: UEPY_BIND(someButtonVar, OnClicked, On, somePyFunctionVar);
+#define UEPY_BIND(engineObj, mcDel, pyDelMethod, pyCB)\
+{\
+    if (engineObj && engineObj->IsValidLowLevel())\
+    {\
+        UBasePythonDelegate *delegate = FPyObjectTracker::Get()->CreateDelegate(engineObj, #mcDel, #pyDelMethod, pyCB);\
+        engineObj->mcDel.AddDynamic(delegate, &UBasePythonDelegate::pyDelMethod);\
+    }\
+}
+
+// To unbind, pass in the same original args
+#define UEPY_UNBIND(engineObj, mcDel, pyDelMethod, pyCB)\
+{\
+    UBasePythonDelegate *delegate = FPyObjectTracker::Get()->FindDelegate(engineObj, #mcDel, #pyDelMethod, pyCB);\
+    if (delegate && engineObj && engineObj->IsValidLowLevel())\
+        engineObj->mcDel.RemoveDynamic(delegate, &UBasePythonDelegate::pyDelMethod);\
+}
 
 // Engine objects passed to Python have to be kept alive as long as Python is keeping a ref to them; we achieve this by connecting
 // them to the root set during that time - pybind's default holder is just unique_ptr, so we just wrap it to get the same effect.
@@ -121,11 +194,9 @@ namespace pybind11 {
 
 } // namespace pybind11
 
-namespace py = pybind11;
-
 // any engine class we want to extend via Python should implement the IUEPYGlueMixin interface
 UINTERFACE()
-class UUEPYGlueMixin : public UInterface // TODO: don't we need a UEPY_API here?
+class UEPY_API UUEPYGlueMixin : public UInterface
 {
 	GENERATED_BODY()
 };
@@ -142,25 +213,6 @@ struct UEPY_API FUEPyDelegates
 {
 	DECLARE_MULTICAST_DELEGATE_OneParam(FPythonEvent1, py::module&);
     static FPythonEvent1 LaunchInit; // called during initial engine startup
-};
-
-UCLASS()
-class UBasePythonDelegate : public UObject
-{
-    GENERATED_BODY()
-    
-public:
-    py::object callback;
-
-    // generic
-    UFUNCTION() void On() { callback(); }
-
-    // UComboBoxString
-    UFUNCTION() void OnUComboBoxString_HandleSelectionChanged(FString Item, ESelectInfo::Type SelectionType) { callback(*Item, (int)SelectionType); }
-
-    // UCheckBox
-    UFUNCTION() void OnUCheckBox_OnCheckStateChanged(bool checked) { callback(checked); }
-
 };
 
 // Generic glue class for cases where you just want to subclass AActor in Python directly

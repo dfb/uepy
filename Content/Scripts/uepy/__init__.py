@@ -147,6 +147,9 @@ class AActor_PGLUE(metaclass=PyGlueMetaclass):
     def SetActorTickEnabled(self, e): self.engineObj.SetActorTickEnabled(e)
     def SetActorTickInterval(self, i): self.engineObj.SetActorTickInterval(i)
     def GetActorTickInterval(self): return self.engineObj.GetActorTickInterval()
+    def Destroy(self): return self.engineObj.Destroy()
+    def BindOnEndPlay(self, cb): self.engineObj.BindOnEndPlay(cb)
+    def UnbindOnEndPlay(self, cb): self.engineObj.UnbindOnEndPlay(cb)
 
 class UUserWidget_PGLUE(metaclass=PyGlueMetaclass):
     '''Base class of all Python subclasses from AActor-derived C++ classes'''
