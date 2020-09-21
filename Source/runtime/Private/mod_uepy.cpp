@@ -187,7 +187,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def_static("GetGameState", [](UWorld *world) { return UGameplayStatics::GetGameState(world); })
         ;
 
-    py::class_<UKismetMathLibrary, UObject, UnrealTracker<UKismetMathLibrary>>(m, "UKismetMatchLibrary")
+    py::class_<UKismetMathLibrary, UObject, UnrealTracker<UKismetMathLibrary>>(m, "UKismetMathLibrary")
         .def_static("TEase", [](FTransform& a, FTransform& b, float alpha, int easingFunc, float blend, int steps) { return UKismetMathLibrary::TEase(a, b, alpha, (EEasingFunc::Type)easingFunc, blend, steps); })
         .def_static("VEase", [](FVector& a, FVector& b, float alpha, int easingFunc, float blend, int steps) { return UKismetMathLibrary::VEase(a, b, alpha, (EEasingFunc::Type)easingFunc, blend, steps); })
         .def_static("REase", [](FRotator& a, FRotator& b, float alpha, bool shortestPath, int easingFunc, float blend, int steps) { return UKismetMathLibrary::REase(a, b, alpha, shortestPath, (EEasingFunc::Type)easingFunc, blend, steps); })
@@ -246,6 +246,13 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def(-py::self)
         .def(float() * py::self)
         .def(py::self * float())
+        .def("AsList", [](FVector2D& self) // lame hackery til I figure out a clean way to implement __iter__
+        {
+            py::list ret;
+            ret.append(self.X);
+            ret.append(self.Y);
+            return ret;
+        })
         ;
 
     py::class_<FVector>(m, "FVector")
@@ -260,10 +267,18 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def(-py::self)
         .def(float() * py::self)
         .def(py::self * float())
+        .def("AsList", [](FVector& self)
+        {
+            py::list ret;
+            ret.append(self.X);
+            ret.append(self.Y);
+            ret.append(self.Z);
+            return ret;
+        })
         ;
 
     py::class_<FRotator>(m, "FRotator")
-        .def(py::init<float, float, float>(), "pitch"_a=0.0f, "yaw"_a=0.0f, "roll"_a=0.0f) // weird order, but matches UE4
+        .def(py::init([](float roll=0, float pitch=0, float yaw=0) { FRotator r; r.Roll=roll; r.Pitch=pitch; r.Yaw=yaw; return r; })) //<float, float, float>(), "roll"_a=0.0f, "pitch"_a=0.0f, "yaw"_a=0.0f) // weird order, but matches UnrealEnginePython
         .def_readwrite("roll", &FRotator::Roll)
         .def_readwrite("Roll", &FRotator::Roll)
         .def_readwrite("pitch", &FRotator::Pitch)
@@ -272,6 +287,14 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def_readwrite("Yaw", &FRotator::Yaw)
         .def("RotateVector", [](FRotator& self, FVector& v) { return self.RotateVector(v); })
         .def("UnrotateVector", [](FRotator& self, FVector& v) { return self.UnrotateVector(v); })
+        .def("AsList", [](FRotator& self)
+        {
+            py::list ret;
+            ret.append(self.Roll);
+            ret.append(self.Pitch);
+            ret.append(self.Yaw);
+            return ret;
+        })
         ;
 
     py::class_<FTransform>(m, "FTransform")
@@ -429,7 +452,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         if (obj)
             obj->PostLoad(); // ? is this right ?
         return obj;
-	});
+	}, py::return_value_policy::reference);
 
     py::class_<AActor_CGLUE, AActor, UnrealTracker<AActor_CGLUE>>(glueclasses, "AActor_CGLUE")
         .def_static("StaticClass", []() { return AActor_CGLUE::StaticClass(); }) // TODO: I think this can go away once we have the C++ APIs take PyClassOrUClass

@@ -98,7 +98,13 @@ public:
 // being referenced from Python
 class UEPY_API FPyObjectTracker : public FGCObject
 {
-    TSet<UObject *> objects; // engine objects we force to stay alive because they are being referenced in Python
+    typedef struct Slot {
+        // normally, an engine object shows up once in objectMap and there is a single corresponding shared wrapped Python instance. In some cases however
+        // (such as calling a Cast() function from Python), we can end up with multiple Python instances for the same UObject, so we have to do reference
+        // counting here
+        int refs=0;
+    } Slot;
+    TMap<UObject*,Slot> objectMap; // an engine object we're keeping alive because it's being referenced in Python --> how many references in Python there are
     TArray<UBasePythonDelegate*> delegates; // bound delegates we need to keep alive so they don't get cleaned up by the engine since nobody references them directly
 
 public:
@@ -200,6 +206,7 @@ namespace pybind11 {
     UTYPE_HOOK(USoundClass);
     UTYPE_HOOK(UFileMediaSource);
     UTYPE_HOOK(UMediaSoundComponent);
+    UTYPE_HOOK(UAudioComponent);
 
     UTYPE_HOOK(UObject);
 

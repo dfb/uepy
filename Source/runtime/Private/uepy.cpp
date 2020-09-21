@@ -4,6 +4,8 @@
 #include "common.h"
 #include "mod_uepy_umg.h"
 
+//#pragma optimize("", off)
+
 #if WITH_EDITOR
 #include "Editor.h"
 #endif
@@ -91,8 +93,12 @@ FPyObjectTracker *FPyObjectTracker::Get()
         {
             globalTracker->Purge();
             LOG("TRK EndPIE");
-            for (auto obj : globalTracker->objects)
-                LOG("TRK post-PIE obj: %s %p", *obj->GetName(), obj);
+            for (auto& entry : globalTracker->objectMap)
+            {
+                UObject *obj = entry.Key;
+                FPyObjectTracker::Slot& slot = entry.Value;
+                LOG("TRK post-PIE obj: %s %p (%d refs)", *obj->GetName(), obj, slot.refs);
+            }
             for (auto d : globalTracker->delegates)
             {
                 if (d->valid)
@@ -107,13 +113,20 @@ FPyObjectTracker *FPyObjectTracker::Get()
 void FPyObjectTracker::Track(UObject *o)
 {
     //LOG("TRK Track %s, %p", *o->GetName(), o);
-    objects.Emplace(o);
+    FPyObjectTracker::Slot& slot = objectMap.FindOrAdd(o);
+    slot.refs++;
 }
 
 void FPyObjectTracker::Untrack(UObject *o)
 {
     //LOG("TRK Untrack %s, %p", *o->GetName(), o);
-    objects.Remove(o);
+    FPyObjectTracker::Slot *slot = objectMap.Find(o);
+    if (!slot)
+    {
+        LOG("TRK ERROR: Untracking %s (%p) but it is not being tracked", *o->GetName(), o);
+    }
+    else
+        slot->refs--; // Purge will take care of removing it
 }
 
 UBasePythonDelegate *UBasePythonDelegate::Create(UObject *engineObj, FString _mcDelName, FString _pyDelMethodName, py::object pyCB)
@@ -152,15 +165,17 @@ UBasePythonDelegate *FPyObjectTracker::FindDelegate(UObject *engineObj, const ch
 // removes any objects we should no longer be tracking
 void FPyObjectTracker::Purge()
 {
-    TArray<UObject *> toRemove;
-    for (UObject *obj : objects)
+    for (auto it = objectMap.CreateIterator(); it ; ++it)
     {
-        if (!obj || !obj->IsValidLowLevel())
-            toRemove.Emplace(obj);
+        UObject *obj = it->Key;
+        FPyObjectTracker::Slot& slot = it->Value;
+        if (!obj || !obj->IsValidLowLevel() || slot.refs <= 0)
+            it.RemoveCurrent();
     }
 
-    for (UBasePythonDelegate *delegate : delegates)
+    for (auto it = delegates.CreateIterator(); it ; ++it)
     {
+        UBasePythonDelegate* delegate = *it;
         if (!delegate->valid || !delegate->IsValidLowLevel() || !delegate->engineObj || !delegate->engineObj->IsValidLowLevel() || !delegate->callback || Py_REFCNT(delegate->callback.ptr()) <= 1)
         {
             if (delegate->callback)
@@ -168,20 +183,17 @@ void FPyObjectTracker::Purge()
                 delegate->callback.release();
                 delegate->valid = false;
             }
-            toRemove.Emplace(delegate);
+            it.RemoveCurrent();
         }
     }
-
-    for (UObject* obj : toRemove)
-        objects.Remove(obj);
 }
 
 // called by the engine
 void FPyObjectTracker::AddReferencedObjects(FReferenceCollector& InCollector)
 {
     Purge();
-    for (UObject *obj : objects)
-        InCollector.AddReferencedObject(obj);
+    for (auto& entry : objectMap)
+        InCollector.AddReferencedObject(entry.Key);
 
     // clear out any delegates whose pyinst is not longer valid
     for (UBasePythonDelegate *delegate : delegates)
