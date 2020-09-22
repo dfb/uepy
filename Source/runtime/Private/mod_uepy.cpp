@@ -8,6 +8,7 @@
 #include "GameFramework/GameState.h"
 #include "IImageWrapper.h"
 #include "IImageWrapperModule.h"
+#include "EngineUtils.h"
 #include "ImageUtils.h"
 #include "Misc/FileHelper.h"
 #include <map>
@@ -98,6 +99,11 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def_static("StaticClass", []() { return UObject::StaticClass(); })
         .def("GetClass", [](UObject& self) { return self.GetClass(); })
         .def("GetName", [](UObject& self) { std::string s = TCHAR_TO_UTF8(*self.GetName()); return s; })
+        .def("IsA", [](UObject& self, py::object& _klass)
+        {
+            UClass *klass = PyObjectToUClass(_klass);
+            return self.IsA(klass);
+        })
 
         // TODO: we could create a generic CreateDefaultSubobject utility func that takes a UClass of what to create
         // and just return it as a UObject, though the caller would then need to also cast it, e.g.
@@ -162,6 +168,13 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
 
     py::class_<UWorld, UnrealTracker<UWorld>>(m, "UWorld")
         .def_property_readonly("WorldType", [](UWorld& self) { return (int)self.WorldType; })
+        .def("GetAllActors", [](UWorld* self)
+        {
+            py::list ret;
+            for (TActorIterator<AActor> it(self); it ; ++it)
+                ret.append(*it);
+            return ret;
+        })
         ;
 
     m.def("GetAllWorlds", []()
@@ -172,23 +185,22 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         return ret;
     });
 
-    m.def("GetAllActorsOfClass", [](UWorld *world, py::object& _klass)
-    {
-        TArray<AActor*> actors;
-        py::list ret;
-        UClass *klass = PyObjectToUClass(_klass);
-        if (klass)
-        {
-            UGameplayStatics::GetAllActorsOfClass(world, klass, actors);
-            for (AActor *a : actors)
-                ret.append(a);
-        }
-        return ret;
-    });
-
     py::class_<UGameplayStatics, UObject, UnrealTracker<UGameplayStatics>>(m, "UGameplayStatics") // not sure that it makes sense to really expose this fully
         .def_static("GetGameInstance", [](UWorld *world) { return UGameplayStatics::GetGameInstance(world); })
         .def_static("GetGameState", [](UWorld *world) { return UGameplayStatics::GetGameState(world); })
+        .def_static("GetAllActorsOfClass", [](UWorld *world, py::object& _klass)
+        {
+            TArray<AActor*> actors;
+            py::list ret;
+            UClass *klass = PyObjectToUClass(_klass);
+            if (klass)
+            {
+                UGameplayStatics::GetAllActorsOfClass(world, klass, actors);
+                for (AActor *a : actors)
+                    ret.append(a);
+            }
+            return ret;
+            })
         ;
 
     py::class_<UKismetMathLibrary, UObject, UnrealTracker<UKismetMathLibrary>>(m, "UKismetMathLibrary")
@@ -226,13 +238,32 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("GetActorTransform", [](AActor& self) { return self.GetActorTransform(); })
         .def("SetRootComponent", [](AActor& self, USceneComponent *s) { self.SetRootComponent(s); })
         .def("GetRootComponent", [](AActor& self) { return self.GetRootComponent(); })
+        .def("SetActorScale3D", [](AActor& self, FVector& v) { self.SetActorScale3D(v); })
+        .def("GetActorScale3D", [](AActor& self) { return self.GetActorScale3D(); })
         .def("Destroy", [](AActor& self) { self.Destroy(); })
         .def("IsActorTickEnabled", [](AActor& self) { return self.IsActorTickEnabled(); })
         .def("SetActorTickEnabled", [](AActor& self, bool enabled) { self.SetActorTickEnabled(enabled); })
         .def("SetActorTickInterval", [](AActor& self, float interval) { self.SetActorTickInterval(interval); })
         .def("GetActorTickInterval", [](AActor& self) { return self.GetActorTickInterval(); })
+        .def("SetActorHiddenInGame", [](AActor& self, bool b) { self.SetActorHiddenInGame(b); })
         .def("BindOnEndPlay", [](AActor* self, py::object callback) { UEPY_BIND(self, OnEndPlay, AActor_OnEndPlay, callback); })
         .def("UnbindOnEndPlay", [](AActor* self, py::object callback) { UEPY_UNBIND(self, OnEndPlay, AActor_OnEndPlay, callback); })
+        .def_property("Tags", [](AActor& self)
+            {
+                py::list ret;
+                for (FName& tag : self.Tags)
+                {
+                    std::string stag = TCHAR_TO_UTF8(*tag.ToString());
+                    ret.append(stag);
+                }
+                return ret;
+            },
+            [](AActor& self, py::list pytags)
+            {
+                self.Tags.Empty();
+                for (const py::handle pytag : pytags)
+                    self.Tags.Emplace(pytag.cast<std::string>().c_str());
+            })
 
         // methods for getting/setting UPROPERTYs - TODO: maybe move this to UObject so that anything with a UPROPERTY can be accessed
         .def("Set", [](AActor* self, std::string k, py::object& value) { SetObjectUProperty(self, k, value); })
