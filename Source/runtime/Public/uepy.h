@@ -103,6 +103,9 @@ class UEPY_API FPyObjectTracker : public FGCObject
         // (such as calling a Cast() function from Python), we can end up with multiple Python instances for the same UObject, so we have to do reference
         // counting here
         int refs=0;
+#if WITH_EDITOR
+        FString objName; // for debugging - save it at the time of tracking so we can display it even if the obj gets force-GC'd by the engine out from under us
+#endif
     } Slot;
     TMap<UObject*,Slot> objectMap; // an engine object we're keeping alive because it's being referenced in Python --> how many references in Python there are
     TArray<UBasePythonDelegate*> delegates; // bound delegates we need to keep alive so they don't get cleaned up by the engine since nobody references them directly
@@ -208,6 +211,7 @@ namespace pybind11 {
     UTYPE_HOOK(UMediaSoundComponent);
     UTYPE_HOOK(UAudioComponent);
 
+    UTYPE_HOOK(AActor);
     UTYPE_HOOK(UObject);
 
 } // namespace pybind11
@@ -254,4 +258,7 @@ protected:
 // a UClass pointer, a C++ class that has been exposed via pybind11, or a Python class object that is a subclass
 // of a glue class. In all cases, it finds the appropriate UClass object and returns it.
 UEPY_API UClass *PyObjectToUClass(py::object& klassThing);
+
+// sets a UPROPERTY on an object
+void SetObjectUProperty(UObject *obj, std::string k, py::object& value);
 

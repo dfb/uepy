@@ -4,11 +4,11 @@
 #include "common.h"
 #include "mod_uepy_umg.h"
 
-//#pragma optimize("", off)
-
 #if WITH_EDITOR
 #include "Editor.h"
 #endif
+
+//#pragma optimize("", off)
 
 DEFINE_LOG_CATEGORY(UEPY);
 IMPLEMENT_MODULE(FuepyModule, uepy)
@@ -115,6 +115,9 @@ void FPyObjectTracker::Track(UObject *o)
     //LOG("TRK Track %s, %p", *o->GetName(), o);
     FPyObjectTracker::Slot& slot = objectMap.FindOrAdd(o);
     slot.refs++;
+#if WITH_EDITOR
+    slot.objName = o->GetName();
+#endif
 }
 
 void FPyObjectTracker::Untrack(UObject *o)
@@ -123,7 +126,10 @@ void FPyObjectTracker::Untrack(UObject *o)
     FPyObjectTracker::Slot *slot = objectMap.Find(o);
     if (!slot)
     {
-        LOG("TRK ERROR: Untracking %s (%p) but it is not being tracked", *o->GetName(), o);
+#if WITH_EDITOR
+        LWARN("TRK Untracking %s (%p) but it is not being tracked", (o && o->IsValidLowLevel()) ? *o->GetName() : TEXT("???"), o);
+        // TODO: with editor, save obj name during tracking
+#endif
     }
     else
         slot->refs--; // Purge will take care of removing it
@@ -217,18 +223,92 @@ UClass *PyObjectToUClass(py::object& klassThing)
     if (py::hasattr(klassThing, "cppGlueClass"))
         return klassThing.attr("cppGlueClass").attr("StaticClass")().cast<UClass*>()->GetSuperClass();
 
-    // maybe it's a pybind11-exposed class?
-    if (py::hasattr(klassThing, "StaticClass"))
-        return klassThing.attr("StaticClass")().cast<UClass*>();
-
     // see if it'll cast to a UClass directly (i.e. caller already called StaticClass)
     try {
         return klassThing.cast<UClass*>();
     }
     catch (std::exception e) // this logs a "pybind11::cast_error at memory location" error even though we are catching it
     {
-        return nullptr;
+		// maybe it's a pybind11-exposed class?
+		if (py::hasattr(klassThing, "StaticClass"))
+			return klassThing.attr("StaticClass")().cast<UClass*>();
+		return nullptr;
+	}
+}
+
+bool _setuprop(UProperty *prop, uint8* buffer, py::object& value, int index)
+{
+    try
+    {
+        if (auto bprop = Cast<UBoolProperty>(prop))
+            bprop->SetPropertyValue_InContainer(buffer, value.cast<bool>(), index);
+        else if (auto fprop = Cast<UFloatProperty>(prop))
+            fprop->SetPropertyValue_InContainer(buffer, value.cast<float>(), index);
+        else if (auto iprop = Cast<UIntProperty>(prop))
+            iprop->SetPropertyValue_InContainer(buffer, value.cast<int>(), index);
+        else if (auto strprop = Cast<UStrProperty>(prop))
+            strprop->SetPropertyValue_InContainer(buffer, UTF8_TO_TCHAR(value.cast<std::string>().c_str()), index);
+        else if (auto textprop = Cast<UTextProperty>(prop))
+            textprop->SetPropertyValue_InContainer(buffer, FText::FromString(UTF8_TO_TCHAR(value.cast<std::string>().c_str())), index);
+        else if (auto byteprop = Cast<UByteProperty>(prop))
+            byteprop->SetPropertyValue_InContainer(buffer, value.cast<int>(), index);
+        else if (auto enumprop = Cast<UEnumProperty>(prop))
+            enumprop->GetUnderlyingProperty()->SetIntPropertyValue(enumprop->ContainerPtrToValuePtr<void>(buffer, index), value.cast<uint64>());
+        else if (auto classprop = Cast<UClassProperty>(prop))
+            classprop->SetPropertyValue_InContainer(buffer, value.cast<UClass*>(), index);
+        else if (auto arrayprop = Cast<UArrayProperty>(prop))
+        {
+            try {
+                py::list list = value.cast<py::list>();
+                int size = py::len(list);
+
+                FScriptArrayHelper_InContainer helper(arrayprop, buffer, index);
+                if (helper.Num() < size)
+                    helper.AddValues(size-helper.Num());
+                else if (helper.Num() > size)
+                    helper.RemoveValues(size, helper.Num()-size);
+
+                for (int i=0; i < size; i++)
+                {
+                    py::object item = list[i];
+                    if (!_setuprop(arrayprop->Inner, helper.GetRawPtr(i), item, 0))
+                        return false;
+                }
+            } catchpy;
+        }
+        else if (auto structprop = Cast<UStructProperty>(prop))
+        {
+            UScriptStruct* theStruct = structprop->Struct;
+            void *src = value.cast<void*>();
+            void *dest = (void *)structprop->ContainerPtrToValuePtr<UScriptStruct>(buffer, index);
+            memcpy(dest, src, theStruct->GetStructureSize());
+        }
+        else
+            return false;
+
+        // TODO: UInt32, Int64, UInt64, Name, Object, Map, Set, Delegate
+        return true;
+    } catchpy;
+    return false;
+}
+
+// sets a UPROPERTY on an object (including BPs). With the old system, this is basically the approach we used everywhere, now we use
+// it only when we have no other choice
+void SetObjectUProperty(UObject *obj, std::string k, py::object& value)
+{
+    FName propName = FSTR(k);
+    UProperty* prop = obj->GetClass()->FindPropertyByName(propName);
+    if (!prop)
+    {
+        LERROR("Failed to find property %s on object %s", *propName.ToString(), *obj->GetName());
+        return;
+    }
+
+    if (!_setuprop(prop, (uint8*)obj, value, 0))
+    {
+        LERROR("Failed to set property %s on object %s", *propName.ToString(), *obj->GetName());
     }
 }
 
+//#pragma optimize("", on)
 

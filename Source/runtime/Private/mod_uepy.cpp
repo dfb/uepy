@@ -97,6 +97,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
     py::class_<UObject, UnrealTracker<UObject>>(m, "UObject")
         .def_static("StaticClass", []() { return UObject::StaticClass(); })
         .def("GetClass", [](UObject& self) { return self.GetClass(); })
+        .def("GetName", [](UObject& self) { std::string s = TCHAR_TO_UTF8(*self.GetName()); return s; })
 
         // TODO: we could create a generic CreateDefaultSubobject utility func that takes a UClass of what to create
         // and just return it as a UObject, though the caller would then need to also cast it, e.g.
@@ -114,6 +115,9 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
             UClass *k = PyObjectToUClass(interfaceClass);
             return k ? self.ImplementsInterface(k) : false;
         })
+        ;
+
+    py::class_<UBlueprintGeneratedClass, UClass, UnrealTracker<UBlueprintGeneratedClass>>(m, "UBlueprintGeneratedClass")
         ;
 
     py::class_<UInterface, UObject, UnrealTracker<UInterface>>(m, "UInterface")
@@ -229,6 +233,9 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("GetActorTickInterval", [](AActor& self) { return self.GetActorTickInterval(); })
         .def("BindOnEndPlay", [](AActor* self, py::object callback) { UEPY_BIND(self, OnEndPlay, AActor_OnEndPlay, callback); })
         .def("UnbindOnEndPlay", [](AActor* self, py::object callback) { UEPY_UNBIND(self, OnEndPlay, AActor_OnEndPlay, callback); })
+
+        // methods for getting/setting UPROPERTYs - TODO: maybe move this to UObject so that anything with a UPROPERTY can be accessed
+        .def("Set", [](AActor* self, std::string k, py::object& value) { SetObjectUProperty(self, k, value); })
         ;
 
     py::class_<AGameStateBase, AActor, UnrealTracker<AGameStateBase>>(m, "AGameStateBase")
@@ -433,7 +440,13 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         return engineClass;
     });
 
-    m.def("SpawnActor", [](UWorld *world, py::object& _actorClass, FVector& location, FRotator& rotation)
+    m.def("StaticLoadObject", [](py::object& _typeClass, std::string refPath) {
+        UClass *typeClass = PyObjectToUClass(_typeClass);
+		UObject *obj = StaticLoadObject(typeClass, NULL, UTF8_TO_TCHAR(refPath.c_str()));
+		return Cast<UClass>(obj);
+    }, py::return_value_policy::reference);
+
+    m.def("SpawnActor_", [](UWorld *world, py::object& _actorClass, FVector& location, FRotator& rotation)
     {
         UClass *actorClass = PyObjectToUClass(_actorClass);
         if (!actorClass)
