@@ -114,7 +114,12 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
             std::string sname = name;
             return self.CreateDefaultSubobject<UStaticMeshComponent>(UTF8_TO_TCHAR(sname.c_str()));
         })
+
+        // methods for getting/setting UPROPERTYs - TODO: maybe move this to UObject so that anything with a UPROPERTY can be accessed
+        .def("Set", [](AActor* self, std::string k, py::object& value) { SetObjectUProperty(self, k, value); })
+        .def("Get", [](AActor* self, std::string k) { return GetObjectUProperty(self, k); })
         ;
+
     py::class_<UClass, UObject, UnrealTracker<UClass>>(m, "UClass") // TODO: UClass --> UStruct --> UField --> UObject
         .def("ImplementsInterface", [](UClass& self, py::object interfaceClass)
         {
@@ -264,9 +269,6 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
                 for (const py::handle pytag : pytags)
                     self.Tags.Emplace(pytag.cast<std::string>().c_str());
             })
-
-        // methods for getting/setting UPROPERTYs - TODO: maybe move this to UObject so that anything with a UPROPERTY can be accessed
-        .def("Set", [](AActor* self, std::string k, py::object& value) { SetObjectUProperty(self, k, value); })
         ;
 
     py::class_<AGameStateBase, AActor, UnrealTracker<AGameStateBase>>(m, "AGameStateBase")

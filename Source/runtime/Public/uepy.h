@@ -259,6 +259,7 @@ protected:
 // of a glue class. In all cases, it finds the appropriate UClass object and returns it.
 UEPY_API UClass *PyObjectToUClass(py::object& klassThing);
 
-// sets a UPROPERTY on an object
+// gets/sets a UPROPERTY on an object
+py::object GetObjectUProperty(UObject *obj, std::string k);
 void SetObjectUProperty(UObject *obj, std::string k, py::object& value);
 

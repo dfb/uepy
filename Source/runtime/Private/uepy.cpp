@@ -246,6 +246,12 @@ bool _setuprop(UProperty *prop, uint8* buffer, py::object& value, int index)
             fprop->SetPropertyValue_InContainer(buffer, value.cast<float>(), index);
         else if (auto iprop = Cast<UIntProperty>(prop))
             iprop->SetPropertyValue_InContainer(buffer, value.cast<int>(), index);
+        else if (auto ui32prop = Cast<UUInt32Property>(prop))
+            ui32prop->SetPropertyValue_InContainer(buffer, value.cast<uint32>(), index);
+        else if (auto i64prop = Cast<UInt64Property>(prop))
+            i64prop->SetPropertyValue_InContainer(buffer, value.cast<long long>(), index);
+        else if (auto iu64prop = Cast<UUInt64Property>(prop))
+            iu64prop->SetPropertyValue_InContainer(buffer, value.cast<uint64>(), index);
         else if (auto strprop = Cast<UStrProperty>(prop))
             strprop->SetPropertyValue_InContainer(buffer, UTF8_TO_TCHAR(value.cast<std::string>().c_str()), index);
         else if (auto textprop = Cast<UTextProperty>(prop))
@@ -286,7 +292,7 @@ bool _setuprop(UProperty *prop, uint8* buffer, py::object& value, int index)
         else
             return false;
 
-        // TODO: UInt32, Int64, UInt64, Name, Object, Map, Set, Delegate
+        // TODO: Name, Object, Map, Set, Delegate
         return true;
     } catchpy;
     return false;
@@ -308,6 +314,108 @@ void SetObjectUProperty(UObject *obj, std::string k, py::object& value)
     {
         LERROR("Failed to set property %s on object %s", *propName.ToString(), *obj->GetName());
     }
+}
+
+#define _GETPROP(enginePropClass, cppType) \
+if (auto t##enginePropClass = Cast<enginePropClass>(prop))\
+{\
+    cppType ret = t##enginePropClass->GetPropertyValue_InContainer(buffer, index);\
+    return py::cast(ret);\
+}
+
+py::object _getuprop(UProperty *prop, uint8* buffer, int index)
+{
+    _GETPROP(UBoolProperty, bool);
+    _GETPROP(UFloatProperty, float);
+    _GETPROP(UIntProperty, int);
+    _GETPROP(UUInt32Property, uint32);
+    _GETPROP(UInt64Property, long long);
+    _GETPROP(UUInt64Property, uint64);
+    _GETPROP(UByteProperty, int);
+    if (auto strprop = Cast<UStrProperty>(prop))
+    {
+        FString sret = strprop->GetPropertyValue_InContainer(buffer, index);
+        std::string ret = TCHAR_TO_UTF8(*sret);
+        return py::cast(ret);
+    }
+    if (auto textprop = Cast<UTextProperty>(prop))
+    {
+        FText tret = textprop->GetPropertyValue_InContainer(buffer, index);
+        std::string ret = TCHAR_TO_UTF8(*tret.ToString());
+        return py::cast(ret);
+    }
+	if (auto enumprop = Cast<UEnumProperty>(prop))
+	{
+		void* prop_addr = enumprop->ContainerPtrToValuePtr<void>(buffer, index);
+		uint64 v = enumprop->GetUnderlyingProperty()->GetUnsignedIntPropertyValue(prop_addr);
+        return py::cast(v);
+	}
+    if (auto classprop = Cast<UClassProperty>(prop))
+    {
+        UClass *klass = Cast<UClass>(classprop->GetPropertyValue_InContainer(buffer, index));
+        return py::cast(klass);
+    }
+    if (auto arrayprop = Cast<UArrayProperty>(prop))
+    {
+        FScriptArrayHelper_InContainer helper(arrayprop, buffer, index);
+        py::list ret;
+        for (int i=0; i < helper.Num(); i++)
+            ret.append(_getuprop(arrayprop->Inner, helper.GetRawPtr(i), 0));
+        return ret;
+    }
+
+    // TODO For structures, I haven't come up with a good way to get a struct property in a generic way - we can get a void*
+    // to the data, but in order for py::cast to work, we need to provide the intended type. Ideas:
+    // - make the caller provide the type or at least a buffer to receive it ... or something
+    // - return a UserStruct or something and then uh... yeah
+    // - tap into pybind11 and find all the structs it knows about and create a template-based something or...
+    // For now we check a few common struct types and punt on the rest - hopefully we won't be using this too much anyway
+    if (auto structprop = Cast<UStructProperty>(prop))
+    {
+        UScriptStruct* theStruct = structprop->Struct;
+        if (theStruct == TBaseStructure<FVector>::Get())
+        {
+            FVector v = *structprop->ContainerPtrToValuePtr<FVector>(buffer, index);
+            return py::cast(v);
+        }
+        if (theStruct == TBaseStructure<FVector2D>::Get())
+        {
+            FVector2D v = *structprop->ContainerPtrToValuePtr<FVector2D>(buffer, index);
+            return py::cast(v);
+        }
+        if (theStruct == TBaseStructure<FRotator>::Get())
+        {
+            FRotator v = *structprop->ContainerPtrToValuePtr<FRotator>(buffer, index);
+            return py::cast(v);
+        }
+        if (theStruct == TBaseStructure<FTransform>::Get())
+        {
+            FTransform v = *structprop->ContainerPtrToValuePtr<FTransform>(buffer, index);
+            return py::cast(v);
+        }
+        if (theStruct == TBaseStructure<FLinearColor>::Get())
+        {
+            FLinearColor v = *structprop->ContainerPtrToValuePtr<FLinearColor>(buffer, index);
+            return py::cast(v);
+        }
+    }
+
+    LERROR("Failed to convert property %s to python", *prop->GetName());
+    return py::none();
+}
+
+// gets a UPROPERTY from an object (including BPs)
+py::object GetObjectUProperty(UObject *obj, std::string k)
+{
+    FName propName = FSTR(k);
+    UProperty* prop = obj->GetClass()->FindPropertyByName(propName);
+    if (!prop)
+    {
+        LERROR("Failed to find property %s on object %s", *propName.ToString(), *obj->GetName());
+        return py::none();
+    }
+
+    return _getuprop(prop, (uint8*)obj, 0);
 }
 
 //#pragma optimize("", on)

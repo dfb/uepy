@@ -57,7 +57,7 @@ def GetWorld():
     return worlds.get(WT.Game) or worlds.get(WT.PIE) or worlds.get(WT.Editor)
 
 def DestroyAllActorsOfClass(klass):
-    for a in GetAllActorsOfClass(GetWorld(), klass):
+    for a in UGameplayStatics.GetAllActorsOfClass(GetWorld(), klass):
         a.Destroy()
 
 def FindGlueClass(klass):
@@ -151,6 +151,7 @@ class AActor_PGLUE(metaclass=PyGlueMetaclass):
     def BindOnEndPlay(self, cb): self.engineObj.BindOnEndPlay(cb)
     def UnbindOnEndPlay(self, cb): self.engineObj.UnbindOnEndPlay(cb)
     def Set(self, k, v): self.engineObj.Set(k, v)
+    def Get(self, k): return self.engineObj.Get(k)
 
 class UUserWidget_PGLUE(metaclass=PyGlueMetaclass):
     '''Base class of all Python subclasses from AActor-derived C++ classes'''
