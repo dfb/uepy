@@ -152,6 +152,7 @@ class AActor_PGLUE(metaclass=PyGlueMetaclass):
     def UnbindOnEndPlay(self, cb): self.engineObj.UnbindOnEndPlay(cb)
     def Set(self, k, v): self.engineObj.Set(k, v)
     def Get(self, k): return self.engineObj.Get(k)
+    def Call(self, funcName, *args): return self.engineObj.Call(funcName, *args)
 
 class UUserWidget_PGLUE(metaclass=PyGlueMetaclass):
     '''Base class of all Python subclasses from AActor-derived C++ classes'''

@@ -262,4 +262,4 @@ UEPY_API UClass *PyObjectToUClass(py::object& klassThing);
 // gets/sets a UPROPERTY on an object
 py::object GetObjectUProperty(UObject *obj, std::string k);
 void SetObjectUProperty(UObject *obj, std::string k, py::object& value);
-
+py::object CallObjectUFunction(UObject *obj, std::string funcName, py::tuple& args);

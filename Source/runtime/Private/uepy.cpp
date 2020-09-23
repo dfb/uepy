@@ -418,5 +418,81 @@ py::object GetObjectUProperty(UObject *obj, std::string k)
     return _getuprop(prop, (uint8*)obj, 0);
 }
 
+// calls a UFUNCTION on an object and returns the result
+// NOTE: for now (and maybe forever) there are many, many restrictions on what does and doesn't work here!
+// Allowed:
+// - 0 or more parameters, all types must be supported by _setuprop
+// - 0 or 1 return parameter, type must be supported by _getuprop
+// - all parameters must be passed in (i.e. can't leave some off to have them use their default values)
+// - positional arguments only, no kwargs
+// - I have no idea how it works in the presence of super() calls
+// - I've only tested it interacting with BPs - there are some very different engine code paths for calling C++ functions via
+//   the reflection system and tweaks may be required for that scenario.
+// NOTE: earlier we created a patch for UnrealEnginePython that allowed for crazier stuff like multiple output parameters, so
+// if we were to need that functionality, we could go dig up the patch.
+py::object CallObjectUFunction(UObject *obj, std::string _funcName, py::tuple& pyArgs)
+{
+    FName funcName = FSTR(_funcName);
+    UFunction *func = obj->FindFunction(funcName);
+    if (!func)
+    {
+        LERROR("Failed to find function %s on object %s", *funcName.ToString(), *obj->GetName());
+        return py::none();
+    }
+
+    // the engine code for this sort of thing doesn't have much in the way of comments, so we get by here
+    // by keeping things really simple. AFAICT it just uses the same UProperty approach as it uses with
+    // getting/setting UPROPERTYs, so we allocate some space to hold the properties to pass in and then populate
+    // them using the args tuple passed in from Python.
+    uint8* propArgsBuffer = (uint8*)FMemory_Alloca(func->ParmsSize);
+    FMemory::Memzero(propArgsBuffer, func->ParmsSize);
+    UProperty *returnProp = nullptr;
+    int nextPyArg = 0;
+    int numPyArgs = pyArgs.size();
+    for (TFieldIterator<UProperty> iter(func); iter ; ++iter)
+    {
+        UProperty *prop = *iter;
+        if (!prop->HasAnyPropertyFlags(CPF_Parm))
+            continue;
+        if (prop->HasAnyPropertyFlags(CPF_OutParm))//ReturnParm))
+        {
+            returnProp = prop;
+            continue;
+        }
+
+        // convert the python value to a UProp value
+        if (nextPyArg >= numPyArgs)
+        {
+            LERROR("Not enough arguments in call to %s", *funcName.ToString());
+            return py::none();
+            // TODO: we're probably leaking memory here (see cleanup code below)
+        }
+
+        py::object arg = pyArgs[nextPyArg++];
+        if (!_setuprop(prop, propArgsBuffer, arg, 0))
+        {
+            std::string r = py::repr(arg);
+            LERROR("Failed to convert Python arg %s in call to %s:", *FSTR(r), *funcName.ToString());
+            return py::none();
+        }
+    }
+
+    obj->ProcessEvent(func, propArgsBuffer);
+
+    py::object ret = py::none();
+    if (returnProp)
+        ret = _getuprop(returnProp, propArgsBuffer, 0);
+
+    // Cleanup
+    for (TFieldIterator<UProperty> iter(func) ; iter ; ++iter)
+    {
+        UProperty *prop = *iter;
+        if (iter->HasAnyPropertyFlags(CPF_Parm))
+            prop->DestroyValue_InContainer(propArgsBuffer);
+    }
+
+    return ret;
+}
+
 //#pragma optimize("", on)
 

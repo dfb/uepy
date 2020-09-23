@@ -115,9 +115,10 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
             return self.CreateDefaultSubobject<UStaticMeshComponent>(UTF8_TO_TCHAR(sname.c_str()));
         })
 
-        // methods for getting/setting UPROPERTYs - TODO: maybe move this to UObject so that anything with a UPROPERTY can be accessed
-        .def("Set", [](AActor* self, std::string k, py::object& value) { SetObjectUProperty(self, k, value); })
-        .def("Get", [](AActor* self, std::string k) { return GetObjectUProperty(self, k); })
+        // methods for accessing stuff via the UE4 reflection system (e.g. to interact with Blueprints, UPROPERTYs, etc)
+        .def("Set", [](UObject* self, std::string k, py::object& value) { SetObjectUProperty(self, k, value); })
+        .def("Get", [](UObject* self, std::string k) { return GetObjectUProperty(self, k); })
+        .def("Call", [](UObject* self, std::string funcName, py::args& args){ return CallObjectUFunction(self, funcName, args); }, py::return_value_policy::reference)
         ;
 
     py::class_<UClass, UObject, UnrealTracker<UClass>>(m, "UClass") // TODO: UClass --> UStruct --> UField --> UObject
