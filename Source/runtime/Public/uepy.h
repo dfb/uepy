@@ -65,6 +65,7 @@ class UBasePythonDelegate : public UObject
 
 public:
     bool valid; // becomes false once the python callback is GC'd
+    py::object callbackOwner; // the object the callback is a method on. See note in ::Create for details.
     py::object callback;
     py::object cleanup;
 
@@ -146,7 +147,8 @@ public:
     if (engineObj && engineObj->IsValidLowLevel())\
     {\
         UBasePythonDelegate *delegate = FPyObjectTracker::Get()->CreateDelegate(engineObj, #mcDel, #pyDelMethod, pyCB);\
-        engineObj->mcDel.AddDynamic(delegate, &UBasePythonDelegate::pyDelMethod);\
+        if (delegate)\
+            engineObj->mcDel.AddDynamic(delegate, &UBasePythonDelegate::pyDelMethod);\
     }\
 }
 

@@ -349,6 +349,9 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("SetLocation", [](FTransform& self, FVector& t) { self.SetLocation(t); })
         .def("GetScale3D", [](FTransform& self) { return self.GetScale3D(); })
         .def("SetScale3D", [](FTransform& self, FVector& v) { self.SetScale3D(v); })
+        .def_property("translation", [](FTransform& self) { return self.GetTranslation(); }, [](FTransform& self, FVector& v) { self.SetTranslation(v); })
+        .def_property("scale", [](FTransform& self) { return self.GetScale3D(); }, [](FTransform& self, FVector& v) { self.SetScale3D(v); })
+        .def_property("rotation", [](FTransform& self) { return self.Rotator(); }, [](FTransform& self, FRotator& r) { FQuat q(r); self.SetRotation(q); })
         ;
 
     py::class_<FLinearColor>(m, "FLinearColor")
@@ -516,7 +519,6 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
 	py::class_<UMediaPlayer, UObject, UnrealTracker<UMediaPlayer>>(m, "UMediaPlayer")
 		.def_static("StaticClass", []() { return UMediaPlayer::StaticClass(); })
 		.def_static("Cast", [](UObject *obj) { return Cast<UMediaPlayer>(obj); }, py::return_value_policy::reference)
-		// TODO: bind/unbind OnEndReached, OnMediaOpenFailed
 		.def("OpenSource", [](UMediaPlayer& self, UMediaSource* source) { return self.OpenSource(source); })
 		.def("SetRate", [](UMediaPlayer& self, float rate) { return self.SetRate(rate); })
 		.def("GetDuration", [](UMediaPlayer& self) { return self.GetDuration().GetTotalSeconds(); })

@@ -142,7 +142,20 @@ UBasePythonDelegate *UBasePythonDelegate::Create(UObject *engineObj, FString _mc
     delegate->engineObj = engineObj;
     delegate->mcDelName = _mcDelName;
     delegate->pyDelMethodName = _pyDelMethodName;
-    delegate->callback = py::object(pyCB); // this increfs pyCB, which seems wrong, but in the end, seems to work. I spent a whole day trying to get weakrefs to handle it right, but to no avail.
+
+    // interesting! If you have a Python class Foo that has a method Bar, and do f = Foo(), and then ask the Python garbage collector
+    // who refers to f.Bar, you'll get back... an empty list! The problem for us is that we cannot look at the refcount on the callback
+    // to see when to auto-release the delegate binding. For now we deal with this by:
+    // - requiring that pyCB be a method instead of a plain function
+    // - acquiring a ref to the object instance that the method is bound to
+    // - auto-freeing the delegate once we're the only one still maintaining a ref
+    if (!py::hasattr(pyCB, "__self__"))
+    {
+        LERROR("Delegates can only be bound to methods, not plain Python functions (%s %s)", *engineObj->GetName(), *_mcDelName);
+        return nullptr;
+    }
+    delegate->callbackOwner = pyCB.attr("__self__"); // save a ref to the owner
+    delegate->callback = pyCB;
     return delegate;
 }
 
@@ -154,7 +167,8 @@ bool UBasePythonDelegate::Matches(UObject *_engineObj, FString& _mcDelName, FStr
 UBasePythonDelegate *FPyObjectTracker::CreateDelegate(UObject *engineObj, const char *mcDelName, const char *pyDelMethodName, py::object pyCB)
 {
     UBasePythonDelegate* delegate = UBasePythonDelegate::Create(engineObj, UTF8_TO_TCHAR(mcDelName), UTF8_TO_TCHAR(pyDelMethodName), pyCB);
-    delegates.Emplace(delegate);
+    if (delegate)
+        delegates.Emplace(delegate);
     return delegate;
 }
 
@@ -182,13 +196,10 @@ void FPyObjectTracker::Purge()
     for (auto it = delegates.CreateIterator(); it ; ++it)
     {
         UBasePythonDelegate* delegate = *it;
-        if (!delegate->valid || !delegate->IsValidLowLevel() || !delegate->engineObj || !delegate->engineObj->IsValidLowLevel() || !delegate->callback || Py_REFCNT(delegate->callback.ptr()) <= 1)
+        if (!delegate->valid || !delegate->IsValidLowLevel() || !delegate->engineObj || !delegate->engineObj->IsValidLowLevel() ||
+            !delegate->callbackOwner || Py_REFCNT(delegate->callbackOwner.ptr()) <= 1)
         {
-            if (delegate->callback)
-            {
-                delegate->callback.release();
-                delegate->valid = false;
-            }
+            delegate->valid = false;
             it.RemoveCurrent();
         }
     }
@@ -262,6 +273,8 @@ bool _setuprop(UProperty *prop, uint8* buffer, py::object& value, int index)
             enumprop->GetUnderlyingProperty()->SetIntPropertyValue(enumprop->ContainerPtrToValuePtr<void>(buffer, index), value.cast<uint64>());
         else if (auto classprop = Cast<UClassProperty>(prop))
             classprop->SetPropertyValue_InContainer(buffer, value.cast<UClass*>(), index);
+        else if (auto objprop = Cast<UObjectPropertyBase>(prop))
+            objprop->SetObjectPropertyValue_InContainer(buffer, value.cast<UObject*>(), index);
         else if (auto arrayprop = Cast<UArrayProperty>(prop))
         {
             try {
@@ -471,8 +484,7 @@ py::object CallObjectUFunction(UObject *obj, std::string _funcName, py::tuple& p
         py::object arg = pyArgs[nextPyArg++];
         if (!_setuprop(prop, propArgsBuffer, arg, 0))
         {
-            std::string r = py::repr(arg);
-            LERROR("Failed to convert Python arg %s in call to %s:", *FSTR(r), *funcName.ToString());
+            LERROR("Failed to convert Python arg %d in call to %s:", nextPyArg-1, *funcName.ToString());
             return py::none();
         }
     }
