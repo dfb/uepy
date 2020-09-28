@@ -27,6 +27,15 @@ class ECollisionChannel:
     ECC_Vehicle = 6
     ECC_Destructible = 7
 
+class ECollisionEnabled:
+    NoCollision, QueryOnly, PhysicsOnly, QueryAndPhysics = range(4)
+
+class ECollisionResponse:
+    ECR_Ignore, ECR_Overlap, ECR_Block = range(3)
+    Ignore = ECR_Ignore
+    Overlap = ECR_Overlap
+    Block = ECR_Block
+
 class EEasingFunc:
     Linear, Step, SinusoidalIn, SinusoidalOut, SinusoidalInOut, EaseIn, EaseOut, EaseInOut, ExpoIn, ExpoOut, ExpoInOut, CircularIn, CircularOut, CircularInOut = range(14)
 
