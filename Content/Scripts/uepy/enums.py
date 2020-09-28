@@ -1,3 +1,7 @@
+class EEngineMode:
+    '''Tells which mode we're in right now'''
+    Unknown, Build, SrcCLI, Editor, PIE = range(5)
+
 class EWorldType:
     NONE, Game, Editor, PIE, EditorPreview, GamePreview, Inactive = range(7)
 

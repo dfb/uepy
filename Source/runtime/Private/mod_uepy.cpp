@@ -66,19 +66,20 @@ UTexture2D *LoadTextureFromFile(FString path)
 using namespace pybind11::literals;
 
 // used for cases where we have a simple, fixed-size struct and we want to support x,y,z = v unpacking/iteration
+template<class T>
 struct CheesyIterator
 {
-    CheesyIterator(std::initializer_list<float> args)
+    CheesyIterator(std::initializer_list<T> args)
     {
         for (auto a : args)
             source.append(a);
     }
     int j = 0;
     py::list source;
-    float next()
+    T next()
     {
         if (j >= source.size()) throw py::stop_iteration();
-        return source[j++].cast<float>();
+        return source[j++].cast<T>();
     }
 
 };
@@ -315,9 +316,14 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
     py::class_<AGameState, AGameStateBase, UnrealTracker<AGameState>>(m, "AGameState")
         ;
 
-    py::class_<CheesyIterator>(m, "CheesyIterator")
-        .def("__iter__", [](CheesyIterator &it) -> CheesyIterator& { return it; })
-        .def("__next__", &CheesyIterator::next)
+    py::class_<CheesyIterator<float>>(m, "CheesyFloatIterator")
+        .def("__iter__", [](CheesyIterator<float> &it) -> CheesyIterator<float>& { return it; })
+        .def("__next__", &CheesyIterator<float>::next)
+        ;
+
+    py::class_<CheesyIterator<int>>(m, "CheesyIntIterator")
+        .def("__iter__", [](CheesyIterator<int> &it) -> CheesyIterator<int>& { return it; })
+        .def("__next__", &CheesyIterator<int>::next)
         ;
 
     py::class_<FVector2D>(m, "FVector2D")
@@ -330,7 +336,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def(-py::self)
         .def(float() * py::self)
         .def(py::self * float())
-        .def("__iter__", [](FVector2D& self) { return CheesyIterator({self.X, self.Y}); })
+        .def("__iter__", [](FVector2D& self) { return CheesyIterator<float>({self.X, self.Y}); })
         ;
 
     py::class_<FVector>(m, "FVector")
@@ -345,7 +351,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def(-py::self)
         .def(float() * py::self)
         .def(py::self * float())
-        .def("__iter__", [](FVector& self) { return CheesyIterator({self.X, self.Y, self.Z}); })
+        .def("__iter__", [](FVector& self) { return CheesyIterator<float>({self.X, self.Y, self.Z}); })
         ;
 
     py::class_<FRotator>(m, "FRotator")
@@ -358,7 +364,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def_readwrite("Yaw", &FRotator::Yaw)
         .def("RotateVector", [](FRotator& self, FVector& v) { return self.RotateVector(v); })
         .def("UnrotateVector", [](FRotator& self, FVector& v) { return self.UnrotateVector(v); })
-        .def("__iter__", [](FRotator& self) { return CheesyIterator({self.Roll, self.Pitch, self.Yaw}); })
+        .def("__iter__", [](FRotator& self) { return CheesyIterator<float>({self.Roll, self.Pitch, self.Yaw}); })
         ;
 
     py::class_<FTransform>(m, "FTransform")
@@ -377,6 +383,19 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def_property("rotation", [](FTransform& self) { return self.Rotator(); }, [](FTransform& self, FRotator& r) { FQuat q(r); self.SetRotation(q); })
         ;
 
+    py::class_<FColor>(m, "FColor")
+        .def(py::init<int, int, int, int>(), "r"_a=0, "g"_a=0, "b"_a=0, "a"_a=0)
+        .def_readwrite("R", &FColor::R)
+        .def_readwrite("r", &FColor::R)
+        .def_readwrite("G", &FColor::G)
+        .def_readwrite("g", &FColor::G)
+        .def_readwrite("B", &FColor::B)
+        .def_readwrite("b", &FColor::B)
+        .def_readwrite("A", &FColor::A)
+        .def_readwrite("a", &FColor::A)
+        .def("__iter__", [](FColor& self) { return CheesyIterator<int>({self.R, self.G, self.B, self.A}); })
+        ;
+
     py::class_<FLinearColor>(m, "FLinearColor")
         .def(py::init<float, float, float, float>(), "r"_a=0.0f, "g"_a=0.0f, "b"_a=0.0f, "a"_a=0.0f)
         .def_readwrite("R", &FLinearColor::R)
@@ -387,7 +406,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def_readwrite("b", &FLinearColor::B)
         .def_readwrite("A", &FLinearColor::A)
         .def_readwrite("a", &FLinearColor::A)
-        .def("__iter__", [](FLinearColor& self) { return CheesyIterator({self.R, self.G, self.B, self.A}); })
+        .def("__iter__", [](FLinearColor& self) { return CheesyIterator<float>({self.R, self.G, self.B, self.A}); })
         ;
 
     py::class_<FMargin>(m, "FMargin")
