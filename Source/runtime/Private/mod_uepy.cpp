@@ -356,7 +356,10 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         ;
 
     py::class_<FVector>(m, "FVector")
-        .def(py::init<float,float,float>(), "x"_a=0.0f, "y"_a=0.0f, "z"_a=0.0f)
+        .def(py::init([]() { return FVector(0,0,0); }))
+        .def(py::init([](float n) { return FVector(n,n,n); })) // note this special case of FVector(a) === FVector(a,a,a)
+        .def(py::init([](float x, float y) { return FVector(x,y,0); }))
+        .def(py::init([](float x, float y, float z) { return FVector(x,y,z); }))
         .def_readwrite("x", &FVector::X)
         .def_readwrite("X", &FVector::X)
         .def_readwrite("y", &FVector::Y)
