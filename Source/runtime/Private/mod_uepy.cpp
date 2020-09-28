@@ -13,6 +13,8 @@
 #include "Misc/FileHelper.h"
 #include <map>
 
+//#pragma optimize("", off)
+
 static std::map<FString, py::object> pyClassMap; // class name --> python class
 
 UTexture2D *LoadTextureFromFile(FString path)
@@ -96,6 +98,24 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
 #endif
 
     m.attr("commandLineRaw") = FCommandLine::Get();
+
+    // tells what mode we're in right now - editor (0), PIE (1), source from the command line (2), or a build (3). -1 for unknown.
+    // returns EEngineMode from enums.py
+    m.def("GetEngineMode", []()
+    {
+#if WITH_EDITOR
+        if (GIsEditor) // we can't check "if (GEditor)" here because this can be called even before GEditor is set up
+        {
+            if (GWorld->HasBegunPlay())
+                return 4; // PIE
+            return 3; // Editor
+        }
+        else
+            return 2; // SrcCLI
+#else
+        return 1; // Build
+#endif
+    });
 
     // given an engine obj that you know to actually be a Python-implemented, get the associated Python instance from it (or None if you were wrong)
     m.def("PyInst", [](UObject *obj)
@@ -566,4 +586,6 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
 		.def("GetAudioComponent", [](UMediaSoundComponent& self) { return self.GetAudioComponent(); })
 		;
 }
+
+//#pragma optimize("", on)
 
