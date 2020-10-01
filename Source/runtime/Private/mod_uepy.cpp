@@ -3,6 +3,9 @@
 #include "common.h"
 #include "Kismet/GameplayStatics.h"
 #include "Kismet/KismetMathLibrary.h"
+#include "Kismet/KismetMaterialLibrary.h"
+#include "Kismet/KismetSystemLibrary.h"
+#include "Materials/MaterialParameterCollection.h"
 #include "UObject/ConstructorHelpers.h"
 #include "Engine/GameInstance.h"
 #include "GameFramework/GameState.h"
@@ -186,6 +189,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("IsRegistered", [](UActorComponent& self) { return self.IsRegistered(); })
         .def("RegisterComponent", [](UActorComponent& self) { self.RegisterComponent(); })
         .def("UnregisterComponent", [](UActorComponent& self) { self.UnregisterComponent(); })
+        .def("DestroyComponent", [](UActorComponent& self) { self.DestroyComponent(); })
         ;
 
     py::class_<USceneComponent, UActorComponent, UnrealTracker<USceneComponent>>(m, "USceneComponent")
@@ -200,6 +204,11 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("DetachFromComponent", [](USceneComponent& self) { self.DetachFromComponent(FDetachmentTransformRules::KeepWorldTransform); })
         .def("SetRelativeLocationAndRotation", [](USceneComponent& self, FVector& loc, FRotator& rot) { self.SetRelativeLocationAndRotation(loc, rot); })
         .def("SetRelativeTransform", [](USceneComponent& self, FTransform& t) { self.SetRelativeTransform(t); })
+        .def("SetVisibility", [](USceneComponent& self, bool b) { self.SetVisibility(b); })
+        .def("SetHiddenInGame", [](USceneComponent& self, bool b) { self.SetHiddenInGame(b); })
+        .def("GetForwardVector", [](USceneComponent& self) { return self.GetForwardVector(); })
+        .def("GetRightVector", [](USceneComponent& self) { return self.GetRightVector(); })
+        .def("GetUpVector", [](USceneComponent& self) { return self.GetUpVector(); })
         ;
 
     py::class_<UPrimitiveComponent, USceneComponent, UnrealTracker<UPrimitiveComponent>>(m, "UPrimitiveComponent")
@@ -207,6 +216,9 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("SetCollisionObjectType", [](UPrimitiveComponent& self, int c) { self.SetCollisionObjectType((ECollisionChannel)c); })
         .def("SetCollisionResponseToAllChannels", [](UPrimitiveComponent& self, int r) { self.SetCollisionResponseToAllChannels((ECollisionResponse)r); })
         .def("SetCollisionResponseTChannel", [](UPrimitiveComponent& self, int c, int r) { self.SetCollisionResponseToChannel((ECollisionChannel)c, (ECollisionResponse)r); })
+        .def("SetRenderCustomDepth", [](UPrimitiveComponent& self, bool b) { self.SetRenderCustomDepth(b); })
+        .def("SetCustomDepthStencilValue", [](UPrimitiveComponent& self, int v) { self.SetCustomDepthStencilValue(v); })
+        .def("SetCastShadow", [](UPrimitiveComponent& self, bool s) { self.SetCastShadow(s); })
         ;
 
     py::class_<UShapeComponent, UPrimitiveComponent, UnrealTracker<UShapeComponent>>(m, "UShapeComponent")
@@ -264,10 +276,76 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
             })
         ;
 
+    py::class_<FHitResult>(m, "FHitResult")
+        .def_property_readonly("Normal", [](FHitResult& self) { FVector v = self.ImpactPoint; return v; })
+        .def_property_readonly("Actor", [](FHitResult& self) { AActor *a = nullptr; if (self.Actor.IsValid()) a = self.Actor.Get(); return a; })
+        ;
+
+    py::class_<UKismetSystemLibrary, UObject, UnrealTracker<UKismetSystemLibrary>>(m, "UKismetSystemLibrary")
+        .def_static("GetPathName", [](UObject* obj) { return UKismetSystemLibrary::GetPathName(obj); })
+        .def_static("GetDisplayName", [](UObject* obj) { return UKismetSystemLibrary::GetDisplayName(obj); })
+        .def_static("GetObjectName", [](UObject* obj) { return UKismetSystemLibrary::GetObjectName(obj); })
+        .def_static("IsValid", [](UObject* obj) { return UKismetSystemLibrary::IsValid(obj); })
+        .def_static("DrawDebugLine", [](UObject *worldCtx, FVector& start, FVector& end, FLinearColor& color, float duration, float thickness) { UKismetSystemLibrary::DrawDebugLine(worldCtx, start, end, color, duration, thickness); })
+        .def_static("DrawDebugBox", [](UObject *worldCtx, FVector& center, FVector& extent, FLinearColor& color, FRotator& rot, float duration, float thickness) { UKismetSystemLibrary::DrawDebugBox(worldCtx, center, extent, color, rot, duration, thickness); })
+        .def_static("DrawDebugSphere", [](UObject *worldCtx, FVector& center, float radius, int segs, FLinearColor& color, float duration, float thickness) { UKismetSystemLibrary::DrawDebugSphere(worldCtx, center, radius, segs, color, duration, thickness); })
+        .def_static("LineTraceSingle", [](UObject *worldCtx, FVector& start, FVector& end, int channel, bool isComplex, py::list& _ignore, int type, bool ignoreSelf, FLinearColor& traceColor, FLinearColor& hitColor, float drawTime)
+        {
+            TArray<AActor*> ignore;
+            for (py::handle h : _ignore)
+                ignore.Emplace(h.cast<AActor*>());
+            FHitResult hitResult;
+            bool hit = UKismetSystemLibrary::LineTraceSingle(worldCtx, start, end, (ETraceTypeQuery)channel, isComplex, ignore, (EDrawDebugTrace::Type)type, hitResult, ignoreSelf, traceColor, hitColor, drawTime);
+            py::list ret;
+            ret.append(hitResult);
+            ret.append(hit);
+            return ret;
+        })
+        ;
+
+    py::class_<FBox>(m, "FBox")
+        .def(py::init<>())
+        .def(py::init<FVector,FVector>())
+        .def_readwrite("Min", &FBox::Min)
+        .def_readwrite("Max", &FBox::Max)
+        .def_readwrite("IsValid", &FBox::IsValid)
+        .def(py::self + py::self)
+        ;
+
     py::class_<UKismetMathLibrary, UObject, UnrealTracker<UKismetMathLibrary>>(m, "UKismetMathLibrary")
         .def_static("TEase", [](FTransform& a, FTransform& b, float alpha, int easingFunc, float blend, int steps) { return UKismetMathLibrary::TEase(a, b, alpha, (EEasingFunc::Type)easingFunc, blend, steps); })
         .def_static("VEase", [](FVector& a, FVector& b, float alpha, int easingFunc, float blend, int steps) { return UKismetMathLibrary::VEase(a, b, alpha, (EEasingFunc::Type)easingFunc, blend, steps); })
         .def_static("REase", [](FRotator& a, FRotator& b, float alpha, bool shortestPath, int easingFunc, float blend, int steps) { return UKismetMathLibrary::REase(a, b, alpha, shortestPath, (EEasingFunc::Type)easingFunc, blend, steps); })
+        .def_static("GetForwardVector", [](FRotator& rot) { return UKismetMathLibrary::GetForwardVector(rot); })
+        .def_static("GetRightVector", [](FRotator& rot) { return UKismetMathLibrary::GetRightVector(rot); })
+        .def_static("GetUpVector", [](FRotator& rot) { return UKismetMathLibrary::GetUpVector(rot); })
+        .def_static("Normal", [](FVector& a) { return UKismetMathLibrary::Normal(a); })
+        .def_static("MakeRotFromX", [](FVector& x) { return UKismetMathLibrary::MakeRotFromX(x); })
+        .def_static("MakeRotFromY", [](FVector& y) { return UKismetMathLibrary::MakeRotFromY(y); })
+        .def_static("MakeRotFromZ", [](FVector& z) { return UKismetMathLibrary::MakeRotFromZ(z); })
+        .def_static("MakeRotFromXY", [](FVector& x, FVector& y) { return UKismetMathLibrary::MakeRotFromXY(x, y); })
+        .def_static("MakeRotFromXZ", [](FVector& x, FVector& z) { return UKismetMathLibrary::MakeRotFromXZ(x, z); })
+        .def_static("MakeRotFromYX", [](FVector& y, FVector& x) { return UKismetMathLibrary::MakeRotFromYX(y, x); })
+        .def_static("MakeRotFromYZ", [](FVector& y, FVector& z) { return UKismetMathLibrary::MakeRotFromYZ(y, z); })
+        .def_static("MakeRotFromZX", [](FVector& z, FVector& x) { return UKismetMathLibrary::MakeRotFromZX(z, x); })
+        .def_static("MakeRotFromZY", [](FVector& z, FVector& y) { return UKismetMathLibrary::MakeRotFromZY(z, y); })
+        .def_static("RandomUnitVectorInConeInDegrees", [](FVector& coneDir, float coneHalfAngle) { return UKismetMathLibrary::RandomUnitVectorInConeInDegrees(coneDir, coneHalfAngle); })
+        .def_static("InRange_FloatFloat", [](float v, float min, float max) { return UKismetMathLibrary::InRange_FloatFloat(v, min, max); })
+        .def_static("RLerp", [](FRotator a, FRotator b, float alpha, bool shortestPath) { return UKismetMathLibrary::RLerp(a,b,alpha,shortestPath); })
+        .def_static("VLerp", [](FVector a, FVector b, float alpha) { return UKismetMathLibrary::VLerp(a,b,alpha); })
+        .def_static("FInterpTo", [](float cur, float target, float deltaTime, float speed) { return UKismetMathLibrary::FInterpTo(cur, target, deltaTime, speed); })
+        .def_static("RGBToHSV", [](FLinearColor& c)
+        {
+            float h,s,v,a;
+            UKismetMathLibrary::RGBToHSV(c, h, s, v, a);
+            py::list ret;
+            ret.append(h);
+            ret.append(s);
+            ret.append(v);
+            ret.append(a);
+            return ret
+        }
+        .def_static("HSVToRGB", [](float h, float s, float v, float a) { return UKismetMathLibrary::HSVToRGB(h,s,v,a); })
         ;
 
     py::class_<UMaterialInterface, UnrealTracker<UMaterialInterface>>(m, "UMaterialInterface");
@@ -275,9 +353,23 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
     py::class_<UMaterial, UMaterialInterface, UnrealTracker<UMaterial>>(m, "UMaterial")
         ;
 
-    py::class_<UMaterialInstance, UMaterialInterface, UnrealTracker<UMaterialInstance>>(m, "UMaterialInstance");
+    py::class_<UMaterialInstance, UMaterialInterface, UnrealTracker<UMaterialInstance>>(m, "UMaterialInstance")
+        ;
+
     py::class_<UMaterialInstanceDynamic, UMaterialInstance, UnrealTracker<UMaterialInstanceDynamic>>(m, "UMaterialInstanceDynamic")
-        .def("SetTextureParameterValue", [](UMaterialInstanceDynamic& self, std::string paramName, UTexture2D* value) -> void { self.SetTextureParameterValue(UTF8_TO_TCHAR(paramName.c_str()), value); })
+        .def("SetTextureParameterValue", [](UMaterialInstanceDynamic& self, std::string name, UTexture2D* value) -> void { self.SetTextureParameterValue(UTF8_TO_TCHAR(name.c_str()), value); })
+        .def("SetScalarParameterValue", [](UMaterialInstanceDynamic& self, std::string name, float v) { self.SetScalarParameterValue(FSTR(name), v); })
+        .def("GetScalarParameterValue", [](UMaterialInstanceDynamic& self, std::string name) { return self.K2_GetScalarParameterValue(FSTR(name)); })
+        .def("SetVectorParameterValue", [](UMaterialInstanceDynamic& self, std::string name, FLinearColor& v) { self.SetVectorParameterValue(FSTR(name), v); })
+        .def("GetVectorParameterValue", [](UMaterialInstanceDynamic& self, std::string name) { return self.K2_GetVectorParameterValue(FSTR(name)); })
+        ;
+
+    py::class_<UMaterialParameterCollection, UObject, UnrealTracker<UMaterialParameterCollection>>(m, "UMaterialParameterCollection")
+        ;
+
+    py::class_<UKismetMaterialLibrary, UObject, UnrealTracker<UKismetMaterialLibrary>>(m, "UKismetMaterialLibrary")
+        .def_static("CreateDynamicMaterialInstance", [](UObject *worldCtx, UMaterialInterface *parent) { return UKismetMaterialLibrary::CreateDynamicMaterialInstance(worldCtx, parent); })
+		.def_static("GetVectorParameterValue", [](UObject* worldCtx, UMaterialParameterCollection* coll, std::string name) { return UKismetMaterialLibrary::GetVectorParameterValue(worldCtx, coll, FSTR(name)); })
         ;
 
     py::class_<UTexture2D, UnrealTracker<UTexture2D>>(m, "UTexture2D")
@@ -307,6 +399,8 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("SetActorTickInterval", [](AActor& self, float interval) { self.SetActorTickInterval(interval); })
         .def("GetActorTickInterval", [](AActor& self) { return self.GetActorTickInterval(); })
         .def("SetActorHiddenInGame", [](AActor& self, bool b) { self.SetActorHiddenInGame(b); })
+        .def("HasAuthority", [](AActor& self) { return self.HasAuthority(); })
+        .def("GetOwner", [](AActor& self) { return self.GetOwner(); })
         .def("BindOnEndPlay", [](AActor* self, py::object callback) { UEPY_BIND(self, OnEndPlay, AActor_OnEndPlay, callback); })
         .def("UnbindOnEndPlay", [](AActor* self, py::object callback) { UEPY_UNBIND(self, OnEndPlay, AActor_OnEndPlay, callback); })
         .def_property("Tags", [](AActor& self)
@@ -349,6 +443,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def_readwrite("y", &FVector2D::Y)
         .def_readwrite("Y", &FVector2D::Y)
         .def(py::self + py::self)
+        .def(py::self - py::self)
         .def(-py::self)
         .def(float() * py::self)
         .def(py::self * float())
@@ -367,10 +462,28 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def_readwrite("z", &FVector::Z)
         .def_readwrite("Z", &FVector::Z)
         .def(py::self + py::self)
+        .def(py::self - py::self)
         .def(-py::self)
         .def(float() * py::self)
         .def(py::self * float())
         .def("__iter__", [](FVector& self) { return CheesyIterator<float>({self.X, self.Y, self.Z}); })
+        .def("Rotation", [](FVector& self) { return self.Rotation(); })
+        .def("ToOrientationQuat", [](FVector& self) { return self.ToOrientationQuat(); })
+        .def_readonly_static("ZeroVector", &FVector::ZeroVector)
+        .def_readonly_static("OneVector", &FVector::OneVector)
+        .def_readonly_static("UpVector", &FVector::UpVector)
+        .def_readonly_static("DownVector", &FVector::DownVector)
+        .def_readonly_static("ForwardVector", &FVector::ForwardVector)
+        .def_readonly_static("BackwardVector", &FVector::BackwardVector)
+        .def_readonly_static("RightVector", &FVector::RightVector)
+        .def_readonly_static("LeftVector", &FVector::LeftVector)
+        .def("Size", [](FVector& self) { return self.Size(); })
+        .def("SizeSquared", [](FVector& self) { return self.SizeSquared(); })
+        .def("IsNearlyZero", [](FVector& self) { return self.IsNearlyZero(); })
+        .def("Normalize", [](FVector& self) { return self.Normalize(); })
+        .def("IsNormalized", [](FVector& self) { return self.IsNormalized(); })
+        .def_static("DotProduct", [](FVector& a, FVector& b) { return FVector::DotProduct(a, b); })
+        .def_static("CrossProduct", [](FVector& a, FVector& b) { return FVector::CrossProduct(a, b); })
         ;
 
     py::class_<FRotator>(m, "FRotator")
@@ -383,11 +496,29 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def_readwrite("Yaw", &FRotator::Yaw)
         .def("RotateVector", [](FRotator& self, FVector& v) { return self.RotateVector(v); })
         .def("UnrotateVector", [](FRotator& self, FVector& v) { return self.UnrotateVector(v); })
+        .def("Quaternion", [](FRotator& self) { return self.Quaternion(); })
         .def("__iter__", [](FRotator& self) { return CheesyIterator<float>({self.Roll, self.Pitch, self.Yaw}); })
+        .def(float() * py::self)
+        .def(py::self * float())
+        ;
+
+    py::class_<FQuat>(m, "FQuat")
+        .def(py::init<float,float,float,float>())
+        .def_readwrite("X", &FQuat::X)
+        .def_readwrite("Y", &FQuat::Y)
+        .def_readwrite("Z", &FQuat::Z)
+        .def_readwrite("W", &FQuat::W)
+        .def_readwrite("x", &FQuat::X)
+        .def_readwrite("y", &FQuat::Y)
+        .def_readwrite("z", &FQuat::Z)
+        .def_readwrite("w", &FQuat::W)
+        .def_static("FindBetweenVectors", [](FVector& a, FVector& b) { return FQuat::FindBetweenVectors(a,b); })
         ;
 
     py::class_<FTransform>(m, "FTransform")
         .def(py::init<>())
+        .def(py::init([](FVector& loc, FRotator& rot, FVector& scale) { return FTransform(rot, loc, scale); }))
+        .def("Inverse", [](FTransform& self) { return self.Inverse(); })
         .def("Rotator", [](FTransform& self) { return self.Rotator(); })
         .def("GetRotation", [](FTransform& self) { return self.Rotator(); })
         .def("SetRotation", [](FTransform& self, FRotator& r) { FQuat q(r); self.SetRotation(q); })
@@ -397,6 +528,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("SetLocation", [](FTransform& self, FVector& t) { self.SetLocation(t); })
         .def("GetScale3D", [](FTransform& self) { return self.GetScale3D(); })
         .def("SetScale3D", [](FTransform& self, FVector& v) { self.SetScale3D(v); })
+        .def("TransformPosition", [](FTransform& self, FVector& pos) { return self.TransformPosition(pos); })
         .def_property("translation", [](FTransform& self) { return self.GetTranslation(); }, [](FTransform& self, FVector& v) { self.SetTranslation(v); })
         .def_property("scale", [](FTransform& self) { return self.GetScale3D(); }, [](FTransform& self, FVector& v) { self.SetScale3D(v); })
         .def_property("rotation", [](FTransform& self) { return self.Rotator(); }, [](FTransform& self, FRotator& r) { FQuat q(r); self.SetRotation(q); })
@@ -426,6 +558,14 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def_readwrite("A", &FLinearColor::A)
         .def_readwrite("a", &FLinearColor::A)
         .def("__iter__", [](FLinearColor& self) { return CheesyIterator<float>({self.R, self.G, self.B, self.A}); })
+        .def_readonly_static("White", &FLinearColor::White)
+        .def_readonly_static("Gray", &FLinearColor::Gray)
+        .def_readonly_static("Black", &FLinearColor::Black)
+        .def_readonly_static("Transparent", &FLinearColor::Transparent)
+        .def_readonly_static("Red", &FLinearColor::Red)
+        .def_readonly_static("Green", &FLinearColor::Green)
+        .def_readonly_static("Blue", &FLinearColor::Blue)
+        .def_readonly_static("Yellow", &FLinearColor::Yellow)
         ;
 
     py::class_<FMargin>(m, "FMargin")
@@ -475,11 +615,6 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
     {
         std::string spath = path;
         return LoadTextureFromFile(UTF8_TO_TCHAR(spath.c_str()));
-    }, py::return_value_policy::reference);
-
-    m.def("CreateDynamicMaterialInstance", [](UObject *owner, UMaterialInterface *parent) -> UMaterialInstanceDynamic*
-    {
-        return UMaterialInstanceDynamic::Create(parent, owner);
     }, py::return_value_policy::reference);
 
     m.def("RegisterPythonSubclass", [](py::str fqClassName, UClass *engineParentClass, const py::object pyClass) -> UClass*
@@ -571,6 +706,12 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def_static("Cast", [](UObject *obj) { return Cast<AActor_CGLUE>(obj); }, py::return_value_policy::reference)
         .def("SuperBeginPlay", [](AActor_CGLUE& self) { self.SuperBeginPlay(); })
         .def("SuperTick", [](AActor_CGLUE& self, float dt) { self.SuperTick(dt); })
+        ;
+
+    py::class_<APawn, AActor, UnrealTracker<APawn>>(m, "APawn")
+        .def_static("StaticClass", []() { return APawn::StaticClass(); })
+        .def_static("Cast", [](UObject *w) { return Cast<APawn>(w); }, py::return_value_policy::reference)
+        .def("IsLocallyControlled", [](APawn& self) { return self.IsLocallyControlled(); })
         ;
 
 	py::class_<USoundClass, UObject, UnrealTracker<USoundClass>>(m, "USoundClass")

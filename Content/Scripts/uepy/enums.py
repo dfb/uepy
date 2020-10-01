@@ -39,3 +39,6 @@ class ECollisionResponse:
 class EEasingFunc:
     Linear, Step, SinusoidalIn, SinusoidalOut, SinusoidalInOut, EaseIn, EaseOut, EaseInOut, ExpoIn, ExpoOut, ExpoInOut, CircularIn, CircularOut, CircularInOut = range(14)
 
+class EDrawDebugTrace:
+    NONE, ForOneFrame, ForDuration, Persistent = range(4)
+

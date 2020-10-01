@@ -42,6 +42,33 @@ namespace py = pybind11;
 // std::string --> FString, sort of
 #define FSTR(stdstr) UTF8_TO_TCHAR((stdstr).c_str())
 
+// helpers for declaring py::class_ properties
+#define LIST_PROP(listName, listType, className)\
+.def_property(#listName, [](className& self)\
+{\
+    py::list ret;\
+    for (auto item : self.listName)\
+        ret.append(item);\
+    return ret;\
+}, [](className& self, py::list& _items)\
+{\
+    TArray<listType> items;\
+    for (py::handle item : _items)\
+        items.Emplace(item.cast<listType>());\
+    self.listName = items;\
+})
+
+#define STR_PROP(propName, className)\
+.def_property(#propName, [](className& self) { std::string s = TCHAR_TO_UTF8(*self.propName); return s; }, [](className& self, std::string& v) { self.propName = FSTR(v); })
+
+#define FNAME_PROP(propName, className)\
+.def_property(#propName, [](className& self) { std::string s = TCHAR_TO_UTF8(*self.propName.ToString()); return s; }, [](className& self, std::string& v) { self.propName = FSTR(v); })
+
+#define ENUM_PROP(propName, propType, className)\
+.def_property(#propName, [](className& self) { return (int)self.propName; }, [](className& self, int v) { self.propName = (propType)v; })
+
+
+
 class FToolBarBuilder;
 class FMenuBuilder;
 
