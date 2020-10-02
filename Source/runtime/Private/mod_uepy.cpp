@@ -162,30 +162,8 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("Set", [](UObject* self, std::string k, py::object& value) { SetObjectUProperty(self, k, value); })
         .def("Get", [](UObject* self, std::string k) { return GetObjectUProperty(self, k); })
         .def("Call", [](UObject* self, std::string funcName, py::args& args){ return CallObjectUFunction(self, funcName, args); }, py::return_value_policy::reference)
-
-        .def("Bind", [](UObject* obj, std::string _eventName, UObject* cbOwner, py::object callback)
-        {
-            FName eventName = FSTR(_eventName);
-            UProperty* prop = obj->GetClass()->FindPropertyByName(eventName);
-            if (!prop)
-            {
-                LERROR("Failed to find property %s on object %s", *eventName.ToString(), *obj->GetName());
-            }
-
-            UMulticastDelegateProperty *mcprop = Cast<UMulticastDelegateProperty>(prop);
-            if (!mcprop)
-            {
-                LERROR("Property %s is not a multicast delegate on object %s", *eventName.ToString(), *obj->GetName());
-            }
-
-            UBasePythonDelegate *delegate = FPyObjectTracker::Get()->CreateDelegate(cbOwner, "dynamic", "pydenamic", callback);
-            if (delegate)
-            {
-                FScriptDelegate scriptDel;
-                scriptDel.BindUFunction(delegate, FName("DummyCallback"));
-				mcprop->AddDelegate(scriptDel, cbOwner);
-            }
-        })
+        .def("Bind", [](UObject* self, std::string eventName, py::object callback) { BindDelegateCallback(self, eventName, callback); })
+        .def("Unbind", [](UObject* self, std::string eventName, py::object callback) { UnbindDelegateCallback(self, eventName, callback); })
         ;
 
     py::class_<UClass, UObject, UnrealTracker<UClass>>(m, "UClass") // TODO: UClass --> UStruct --> UField --> UObject

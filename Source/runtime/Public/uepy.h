@@ -18,6 +18,7 @@
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Runtime/CoreUObject/Public/UObject/GCObject.h"
 #include "MediaPlayer.h"
+#include "GameFramework/PlayerController.h"
 #include "MediaSoundComponent.h"
 #include "FileMediaSource.h"
 #include "uepy.generated.h"
@@ -91,15 +92,18 @@ public:
     FString pyDelMethodName; // the name of one of our On* methods
 
     static UBasePythonDelegate *Create(UObject *engineObj, FString mcDelName, FString pyDelMethodName, py::object pyCB);
-    bool Matches(UObject *engineObj, FString& mcDelName, FString& pyDelMethodName, py::object pyCB);
-	virtual void ProcessEvent(UFunction *function, void *params) override;
+    bool Matches(UObject *engineObj, FString& mcDelName, FString& pyDelMethodName, py::object pyCBOwner);
 
-	UFUNCTION() void DummyCallback() {} // for delegate binding, we need a UFUNCTION that can be looked up on this object
+    UFunction *signatureFunction=nullptr; // used for BP events instead of one of the On functions below - we use this to get the signature
+    virtual void ProcessEvent(UFunction *function, void *params) override;
 
     // Each different method signature for different multicast events needs a method here (or in a subclass I guess)
+    // TODO: now that we have support for multicast delegates binding and firing via the UE4 reflection system, do we really need these one-off
+    // events? They might be slightly more efficient (but maybe not), but is it enough to ever matter?
 
-    // generic
+    // generic - also used for BP callbacks where we have to have a registered UFUNCTION that exists for the check right before it calls ProcessEvent
     UFUNCTION() void On() { if (valid) callback(); }
+
     // UComboBoxString
     UFUNCTION() void UComboBoxString_OnHandleSelectionChanged(FString Item, ESelectInfo::Type SelectionType) { if (valid) callback(*Item, (int)SelectionType); }
 
@@ -137,7 +141,7 @@ public:
     UBasePythonDelegate *FindDelegate(UObject *engineObj, const char *mcDelName, const char *pyDelMethodName, py::object pyCB);
 
     static FPyObjectTracker *Get();
-	virtual void AddReferencedObjects(FReferenceCollector& InCollector) override;
+    virtual void AddReferencedObjects(FReferenceCollector& InCollector) override;
     void Track(UObject *o);
     void Untrack(UObject *o);
     void Purge();
@@ -160,6 +164,7 @@ public:
 // pyDelMethod- the name of one of the On* methods defined in UBasePythonDelegate
 // pyCB - the Python function to be called when the delegate event fires
 // Example: UEPY_BIND(someButtonVar, OnClicked, On, somePyFunctionVar);
+// TODO: Should we get rid of this now that we have delegates working via the reflection system?
 #define UEPY_BIND(engineObj, mcDel, pyDelMethod, pyCB)\
 {\
     if (engineObj && engineObj->IsValidLowLevel())\
@@ -183,15 +188,15 @@ public:
 PYBIND11_DECLARE_HOLDER_TYPE(T, UnrealTracker<T>, true);
 
 #define UTYPE_HOOK(uclass) \
-	template<> struct polymorphic_type_hook<uclass> { \
-		static const void *get(const UObject *src, const std::type_info*& type) { \
-			if (src && src->StaticClass() == uclass::StaticClass()) { \
-				type = &typeid(uclass); \
-				return static_cast<const uclass*>(src); \
-			} \
-			return src; \
-		} \
-	}
+    template<> struct polymorphic_type_hook<uclass> { \
+        static const void *get(const UObject *src, const std::type_info*& type) { \
+            if (src && src->StaticClass() == uclass::StaticClass()) { \
+                type = &typeid(uclass); \
+                return static_cast<const uclass*>(src); \
+            } \
+            return src; \
+        } \
+    }
 
 namespace pybind11 {
     UTYPE_HOOK(UMaterial);
@@ -219,6 +224,7 @@ namespace pybind11 {
     UTYPE_HOOK(UMediaSoundComponent);
     UTYPE_HOOK(UAudioComponent);
 
+    UTYPE_HOOK(APlayerController);
     UTYPE_HOOK(AActor);
     UTYPE_HOOK(UObject);
 
@@ -228,7 +234,7 @@ namespace pybind11 {
 UINTERFACE()
 class UEPY_API UUEPYGlueMixin : public UInterface
 {
-	GENERATED_BODY()
+    GENERATED_BODY()
 };
 
 class IUEPYGlueMixin
@@ -241,7 +247,7 @@ public:
 
 struct UEPY_API FUEPyDelegates
 {
-	DECLARE_MULTICAST_DELEGATE_OneParam(FPythonEvent1, py::module&);
+    DECLARE_MULTICAST_DELEGATE_OneParam(FPythonEvent1, py::module&);
     static FPythonEvent1 LaunchInit; // called during initial engine startup
 };
 
@@ -258,7 +264,7 @@ public:
     void SuperTick(float dt);
 
 protected:
-	virtual void BeginPlay() override;
+    virtual void BeginPlay() override;
     virtual void Tick(float dt) override;
 };
 
@@ -271,3 +277,6 @@ UEPY_API UClass *PyObjectToUClass(py::object& klassThing);
 py::object GetObjectUProperty(UObject *obj, std::string k);
 void SetObjectUProperty(UObject *obj, std::string k, py::object& value);
 py::object CallObjectUFunction(UObject *obj, std::string funcName, py::tuple& args);
+void BindDelegateCallback(UObject *obj, std::string eventName, py::object& callback);
+void UnbindDelegateCallback(UObject *obj, std::string eventName, py::object& callback);
+

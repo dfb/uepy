@@ -8,10 +8,11 @@
 #include "Editor.h"
 #endif
 
-#pragma optimize("", off)
+//#pragma optimize("", off)
 
 DEFINE_LOG_CATEGORY(UEPY);
 IMPLEMENT_MODULE(FuepyModule, uepy)
+py::object _getuprop(UProperty *prop, uint8* buffer, int index);
 
 FUEPyDelegates::FPythonEvent1 FUEPyDelegates::LaunchInit;
 
@@ -127,7 +128,7 @@ void FPyObjectTracker::Untrack(UObject *o)
     if (!slot)
     {
 #if WITH_EDITOR
-        LWARN("TRK Untracking %s (%p) but it is not being tracked", (o && o->IsValidLowLevel()) ? *o->GetName() : TEXT("???"), o);
+        //too verbose! LWARN("TRK Untracking %s (%p) but it is not being tracked", (o && o->IsValidLowLevel()) ? *o->GetName() : TEXT("???"), o);
         // TODO: with editor, save obj name during tracking
 #endif
     }
@@ -159,9 +160,9 @@ UBasePythonDelegate *UBasePythonDelegate::Create(UObject *engineObj, FString _mc
     return delegate;
 }
 
-bool UBasePythonDelegate::Matches(UObject *_engineObj, FString& _mcDelName, FString& _pyDelMethodName, py::object _pyCB)
+bool UBasePythonDelegate::Matches(UObject *_engineObj, FString& _mcDelName, FString& _pyDelMethodName, py::object _pyCBOwner)
 {
-    return engineObj == (void*)_engineObj && mcDelName == _mcDelName && pyDelMethodName == _pyDelMethodName && callback.ptr() == _pyCB.ptr();
+    return engineObj == (void*)_engineObj && callbackOwner.ptr() == _pyCBOwner.ptr() && mcDelName == _mcDelName && pyDelMethodName == _pyDelMethodName;
 }
 
 UBasePythonDelegate *FPyObjectTracker::CreateDelegate(UObject *engineObj, const char *mcDelName, const char *pyDelMethodName, py::object pyCB)
@@ -174,17 +175,48 @@ UBasePythonDelegate *FPyObjectTracker::CreateDelegate(UObject *engineObj, const 
 
 UBasePythonDelegate *FPyObjectTracker::FindDelegate(UObject *engineObj, const char *mcDelName, const char *pyDelMethodName, py::object pyCB)
 {
+    py::object pyCBOwner = pyCB.attr("__self__");
     FString findMCDelName = UTF8_TO_TCHAR(mcDelName);
     FString findPyDelMethodName = UTF8_TO_TCHAR(pyDelMethodName);
     for (UBasePythonDelegate* delegate : delegates)
-        if (delegate->Matches(engineObj, findMCDelName, findPyDelMethodName, pyCB))
+        if (delegate->Matches(engineObj, findMCDelName, findPyDelMethodName, pyCBOwner))
             return delegate;
     return nullptr;
 }
 
 void UBasePythonDelegate::ProcessEvent(UFunction *function, void *params)
 {
-    LOG("HERE");
+    // ProcessEvent is called in one of two scenarios:
+    // 1) An event was bound via the reflection system and the delegate has fired. In this case, the 'function' parameter is useless
+    //      (it's the dummy function we listed at the time of binding; we needed something or ProcessEvent would never have been called),
+    //      so we instead use the signatureFunction we got from the MC delegate property at the time of binding - we use this function
+    //      to extract the parameters from the event.
+    // 2) An event was bound using one of the Bind* functions we explicitly exposed from C++ to Python. In this case, there is not
+    //      signatureFunction, so we fall back to the default behavior and let the event get dispatched normally.
+	if (!signatureFunction)
+	{
+		Super::ProcessEvent(function, params);
+        return;
+    }
+
+    if (!valid) // about to be cleaned up
+        return;
+
+    py::list args;
+    for (TFieldIterator<UProperty> iter(signatureFunction); iter ; ++iter)
+    {
+        UProperty *prop = *iter;
+        if (!prop->HasAnyPropertyFlags(CPF_Parm))
+            continue;
+        if (prop->HasAnyPropertyFlags(CPF_OutParm))//ReturnParm))
+            continue;
+
+        args.append(_getuprop(prop, (uint8*)params, 0));
+    }
+
+    try {
+        callback(*args);
+    } catchpy;
 }
 
 // removes any objects we should no longer be tracking
@@ -512,5 +544,57 @@ py::object CallObjectUFunction(UObject *obj, std::string _funcName, py::tuple& p
     return ret;
 }
 
-#pragma optimize("", on)
+// generic binding of a python callback function to a multicast script delegate
+void BindDelegateCallback(UObject *obj, std::string _eventName, py::object& callback)
+{
+    FName eventName = FSTR(_eventName);
+    UProperty* prop = obj->GetClass()->FindPropertyByName(eventName);
+    if (!prop)
+    {
+        LERROR("Failed to find property %s on object %s", *eventName.ToString(), *obj->GetName());
+    }
+
+    UMulticastDelegateProperty *mcprop = Cast<UMulticastDelegateProperty>(prop);
+    if (!mcprop)
+    {
+        LERROR("Property %s is not a multicast delegate on object %s", *eventName.ToString(), *obj->GetName());
+    }
+
+    UBasePythonDelegate *delegate = FPyObjectTracker::Get()->CreateDelegate(obj, _eventName.c_str(), "On", callback);
+    if (delegate)
+    {
+        delegate->signatureFunction = mcprop->SignatureFunction;
+        FScriptDelegate scriptDel;
+        scriptDel.BindUFunction(delegate, FName("On")); // this refers to the generic UBasePythonDelegate::On method - we just have to provide /something/ but it never gets used
+        mcprop->AddDelegate(scriptDel, obj);
+    }
+}
+
+void UnbindDelegateCallback(UObject *obj, std::string _eventName, py::object& callback)
+{
+    FName eventName = FSTR(_eventName);
+    UProperty* prop = obj->GetClass()->FindPropertyByName(eventName);
+    if (!prop)
+    {
+        LERROR("Failed to find property %s on object %s", *eventName.ToString(), *obj->GetName());
+    }
+
+    UMulticastDelegateProperty *mcprop = Cast<UMulticastDelegateProperty>(prop);
+    if (!mcprop)
+    {
+        LERROR("Property %s is not a multicast delegate on object %s", *eventName.ToString(), *obj->GetName());
+    }
+
+    UBasePythonDelegate *delegate = FPyObjectTracker::Get()->FindDelegate(obj, _eventName.c_str(), "On", callback);
+    if (delegate)
+    {
+        FScriptDelegate scriptDel;
+        scriptDel.BindUFunction(delegate, FName("On")); // this refers to the generic UBasePythonDelegate::On method - we just have to provide /something/ but it never gets used
+        mcprop->RemoveDelegate(scriptDel, obj);
+        scriptDel.Clear();
+        delegate->valid = false;
+    }
+}
+
+//#pragma optimize("", on)
 
