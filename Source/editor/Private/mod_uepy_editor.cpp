@@ -1,6 +1,7 @@
 #include "mod_uepy_editor.h"
 #include "common.h"
 #include "LevelEditor.h"
+#include "Blueprint/UserWidget.h"
 #include "Widgets/Docking/SDockTab.h"
 #include "WorkspaceMenuStructure.h"
 #include "WorkspaceMenuStructureModule.h"

@@ -154,9 +154,6 @@ class AActor_PGLUE(metaclass=PyGlueMetaclass):
     def Get(self, k): return self.engineObj.Get(k)
     def Call(self, funcName, *args): return self.engineObj.Call(funcName, *args)
 
-class UUserWidget_PGLUE(metaclass=PyGlueMetaclass):
-    '''Base class of all Python subclasses from AActor-derived C++ classes'''
-
 class UEPYAssistantActor(AActor_PGLUE):
     '''Spawn one of these into a level to have it watch for source code changes and automatically reload modified code.
     Attempts to load the module specified in self.mainModuleName; override the default value prior to BeginPlay.'''
@@ -183,6 +180,12 @@ def CPROPS(cls, *propNames):
             def _set(self, value): setattr(self.engineObj, name, value)
             setattr(cls, name, property(_get, _set))
         setup(_name) # create a closure so we don't lose the name
+
+class UUserWidget_PGLUE(metaclass=PyGlueMetaclass):
+    '''Base class of all Python subclasses from AActor-derived C++ classes'''
+    # TODO: why doesn't this live in umg.py?
+CPROPS(UUserWidget_PGLUE, 'rootWidgetClass')
+
 
 def SpawnActor(world, klass, location=None, rotation=None, **kwargs):
     '''Extends __uepy.SpawnActor_ so that you can also pass in values for any UPROPERTY fields'''

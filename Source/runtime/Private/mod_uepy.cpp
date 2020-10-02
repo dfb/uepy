@@ -162,6 +162,30 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("Set", [](UObject* self, std::string k, py::object& value) { SetObjectUProperty(self, k, value); })
         .def("Get", [](UObject* self, std::string k) { return GetObjectUProperty(self, k); })
         .def("Call", [](UObject* self, std::string funcName, py::args& args){ return CallObjectUFunction(self, funcName, args); }, py::return_value_policy::reference)
+
+        .def("Bind", [](UObject* obj, std::string _eventName, UObject* cbOwner, py::object callback)
+        {
+            FName eventName = FSTR(_eventName);
+            UProperty* prop = obj->GetClass()->FindPropertyByName(eventName);
+            if (!prop)
+            {
+                LERROR("Failed to find property %s on object %s", *eventName.ToString(), *obj->GetName());
+            }
+
+            UMulticastDelegateProperty *mcprop = Cast<UMulticastDelegateProperty>(prop);
+            if (!mcprop)
+            {
+                LERROR("Property %s is not a multicast delegate on object %s", *eventName.ToString(), *obj->GetName());
+            }
+
+            UBasePythonDelegate *delegate = FPyObjectTracker::Get()->CreateDelegate(cbOwner, "dynamic", "pydenamic", callback);
+            if (delegate)
+            {
+                FScriptDelegate scriptDel;
+                scriptDel.BindUFunction(delegate, FName("DummyCallback"));
+				mcprop->AddDelegate(scriptDel, cbOwner);
+            }
+        })
         ;
 
     py::class_<UClass, UObject, UnrealTracker<UClass>>(m, "UClass") // TODO: UClass --> UStruct --> UField --> UObject
@@ -239,7 +263,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("SetMaterial", [](UStaticMeshComponent& self, int index, UMaterialInterface *newMat) -> void { self.SetMaterial(index, newMat); }) // technically, UMaterialInterface
         ;
 
-    py::class_<UWorld, UnrealTracker<UWorld>>(m, "UWorld")
+    py::class_<UWorld, UObject, UnrealTracker<UWorld>>(m, "UWorld")
         .def_property_readonly("WorldType", [](UWorld& self) { return (int)self.WorldType; })
         .def("GetAllActors", [](UWorld* self)
         {
@@ -274,6 +298,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
             }
             return ret;
             })
+        .def_static("GetPlayerController", [](UObject *worldCtx, int playerIndex) { return UGameplayStatics::GetPlayerController(worldCtx, playerIndex); })
         ;
 
     py::class_<FHitResult>(m, "FHitResult")
@@ -343,8 +368,8 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
             ret.append(s);
             ret.append(v);
             ret.append(a);
-            return ret
-        }
+			return ret;
+        })
         .def_static("HSVToRGB", [](float h, float s, float v, float a) { return UKismetMathLibrary::HSVToRGB(h,s,v,a); })
         ;
 
@@ -419,6 +444,16 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
                 for (const py::handle pytag : pytags)
                     self.Tags.Emplace(pytag.cast<std::string>().c_str());
             })
+        ;
+
+    py::class_<AController, AActor, UnrealTracker<AController>>(m, "AController")
+        .def_static("StaticClass", []() { return AController::StaticClass(); })
+        .def_static("Cast", [](UObject *obj) { return Cast<AController>(obj); }, py::return_value_policy::reference)
+        ;
+
+    py::class_<APlayerController, AController, UnrealTracker<APlayerController>>(m, "APlayerController")
+        .def_static("StaticClass", []() { return APlayerController::StaticClass(); })
+        .def_static("Cast", [](UObject *obj) { return Cast<APlayerController>(obj); }, py::return_value_policy::reference)
         ;
 
     py::class_<AGameStateBase, AActor, UnrealTracker<AGameStateBase>>(m, "AGameStateBase")
@@ -548,7 +583,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         ;
 
     py::class_<FLinearColor>(m, "FLinearColor")
-        .def(py::init<float, float, float, float>(), "r"_a=0.0f, "g"_a=0.0f, "b"_a=0.0f, "a"_a=0.0f)
+        .def(py::init<float, float, float, float>(), "r"_a=0.0f, "g"_a=0.0f, "b"_a=0.0f, "a"_a=1.0f)
         .def_readwrite("R", &FLinearColor::R)
         .def_readwrite("r", &FLinearColor::R)
         .def_readwrite("G", &FLinearColor::G)
@@ -569,15 +604,18 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         ;
 
     py::class_<FMargin>(m, "FMargin")
-        .def(py::init<float,float,float,float>(), "left"_a=0.0f, "top"_a=0.0f, "right"_a=0.0f, "bottom"_a=0.0f)
-        .def_readwrite("left", &FMargin::Left)
+        .def(py::init<>())
+        .def(py::init<float>())
+        .def(py::init<float,float>())
+        .def(py::init<float,float,float,float>())
         .def_readwrite("Left", &FMargin::Left)
-        .def_readwrite("top", &FMargin::Top)
         .def_readwrite("Top", &FMargin::Top)
-        .def_readwrite("right", &FMargin::Right)
         .def_readwrite("Right", &FMargin::Right)
-        .def_readwrite("bottom", &FMargin::Bottom)
         .def_readwrite("Bottom", &FMargin::Bottom)
+        .def_readwrite("left", &FMargin::Left)
+        .def_readwrite("top", &FMargin::Top)
+        .def_readwrite("right", &FMargin::Right)
+        .def_readwrite("bottom", &FMargin::Bottom)
         ;
 
     m.def("log", [](py::args args) -> void

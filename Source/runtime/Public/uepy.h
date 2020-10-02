@@ -17,17 +17,6 @@
 
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Runtime/CoreUObject/Public/UObject/GCObject.h"
-#include "Components/Button.h"
-#include "Components/CheckBox.h"
-#include "Components/ComboBoxString.h"
-#include "Components/EditableTextBox.h"
-#include "Components/HorizontalBox.h"
-#include "Components/TextBlock.h"
-#include "Components/HorizontalBox.h"
-#include "Components/HorizontalBoxSlot.h"
-#include "Components/VerticalBox.h"
-#include "Components/VerticalBoxSlot.h"
-#include "Components/Widget.h"
 #include "MediaPlayer.h"
 #include "MediaSoundComponent.h"
 #include "FileMediaSource.h"
@@ -101,9 +90,11 @@ public:
     FString mcDelName; // the name of the multicast delegate
     FString pyDelMethodName; // the name of one of our On* methods
 
-public:
     static UBasePythonDelegate *Create(UObject *engineObj, FString mcDelName, FString pyDelMethodName, py::object pyCB);
     bool Matches(UObject *engineObj, FString& mcDelName, FString& pyDelMethodName, py::object pyCB);
+	virtual void ProcessEvent(UFunction *function, void *params) override;
+
+	UFUNCTION() void DummyCallback() {} // for delegate binding, we need a UFUNCTION that can be looked up on this object
 
     // Each different method signature for different multicast events needs a method here (or in a subclass I guess)
 
@@ -221,18 +212,6 @@ namespace pybind11 {
 
     UTYPE_HOOK(UClass);
     UTYPE_HOOK(UInterface);
-
-    UTYPE_HOOK(UPanelSlot);
-    UTYPE_HOOK(UEditableTextBox);
-    UTYPE_HOOK(UVerticalBox);
-    UTYPE_HOOK(UHorizontalBox);
-    UTYPE_HOOK(UVerticalBoxSlot);
-    UTYPE_HOOK(UHorizontalBoxSlot);
-    UTYPE_HOOK(UCheckBox);
-    UTYPE_HOOK(UComboBoxString);
-    UTYPE_HOOK(UTextBlock);
-    UTYPE_HOOK(UButton);
-    UTYPE_HOOK(UWidget);
 
     UTYPE_HOOK(UMediaPlayer);
     UTYPE_HOOK(USoundClass);

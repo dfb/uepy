@@ -13,7 +13,7 @@ class UEPY_API UUserWidget_CGLUE : public UUserWidget, public IUEPYGlueMixin
     GENERATED_BODY()
     
 public:
-    TSubclassOf<UWidget> rootWidgetClass = UVerticalBox::StaticClass();
+    UClass* /*TSubclassOf<UWidget>*/ rootWidgetClass = UVerticalBox::StaticClass();
     virtual TSharedRef<SWidget> RebuildWidget() override;
     virtual void NativePreConstruct() override;
 

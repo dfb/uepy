@@ -8,7 +8,7 @@
 #include "Editor.h"
 #endif
 
-//#pragma optimize("", off)
+#pragma optimize("", off)
 
 DEFINE_LOG_CATEGORY(UEPY);
 IMPLEMENT_MODULE(FuepyModule, uepy)
@@ -182,6 +182,11 @@ UBasePythonDelegate *FPyObjectTracker::FindDelegate(UObject *engineObj, const ch
     return nullptr;
 }
 
+void UBasePythonDelegate::ProcessEvent(UFunction *function, void *params)
+{
+    LOG("HERE");
+}
+
 // removes any objects we should no longer be tracking
 void FPyObjectTracker::Purge()
 {
@@ -273,7 +278,7 @@ bool _setuprop(UProperty *prop, uint8* buffer, py::object& value, int index)
             enumprop->GetUnderlyingProperty()->SetIntPropertyValue(enumprop->ContainerPtrToValuePtr<void>(buffer, index), value.cast<uint64>());
         else if (auto classprop = Cast<UClassProperty>(prop))
             classprop->SetPropertyValue_InContainer(buffer, value.cast<UClass*>(), index);
-        else if (auto objprop = Cast<UObjectPropertyBase>(prop))
+        else if (auto objprop = Cast<UObjectProperty>(prop))
             objprop->SetObjectPropertyValue_InContainer(buffer, value.cast<UObject*>(), index);
         else if (auto arrayprop = Cast<UArrayProperty>(prop))
         {
@@ -345,6 +350,7 @@ py::object _getuprop(UProperty *prop, uint8* buffer, int index)
     _GETPROP(UInt64Property, long long);
     _GETPROP(UUInt64Property, uint64);
     _GETPROP(UByteProperty, int);
+    _GETPROP(UObjectProperty, UObject*);
     if (auto strprop = Cast<UStrProperty>(prop))
     {
         FString sret = strprop->GetPropertyValue_InContainer(buffer, index);
@@ -506,5 +512,5 @@ py::object CallObjectUFunction(UObject *obj, std::string _funcName, py::tuple& p
     return ret;
 }
 
-//#pragma optimize("", on)
+#pragma optimize("", on)
 

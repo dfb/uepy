@@ -42,3 +42,7 @@ class EEasingFunc:
 class EDrawDebugTrace:
     NONE, ForOneFrame, ForDuration, Persistent = range(4)
 
+class ESlateColorStylingMode:
+    UseColor_Specified, UseColor_Specified_Link, UseColor_Foreground, UseColor_Foreground_Subdued = range(4)
+
+
