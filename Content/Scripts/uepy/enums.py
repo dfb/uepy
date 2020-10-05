@@ -45,4 +45,13 @@ class EDrawDebugTrace:
 class ESlateColorStylingMode:
     UseColor_Specified, UseColor_Specified_Link, UseColor_Foreground, UseColor_Foreground_Subdued = range(4)
 
+class ESlateVisibility:
+    Visible, Collapsed, Hidden, HitTestInvisible, SelfHitTestInvisible = range(5)
+
+class ETextJustify:
+    Left, Center, Right = range(3)
+
+class EOrientation:
+    Orient_Horizontal, Orient_Vertical = range(2)
+    Horizontal, Vertical = Orient_Horizontal, Orient_Vertical
 

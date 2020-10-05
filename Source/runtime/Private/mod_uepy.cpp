@@ -132,6 +132,8 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         return ret;
     });
 
+    m.def("AddressOf", [](UObject* obj) { return (unsigned long long)obj; });
+
     py::class_<FPaths>(m, "FPaths")
         .def_static("ProjectDir", []() { return std::string(TCHAR_TO_UTF8(*FPaths::ProjectDir())); })
         .def_static("ProjectContentDir", []() { return std::string(TCHAR_TO_UTF8(*FPaths::ProjectContentDir())); })
@@ -652,7 +654,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
 
         engineClass->ClassAddReferencedObjects = engineParentClass->ClassAddReferencedObjects;
         engineClass->SetSuperStruct(engineParentClass);
-        LOG("FULL PATH: %s", *engineClass->GetPathName());
+        //LOG("FULL PATH: %s", *engineClass->GetPathName());
         engineClass->PropertiesSize = engineParentClass->PropertiesSize;
         engineClass->ClassFlags |= CLASS_Native;
         engineClass->ClassFlags |= (engineParentClass->ClassFlags & (CLASS_Inherit | CLASS_ScriptInherit));
