@@ -82,6 +82,8 @@ def GetPythonEngineSubclasses():
 def GetAllGlueClasses():
     return list(_allGlueClasses.values())
 
+MANGLE_CLASS_NAMES = True
+
 class PyGlueMetaclass(type):
     def __new__(metaclass, name, bases, dct):
         isGlueClass = not bases # (a glue class has no bases)
@@ -89,11 +91,10 @@ class PyGlueMetaclass(type):
         # Each UClass in UE4 has to have a unique name, but with separate directories, we could potentially have
         # a naming collision. So internally we name each class <objectLib>__<class>, which should be
         # sufficiently unique.
-        #moduleName = dct.get('__module__')
-        #if moduleName and not isGlueClass:
-        #    name = moduleName.replace('.', '__') + '__' + name
-        # I disabled the above because I hate what it does to class names. For now at least, people just gotta take care and
-        # name stuff uniquely on their own.
+        if MANGLE_CLASS_NAMES and not isGlueClass and not dct.get('_uepy_no_mangle_name'):
+            moduleName = dct.get('__module__')
+            if moduleName:
+                name = moduleName + '.' + name
 
         newPyClass = super().__new__(metaclass, name, bases, dct)
         if isGlueClass:
@@ -109,6 +110,8 @@ class PyGlueMetaclass(type):
             # We've found the Python side of the glue class, now get the C++ side as that's what we need to use to register
             # with the engine
             cppGlueClassName = pyGlueClass.__name__[:-6] + '_CGLUE'
+            if MANGLE_CLASS_NAMES:
+                cppGlueClassName = cppGlueClassName.split('.')[-1]
             cppGlueClass = getattr(glueclasses, cppGlueClassName, None)
             assert cppGlueClass, 'Failed to find C++ glue class for ' + repr((name, bases))
             newPyClass.cppGlueClass = cppGlueClass
@@ -178,6 +181,15 @@ def CPROPS(cls, *propNames):
         def setup(name):
             def _get(self): return getattr(self.engineObj, name)
             def _set(self, value): setattr(self.engineObj, name, value)
+            setattr(cls, name, property(_get, _set))
+        setup(_name) # create a closure so we don't lose the name
+
+def BPPROPS(cls, *propNames):
+    '''Creates Python read/write properties for BP (reflection system) properties'''
+    for _name in propNames:
+        def setup(name):
+            def _get(self): return self.engineObj.Get(name)
+            def _set(self, value): self.engineObj.Set(name, value)
             setattr(cls, name, property(_get, _set))
         setup(_name) # create a closure so we don't lose the name
 

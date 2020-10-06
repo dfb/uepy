@@ -221,6 +221,7 @@ void _LoadModuleUMG(py::module& uepy)
     py::class_<UButton, UContentWidget, UnrealTracker<UButton>>(m, "UButton")
         .def_static("StaticClass", []() { return UButton::StaticClass(); })
         .def_static("Cast", [](UObject *obj) { return Cast<UButton>(obj); }, py::return_value_policy::reference)
+        // TODO: event-specific Bind APIs might no longer be needed and might go away
         .def("BindOnClicked", [](UButton* self, py::object callback) { UEPY_BIND(self, OnClicked, On, callback); })
         .def("UnbindOnClicked", [](UButton* self, py::object callback) { UEPY_UNBIND(self, OnClicked, On, callback); })
         ;
@@ -240,6 +241,7 @@ void _LoadModuleUMG(py::module& uepy)
             FSlateFontInfo& sfi = self.Font;
             sfi.Size = newSize;
         })
+        // TODO: event-specific Bind APIs might no longer be needed and might go away
         .def("BindOnSelectionChanged", [](UComboBoxString* self, py::object callback) { UEPY_BIND(self, OnSelectionChanged, UComboBoxString_OnHandleSelectionChanged, callback); })
         .def("UnbindOnSelectionChanged", [](UComboBoxString* self, py::object callback) { UEPY_UNBIND(self, OnSelectionChanged, UComboBoxString_OnHandleSelectionChanged, callback); })
         ;
@@ -249,6 +251,7 @@ void _LoadModuleUMG(py::module& uepy)
         .def_static("Cast", [](UObject *obj) { return Cast<UCheckBox>(obj); }, py::return_value_policy::reference)
         .def("IsChecked", [](UCheckBox& self) { return self.IsChecked(); })
         .def("SetIsChecked", [](UCheckBox& self, bool b) { self.SetIsChecked(b); })
+        // TODO: event-specific Bind APIs might no longer be needed and might go away
         .def("BindOnCheckStateChanged", [](UCheckBox* self, py::object callback) { UEPY_BIND(self, OnCheckStateChanged, UCheckBox_OnCheckStateChanged, callback); })
         .def("UnbindOnCheckStateChanged", [](UCheckBox* self, py::object callback) { UEPY_UNBIND(self, OnCheckStateChanged, UCheckBox_OnCheckStateChanged, callback); })
         ;
