@@ -184,8 +184,6 @@ def CPROPS(cls, *propNames):
 class UUserWidget_PGLUE(metaclass=PyGlueMetaclass):
     '''Base class of all Python subclasses from AActor-derived C++ classes'''
     # TODO: why doesn't this live in umg.py?
-CPROPS(UUserWidget_PGLUE, 'rootWidgetClass')
-
 
 def SpawnActor(world, klass, location=None, rotation=None, **kwargs):
     '''Extends __uepy.SpawnActor_ so that you can also pass in values for any UPROPERTY fields'''

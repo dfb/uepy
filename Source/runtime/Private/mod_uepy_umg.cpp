@@ -9,6 +9,7 @@
 #include "Components/EditableTextBox.h"
 #include "Components/HorizontalBox.h"
 #include "Components/HorizontalBoxSlot.h"
+#include "Components/NamedSlot.h"
 #include "Components/PanelWidget.h"
 #include "Components/SizeBox.h"
 #include "Components/SizeBoxSlot.h"
@@ -46,6 +47,7 @@ namespace pybind11 {
     UTYPE_HOOK(UEditableTextBox);
     UTYPE_HOOK(UHorizontalBox);
     UTYPE_HOOK(UHorizontalBoxSlot);
+    UTYPE_HOOK(UNamedSlot);
     UTYPE_HOOK(UPanelSlot);
     UTYPE_HOOK(UPanelWidget);
     UTYPE_HOOK(USizeBox);
@@ -154,7 +156,17 @@ void _LoadModuleUMG(py::module& uepy)
     py::class_<UUserWidget_CGLUE, UUserWidget, UnrealTracker<UUserWidget_CGLUE>>(glueclasses, "UUserWidget_CGLUE")
         .def_static("StaticClass", []() { return UUserWidget_CGLUE::StaticClass(); })
         .def_static("Cast", [](UObject *w) { return Cast<UUserWidget_CGLUE>(w); }, py::return_value_policy::reference)
-        .def_readwrite("rootWidgetClass", &UUserWidget_CGLUE::rootWidgetClass)
+        .def("SetRootWidgetClass", [](UUserWidget_CGLUE& self, py::object& klass)
+        {
+            UClass *k = PyObjectToUClass(klass);
+            if (k)
+                self.rootWidgetClass = k;
+            else
+            {
+                std::string s = py::repr(klass);
+                LERROR("Invalid object %s for root widget class on object %s", s.c_str(), *self.GetName());
+            }
+        })
         ;
 
     py::class_<UPanelWidget, UWidget, UnrealTracker<UPanelWidget>>(m, "UPanelWidget")
@@ -311,6 +323,9 @@ void _LoadModuleUMG(py::module& uepy)
     py::class_<UWidgetLayoutLibrary, UObject, UnrealTracker<UWidgetLayoutLibrary>>(m, "UWidgetLayoutLibrary")
         .def_static("RemoveAllWidgets", [](UObject *worldCtx) { UWidgetLayoutLibrary::RemoveAllWidgets(worldCtx); })
         .def_static("GetViewportSize", [](UObject *worldCtx) { return UWidgetLayoutLibrary::GetViewportSize(worldCtx); })
+        ;
+
+    py::class_<UNamedSlot, UContentWidget, UnrealTracker<UNamedSlot>>(m, "UNamedSlot")
         ;
 }
 

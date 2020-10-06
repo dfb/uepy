@@ -183,7 +183,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def_static("StaticClass", []() { return UInterface::StaticClass(); })
         ;
 
-    py::class_<UStaticMesh, UnrealTracker<UStaticMesh>>(m, "UStaticMesh")
+    py::class_<UStaticMesh, UObject, UnrealTracker<UStaticMesh>>(m, "UStaticMesh")
         .def_static("StaticClass", []() { return UStaticMesh::StaticClass(); })
         ;
 
