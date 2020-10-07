@@ -55,3 +55,6 @@ class EOrientation:
     Orient_Horizontal, Orient_Vertical = range(2)
     Horizontal, Vertical = Orient_Horizontal, Orient_Vertical
 
+class EControllerHand:
+    Left, Right, AnyHand = range(3)
+

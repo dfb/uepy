@@ -429,6 +429,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
     py::class_<AController, AActor, UnrealTracker<AController>>(m, "AController")
         .def_static("StaticClass", []() { return AController::StaticClass(); })
         .def_static("Cast", [](UObject *obj) { return Cast<AController>(obj); }, py::return_value_policy::reference)
+        .def("GetPawn", [](AController& self) { return self.GetPawn(); })
         ;
 
     py::class_<APlayerController, AController, UnrealTracker<APlayerController>>(m, "APlayerController")
