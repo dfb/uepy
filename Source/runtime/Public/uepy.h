@@ -15,12 +15,37 @@
 #pragma pop_macro("check")
 #pragma warning(pop)
 
-#include "Materials/MaterialInstanceDynamic.h"
-#include "Runtime/CoreUObject/Public/UObject/GCObject.h"
-#include "MediaPlayer.h"
-#include "GameFramework/PlayerController.h"
-#include "MediaSoundComponent.h"
+#include "Blueprint/WidgetLayoutLibrary.h"
+#include "Blueprint/WidgetTree.h"
+#include "Components/Border.h"
+#include "Components/Button.h"
+#include "Components/CanvasPanelSlot.h"
+#include "Components/CheckBox.h"
+#include "Components/ComboBoxString.h"
+#include "Components/ContentWidget.h"
+#include "Components/EditableTextBox.h"
+#include "Components/HorizontalBox.h"
+#include "Components/HorizontalBoxSlot.h"
+#include "Components/Image.h"
+#include "Components/NamedSlot.h"
+#include "Components/PanelWidget.h"
+#include "Components/SizeBox.h"
+#include "Components/SizeBoxSlot.h"
+#include "Components/Spacer.h"
+#include "Components/TextBlock.h"
+#include "Components/VerticalBox.h"
+#include "Components/VerticalBoxSlot.h"
+#include "Components/Widget.h"
+#include "Components/WrapBox.h"
+#include "Components/WrapBoxSlot.h"
 #include "FileMediaSource.h"
+#include "GameFramework/PlayerController.h"
+#include "Materials/MaterialInstanceDynamic.h"
+#include "MediaPlayer.h"
+#include "MediaSoundComponent.h"
+#include "Paper2D/Classes/PaperSprite.h"
+#include "Runtime/CoreUObject/Public/UObject/GCObject.h"
+
 #include "uepy.generated.h"
 
 namespace py = pybind11;
@@ -199,35 +224,54 @@ PYBIND11_DECLARE_HOLDER_TYPE(T, UnrealTracker<T>, true);
     }
 
 namespace pybind11 {
+    // TODO: figure out if there's some way to avoid this, and also figure out if the order matters
+    UTYPE_HOOK(AActor);
+    UTYPE_HOOK(APlayerController);
+    UTYPE_HOOK(UActorComponent);
+    UTYPE_HOOK(UAudioComponent);
+    UTYPE_HOOK(UBorder);
+    UTYPE_HOOK(UButton);
+    UTYPE_HOOK(UCheckBox);
+    UTYPE_HOOK(UClass);
+    UTYPE_HOOK(UComboBoxString);
+    UTYPE_HOOK(UContentWidget);
+    UTYPE_HOOK(UEditableTextBox);
+    UTYPE_HOOK(UFileMediaSource);
+    UTYPE_HOOK(UHorizontalBox);
+    UTYPE_HOOK(UHorizontalBoxSlot);
+    UTYPE_HOOK(UImage);
+    UTYPE_HOOK(UInterface);
     UTYPE_HOOK(UMaterial);
     UTYPE_HOOK(UMaterialInstance);
     UTYPE_HOOK(UMaterialInstanceDynamic);
     UTYPE_HOOK(UMaterialInterface);
-    UTYPE_HOOK(UStaticMesh);
-
-    // I /think/ we want to order these bottom-up so the type hook checker finds the most specific type first. Maybe.
-    UTYPE_HOOK(UStaticMeshComponent);
+    UTYPE_HOOK(UMediaPlayer);
+    UTYPE_HOOK(UMediaSoundComponent);
     UTYPE_HOOK(UMeshComponent);
+    UTYPE_HOOK(UNamedSlot);
+    UTYPE_HOOK(UObject);
+    UTYPE_HOOK(UPanelSlot);
+    UTYPE_HOOK(UPanelWidget);
+    UTYPE_HOOK(UPaperSprite);
     UTYPE_HOOK(UPrimitiveComponent);
     UTYPE_HOOK(USceneComponent);
-    UTYPE_HOOK(UActorComponent);
-
-    UTYPE_HOOK(UTexture2D);
-    UTYPE_HOOK(UWorld);
-
-    UTYPE_HOOK(UClass);
-    UTYPE_HOOK(UInterface);
-
-    UTYPE_HOOK(UMediaPlayer);
+    UTYPE_HOOK(USizeBox);
+    UTYPE_HOOK(USizeBoxSlot);
     UTYPE_HOOK(USoundClass);
-    UTYPE_HOOK(UFileMediaSource);
-    UTYPE_HOOK(UMediaSoundComponent);
-    UTYPE_HOOK(UAudioComponent);
-
-    UTYPE_HOOK(APlayerController);
-    UTYPE_HOOK(AActor);
-    UTYPE_HOOK(UObject);
-
+    UTYPE_HOOK(USpacer);
+    UTYPE_HOOK(UStaticMesh);
+    UTYPE_HOOK(UStaticMeshComponent);
+    UTYPE_HOOK(UTextBlock);
+    UTYPE_HOOK(UTexture);
+    UTYPE_HOOK(UTexture2D);
+    UTYPE_HOOK(UUserWidget);
+    UTYPE_HOOK(UVerticalBox);
+    UTYPE_HOOK(UVerticalBoxSlot);
+    UTYPE_HOOK(UVisual);
+    UTYPE_HOOK(UWidget);
+    UTYPE_HOOK(UWorld);
+    UTYPE_HOOK(UWrapBox);
+    UTYPE_HOOK(UWrapBoxSlot);
 } // namespace pybind11
 
 // any engine class we want to extend via Python should implement the IUEPYGlueMixin interface

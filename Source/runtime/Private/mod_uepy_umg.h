@@ -2,8 +2,6 @@
 
 #pragma once
 #include "uepy.h"
-#include "Components/VerticalBox.h"
-#include "Blueprint/WidgetTree.h"
 #include "mod_uepy_umg.generated.h"
 
 // base UMG widget from which others can derive

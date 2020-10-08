@@ -46,6 +46,7 @@ public class uepyEditor : ModuleRules
                 "InputCore",
                 "LevelEditor",
                 "MediaAssets",
+                "Paper2D",
                 "Projects",
                 "Slate",
                 "SlateCore",

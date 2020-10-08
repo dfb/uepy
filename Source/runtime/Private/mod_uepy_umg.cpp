@@ -1,26 +1,5 @@
 #include "mod_uepy_umg.h"
 #include "common.h"
-#include "Components/Button.h"
-#include "Components/Border.h"
-#include "Components/CanvasPanelSlot.h"
-#include "Components/CheckBox.h"
-#include "Components/ComboBoxString.h"
-#include "Components/ContentWidget.h"
-#include "Components/EditableTextBox.h"
-#include "Components/HorizontalBox.h"
-#include "Components/HorizontalBoxSlot.h"
-#include "Components/NamedSlot.h"
-#include "Components/PanelWidget.h"
-#include "Components/SizeBox.h"
-#include "Components/SizeBoxSlot.h"
-#include "Components/Spacer.h"
-#include "Components/TextBlock.h"
-#include "Components/VerticalBox.h"
-#include "Components/VerticalBoxSlot.h"
-#include "Components/Widget.h"
-#include "Components/WrapBox.h"
-#include "Components/WrapBoxSlot.h"
-#include "Blueprint/WidgetLayoutLibrary.h"
 
 /*
 GRRR: should we subclass slate? subclass UWidget? UUserWidget? UUserWidget is commonly suggested, but it's geared towards
@@ -37,31 +16,6 @@ pointers since UE4 doesn't use std::shared_ptr. Maybe at some point we should do
 UObject-based stuff, which means subclassing UUserWidget I guess!
 
 */
-
-namespace pybind11 {
-    UTYPE_HOOK(UBorder);
-    UTYPE_HOOK(UButton);
-    UTYPE_HOOK(UCheckBox);
-    UTYPE_HOOK(UComboBoxString);
-    UTYPE_HOOK(UContentWidget);
-    UTYPE_HOOK(UEditableTextBox);
-    UTYPE_HOOK(UHorizontalBox);
-    UTYPE_HOOK(UHorizontalBoxSlot);
-    UTYPE_HOOK(UNamedSlot);
-    UTYPE_HOOK(UPanelSlot);
-    UTYPE_HOOK(UPanelWidget);
-    UTYPE_HOOK(USizeBox);
-    UTYPE_HOOK(USizeBoxSlot);
-    UTYPE_HOOK(USpacer);
-    UTYPE_HOOK(UTextBlock);
-    UTYPE_HOOK(UUserWidget);
-    UTYPE_HOOK(UVerticalBox);
-    UTYPE_HOOK(UVerticalBoxSlot);
-    UTYPE_HOOK(UVisual);
-    UTYPE_HOOK(UWidget);
-    UTYPE_HOOK(UWrapBox);
-    UTYPE_HOOK(UWrapBoxSlot);
-}
 
 //#pragma optimize("", off)
 
@@ -138,12 +92,29 @@ void _LoadModuleUMG(py::module& uepy)
         .def(py::init<FLinearColor>())
         ;
 
-    py::class_<UVisual, UObject, UnrealTracker<UVisual>>(m, "UVisual");
+    py::class_<UVisual, UObject, UnrealTracker<UVisual>>(m, "UVisual")
+        .def_static("StaticClass", []() { return UVisual::StaticClass(); })
+        .def_static("Cast", [](UObject *obj) { return Cast<UVisual>(obj); }, py::return_value_policy::reference)
+        ;
 
     py::class_<UWidget, UVisual, UnrealTracker<UWidget>>(m, "UWidget")
         .def_static("StaticClass", []() { return UWidget::StaticClass(); })
+        .def_static("Cast", [](UObject *obj) { return Cast<UWidget>(obj); }, py::return_value_policy::reference)
         .def("SetIsEnabled", [](UWidget& self, bool e) { self.SetIsEnabled(e); })
         .def("SetVisibility", [](UWidget& self, int v) { self.SetVisibility((ESlateVisibility)v); })
+        ;
+
+    py::class_<UImage, UWidget, UnrealTracker<UImage>>(m, "UImage")
+        .def_static("StaticClass", []() { return UImage::StaticClass(); })
+        .def_static("Cast", [](UObject *obj) { return Cast<UImage>(obj); }, py::return_value_policy::reference)
+        .def("SetColorAndOpacity", [](UImage& self, FLinearColor& c) { self.SetColorAndOpacity(c); })
+        .def("SetOpacity", [](UImage& self, float o) { self.SetOpacity(o); })
+        .def("SetBrushSize", [](UImage& self, FVector2D& size) { self.SetBrushSize(size); })
+        .def("SetBrushTintColor", [](UImage& self, FSlateColor c) { self.SetBrushTintColor(c); })
+        .def("SetBrush", [](UImage& self, FSlateBrush& b) { self.SetBrush(b); })
+        .def("SetBrushFromTexture", [](UImage& self, UTexture2D* t, bool matchSize) { self.SetBrushFromTexture(t, matchSize); })
+        .def("SetBrushFromMaterial", [](UImage& self, UMaterialInterface* m) { self.SetBrushFromMaterial(m); })
+        .def("SetBrushFromSprite", [](UImage& self, UPaperSprite* sprite, bool matchSize) { self.SetBrushFromAtlasInterface(sprite, matchSize); }) // this is a made-up method since we don't currently expose ISlateTextureAtlastInterface to Python
         ;
 
     py::class_<UUserWidget, UWidget, UnrealTracker<UUserWidget>>(m, "UUserWidget")
@@ -171,6 +142,7 @@ void _LoadModuleUMG(py::module& uepy)
 
     py::class_<UPanelWidget, UWidget, UnrealTracker<UPanelWidget>>(m, "UPanelWidget")
         .def_static("StaticClass", []() { return UPanelWidget::StaticClass(); })
+        .def_static("Cast", [](UObject *obj) { return Cast<UPanelWidget>(obj); }, py::return_value_policy::reference)
         .def("AddChild", [](UPanelWidget& self, UWidget *child) { return self.AddChild(child); })
         ;
 
@@ -186,7 +158,10 @@ void _LoadModuleUMG(py::module& uepy)
         .def("AddChild", [](UHorizontalBox& self, UWidget *child) { return self.AddChild(child); })
         ;
 
-    py::class_<UPanelSlot, UVisual, UnrealTracker<UPanelSlot>>(m, "UPanelSlot");
+    py::class_<UPanelSlot, UVisual, UnrealTracker<UPanelSlot>>(m, "UPanelSlot")
+        .def_static("StaticClass", []() { return UPanelSlot::StaticClass(); })
+        .def_static("Cast", [](UObject *obj) { return Cast<UPanelSlot>(obj); }, py::return_value_policy::reference)
+        ;
 
     py::class_<UVerticalBoxSlot, UPanelSlot, UnrealTracker<UVerticalBoxSlot>>(m, "UVerticalBoxSlot")
         .def_static("StaticClass", []() { return UVerticalBoxSlot::StaticClass(); })
@@ -203,6 +178,7 @@ void _LoadModuleUMG(py::module& uepy)
 
     py::class_<UTextBlock, UWidget, UnrealTracker<UTextBlock>>(m, "UTextBlock") // note: there is an unexposed intermediate type in between this and UWidget
         .def_static("StaticClass", []() { return UTextBlock::StaticClass(); })
+        .def_static("Cast", [](UObject *obj) { return Cast<UTextBlock>(obj); }, py::return_value_policy::reference)
         .def("SetText", [](UTextBlock& self, std::string newText) { self.SetText(FText::FromString(newText.c_str())); })
         .def_static("Cast", [](UObject *obj) { return Cast<UTextBlock>(obj); }, py::return_value_policy::reference)
         .def("SetFontSize", [](UTextBlock& self, int newSize)
@@ -329,6 +305,8 @@ void _LoadModuleUMG(py::module& uepy)
         ;
 
     py::class_<UNamedSlot, UContentWidget, UnrealTracker<UNamedSlot>>(m, "UNamedSlot")
+        .def_static("StaticClass", []() { return UNamedSlot::StaticClass(); })
+        .def_static("Cast", [](UObject *obj) { return Cast<UNamedSlot>(obj); }, py::return_value_policy::reference)
         ;
 }
 

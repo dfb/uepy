@@ -193,9 +193,9 @@ void UBasePythonDelegate::ProcessEvent(UFunction *function, void *params)
     //      to extract the parameters from the event.
     // 2) An event was bound using one of the Bind* functions we explicitly exposed from C++ to Python. In this case, there is not
     //      signatureFunction, so we fall back to the default behavior and let the event get dispatched normally.
-	if (!signatureFunction)
-	{
-		Super::ProcessEvent(function, params);
+    if (!signatureFunction)
+    {
+        Super::ProcessEvent(function, params);
         return;
     }
 
@@ -262,26 +262,61 @@ void AActor_CGLUE::SuperBeginPlay() { Super::BeginPlay(); }
 void AActor_CGLUE::SuperTick(float dt) { Super::Tick(dt); }
 
 UClass *PyObjectToUClass(py::object& klassThing)
-{
+{   
+    // TODO: the logic in here is super fragile
+
     // see if it's a registered subclass of a glue class
     if (py::hasattr(klassThing, "engineClass"))
-        return klassThing.attr("engineClass").cast<UClass*>();
+    {
+        UClass* klass = klassThing.attr("engineClass").cast<UClass*>();
+        //LOG("XXXA %s --> %s", UTF8_TO_TCHAR(py::repr(klassThing).cast<std::string>().c_str()), *klass->GetName());
+        return klass;
+    }
 
     // see if it's a glue class
     if (py::hasattr(klassThing, "cppGlueClass"))
-        return klassThing.attr("cppGlueClass").attr("StaticClass")().cast<UClass*>()->GetSuperClass();
+    {
+        UClass *klass = klassThing.attr("cppGlueClass").attr("StaticClass")().cast<UClass*>()->GetSuperClass();
+        //LOG("XXXB %s --> %s", UTF8_TO_TCHAR(py::repr(klassThing).cast<std::string>().c_str()), *klass->GetName());
+        return klass;
+    }
 
+    try {
+        UObject *uobj = klassThing.cast<UObject*>();
+        if (UClass *klass = Cast<UClass>(uobj))
+        {
+            //LOG("XXXD %s --> %s", UTF8_TO_TCHAR(py::repr(klassThing).cast<std::string>().c_str()), *klass->GetName());
+            return klass; // caller already called StaticClass on it
+        }
+        return uobj->GetClass();
+    } catch (std::exception e)
+    {
+        // maybe it's a pybind11-exposed class?
+        if (py::hasattr(klassThing, "StaticClass"))
+        {
+            UClass* klass = klassThing.attr("StaticClass")().cast<UClass*>();
+            //LOG("XXXC %s --> %s", UTF8_TO_TCHAR(py::repr(klassThing).cast<std::string>().c_str()), *klass->GetName());
+            return klass;
+        }
+
+        std::string s = py::repr(klassThing);
+        LERROR("XXXE Failed to convert %s to UClass", UTF8_TO_TCHAR(s.c_str()));
+        return nullptr;
+    }
+
+    /*
     // see if it'll cast to a UClass directly (i.e. caller already called StaticClass)
     try {
         return klassThing.cast<UClass*>();
     }
     catch (std::exception e) // this logs a "pybind11::cast_error at memory location" error even though we are catching it
     {
-		// maybe it's a pybind11-exposed class?
-		if (py::hasattr(klassThing, "StaticClass"))
-			return klassThing.attr("StaticClass")().cast<UClass*>();
-		return nullptr;
-	}
+        // maybe it's a pybind11-exposed class?
+        if (py::hasattr(klassThing, "StaticClass"))
+            return klassThing.attr("StaticClass")().cast<UClass*>();
+        return nullptr;
+    }
+    */
 }
 
 bool _setuprop(UProperty *prop, uint8* buffer, py::object& value, int index)
@@ -395,12 +430,12 @@ py::object _getuprop(UProperty *prop, uint8* buffer, int index)
         std::string ret = TCHAR_TO_UTF8(*tret.ToString());
         return py::cast(ret);
     }
-	if (auto enumprop = Cast<UEnumProperty>(prop))
-	{
-		void* prop_addr = enumprop->ContainerPtrToValuePtr<void>(buffer, index);
-		uint64 v = enumprop->GetUnderlyingProperty()->GetUnsignedIntPropertyValue(prop_addr);
+    if (auto enumprop = Cast<UEnumProperty>(prop))
+    {
+        void* prop_addr = enumprop->ContainerPtrToValuePtr<void>(buffer, index);
+        uint64 v = enumprop->GetUnderlyingProperty()->GetUnsignedIntPropertyValue(prop_addr);
         return py::cast(v);
-	}
+    }
     if (auto classprop = Cast<UClassProperty>(prop))
     {
         UClass *klass = Cast<UClass>(classprop->GetPropertyValue_InContainer(buffer, index));

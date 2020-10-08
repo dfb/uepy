@@ -24,5 +24,11 @@
 			"Type": "Runtime",
 			"LoadingPhase": "PreDefault"
 		}
-	]
+	],
+    "Plugins" : [
+        {
+            "Name": "Paper2D",
+            "Enabled": true
+        }
+    ]
 }
