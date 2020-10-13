@@ -48,6 +48,9 @@ class ESlateColorStylingMode:
 class ESlateVisibility:
     Visible, Collapsed, Hidden, HitTestInvisible, SelfHitTestInvisible = range(5)
 
+class ESlateSizeRule:
+    Automatic, Fill = range(2)
+
 class ETextJustify:
     Left, Center, Right = range(3)
 

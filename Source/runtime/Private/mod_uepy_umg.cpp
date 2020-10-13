@@ -102,6 +102,7 @@ void _LoadModuleUMG(py::module& uepy)
         .def_static("Cast", [](UObject *obj) { return Cast<UWidget>(obj); }, py::return_value_policy::reference)
         .def("SetIsEnabled", [](UWidget& self, bool e) { self.SetIsEnabled(e); })
         .def("SetVisibility", [](UWidget& self, int v) { self.SetVisibility((ESlateVisibility)v); })
+        .def("GetDesiredSize", [](UWidget& self) { return self.GetDesiredSize(); })
         ;
 
     py::class_<UImage, UWidget, UnrealTracker<UImage>>(m, "UImage")
@@ -163,17 +164,47 @@ void _LoadModuleUMG(py::module& uepy)
         .def_static("Cast", [](UObject *obj) { return Cast<UPanelSlot>(obj); }, py::return_value_policy::reference)
         ;
 
+    py::class_<UCanvasPanelSlot, UPanelSlot, UnrealTracker<UCanvasPanelSlot>>(m, "UCanvasPanelSlot")
+        .def_static("StaticClass", []() { return UCanvasPanelSlot::StaticClass(); })
+        .def_static("Cast", [](UObject *obj) { return Cast<UCanvasPanelSlot>(obj); }, py::return_value_policy::reference)
+        // GetLayout / SetLayout
+        .def("GetPosition", [](UCanvasPanelSlot& self) { return self.GetPosition(); })
+        .def("SetPosition", [](UCanvasPanelSlot& self, FVector2D& pos) { self.SetPosition(pos); })
+        .def("GetSize", [](UCanvasPanelSlot& self) { return self.GetSize(); })
+        .def("SetSize", [](UCanvasPanelSlot& self, FVector2D& size) { self.SetSize(size); })
+        .def("GetAutoSize", [](UCanvasPanelSlot& self) { return self.GetAutoSize(); })
+        .def("SetAutoSize", [](UCanvasPanelSlot& self, bool a) { self.SetAutoSize(a); })
+        .def("GetAlignment", [](UCanvasPanelSlot& self) { return self.GetAlignment(); })
+        .def("SetAlignment", [](UCanvasPanelSlot& self, FVector2D& a) { self.SetAlignment(a); })
+        .def("GetZOrder", [](UCanvasPanelSlot& self) { return self.GetZOrder(); })
+        .def("SetZOrder", [](UCanvasPanelSlot& self, int z) { self.SetZOrder(z); })
+        .def("GetOffsets", [](UCanvasPanelSlot& self) { return self.GetOffsets(); })
+        .def("SetOffsets", [](UCanvasPanelSlot& self, FMargin& m) { self.SetOffsets(m); })
+        .def("GetAnchors", [](UCanvasPanelSlot& self) { return self.GetAnchors(); })
+        .def("SetAnchors", [](UCanvasPanelSlot& self, FAnchors& a) { self.SetAnchors(a); })
+        ;
+
+    py::class_<FSlateChildSize>(m, "FSlateChildSize")
+        .def_readwrite("Value", &FSlateChildSize::Value)
+        ENUM_PROP(SizeRule, ESlateSizeRule::Type, FSlateChildSize)
+        ;
+
     py::class_<UVerticalBoxSlot, UPanelSlot, UnrealTracker<UVerticalBoxSlot>>(m, "UVerticalBoxSlot")
         .def_static("StaticClass", []() { return UVerticalBoxSlot::StaticClass(); })
         .def_static("Cast", [](UObject *slot) { return Cast<UVerticalBoxSlot>(slot); }, py::return_value_policy::reference)
         .def("SetPadding", [](UVerticalBoxSlot& self, FMargin& m) { self.SetPadding(m); })
+        .def("SetSize", [](UVerticalBoxSlot& self, FSlateChildSize& size) { self.SetSize(size); })
+        .def("SetVerticalAlignment", [](UVerticalBoxSlot& self, int a) { self.SetVerticalAlignment((EVerticalAlignment)a); })
+        .def("SetHorizontalAlignment", [](UVerticalBoxSlot& self, int a) { self.SetHorizontalAlignment((EHorizontalAlignment)a); })
         ;
 
     py::class_<UHorizontalBoxSlot, UPanelSlot, UnrealTracker<UHorizontalBoxSlot>>(m, "UHorizontalBoxSlot")
         .def_static("StaticClass", []() { return UHorizontalBoxSlot::StaticClass(); })
         .def_static("Cast", [](UObject *slot) { return Cast<UHorizontalBoxSlot>(slot); }, py::return_value_policy::reference)
         .def("SetPadding", [](UHorizontalBoxSlot& self, FMargin& m) { self.SetPadding(m); })
+        .def("SetSize", [](UHorizontalBoxSlot& self, FSlateChildSize& size) { self.SetSize(size); })
         .def("SetVerticalAlignment", [](UHorizontalBoxSlot& self, int a) { self.SetVerticalAlignment((EVerticalAlignment)a); })
+        .def("SetHorizontalAlignment", [](UHorizontalBoxSlot& self, int a) { self.SetHorizontalAlignment((EHorizontalAlignment)a); })
         ;
 
     py::class_<UTextBlock, UWidget, UnrealTracker<UTextBlock>>(m, "UTextBlock") // note: there is an unexposed intermediate type in between this and UWidget

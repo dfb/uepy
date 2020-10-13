@@ -44,6 +44,7 @@
 #include "MediaPlayer.h"
 #include "MediaSoundComponent.h"
 #include "Paper2D/Classes/PaperSprite.h"
+#include "Particles/ParticleSystem.h"
 #include "Runtime/CoreUObject/Public/UObject/GCObject.h"
 
 #include "uepy.generated.h"
@@ -230,7 +231,9 @@ namespace pybind11 {
     UTYPE_HOOK(UActorComponent);
     UTYPE_HOOK(UAudioComponent);
     UTYPE_HOOK(UBorder);
+    UTYPE_HOOK(UBlueprintGeneratedClass);
     UTYPE_HOOK(UButton);
+    UTYPE_HOOK(UCanvasPanelSlot);
     UTYPE_HOOK(UCheckBox);
     UTYPE_HOOK(UClass);
     UTYPE_HOOK(UComboBoxString);
@@ -253,6 +256,7 @@ namespace pybind11 {
     UTYPE_HOOK(UPanelSlot);
     UTYPE_HOOK(UPanelWidget);
     UTYPE_HOOK(UPaperSprite);
+    UTYPE_HOOK(UParticleSystem);
     UTYPE_HOOK(UPrimitiveComponent);
     UTYPE_HOOK(USceneComponent);
     UTYPE_HOOK(USizeBox);

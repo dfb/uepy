@@ -401,6 +401,16 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def_static("Cast", [](UObject *obj) { return Cast<UMaterialParameterCollection>(obj); }, py::return_value_policy::reference)
         ;
 
+    py::class_<UFXSystemAsset, UObject, UnrealTracker<UFXSystemAsset>>(m, "UFXSystemAsset")
+        .def_static("StaticClass", []() { return UFXSystemAsset::StaticClass(); })
+        .def_static("Cast", [](UObject *obj) { return Cast<UFXSystemAsset>(obj); }, py::return_value_policy::reference)
+        ;
+
+    py::class_<UParticleSystem, UFXSystemAsset, UnrealTracker<UParticleSystem>>(m, "UParticleSystem")
+        .def_static("StaticClass", []() { return UParticleSystem::StaticClass(); })
+        .def_static("Cast", [](UObject *obj) { return Cast<UParticleSystem>(obj); }, py::return_value_policy::reference)
+        ;
+
     py::class_<UKismetMaterialLibrary, UObject, UnrealTracker<UKismetMaterialLibrary>>(m, "UKismetMaterialLibrary")
         .def_static("CreateDynamicMaterialInstance", [](UObject *worldCtx, UMaterialInterface *parent) { return UKismetMaterialLibrary::CreateDynamicMaterialInstance(worldCtx, parent); })
         .def_static("GetVectorParameterValue", [](UObject* worldCtx, UMaterialParameterCollection* coll, std::string name) { return UKismetMaterialLibrary::GetVectorParameterValue(worldCtx, coll, FSTR(name)); })
@@ -638,6 +648,14 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def_readwrite("top", &FMargin::Top)
         .def_readwrite("right", &FMargin::Right)
         .def_readwrite("bottom", &FMargin::Bottom)
+        ;
+
+    py::class_<FAnchors>(m, "FAnchors")
+        .def(py::init<>())
+        .def(py::init<float>())
+        .def(py::init<float,float>())
+        .def_readwrite("Minimum", &FAnchors::Minimum)
+        .def_readwrite("Maximum", &FAnchors::Maximum)
         ;
 
     m.def("log", [](py::args args) -> void
