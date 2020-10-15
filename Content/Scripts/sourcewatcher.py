@@ -206,6 +206,12 @@ class SourceWatcher:
         self.nextFirstLoadTry = 0
         self.mit = ModuleInfoTracker()
 
+    def Cleanup(self):
+        '''If the dev module is loaded, tries to call its before reload hook'''
+        if self.devModule:
+            mi = self.mit.InfoFor(self.devModule)
+            mi.CallModuleHook('OnModuleBeforeReload', self)
+
     def UpdateSourceRoots(self):
         if self.devModule:
             self.sourceRoots = getattr(self.devModule, 'MODULE_SOURCE_ROOTS', None)

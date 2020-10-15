@@ -18,7 +18,9 @@
 #include "Blueprint/WidgetLayoutLibrary.h"
 #include "Blueprint/WidgetTree.h"
 #include "Components/Border.h"
+#include "Components/BorderSlot.h"
 #include "Components/Button.h"
+#include "Components/CanvasPanel.h"
 #include "Components/CanvasPanelSlot.h"
 #include "Components/CheckBox.h"
 #include "Components/ComboBoxString.h"
@@ -28,6 +30,8 @@
 #include "Components/HorizontalBoxSlot.h"
 #include "Components/Image.h"
 #include "Components/NamedSlot.h"
+#include "Components/Overlay.h"
+#include "Components/OverlaySlot.h"
 #include "Components/PanelWidget.h"
 #include "Components/SizeBox.h"
 #include "Components/SizeBoxSlot.h"
@@ -231,8 +235,10 @@ namespace pybind11 {
     UTYPE_HOOK(UActorComponent);
     UTYPE_HOOK(UAudioComponent);
     UTYPE_HOOK(UBorder);
+    UTYPE_HOOK(UBorderSlot);
     UTYPE_HOOK(UBlueprintGeneratedClass);
     UTYPE_HOOK(UButton);
+    UTYPE_HOOK(UCanvasPanel);
     UTYPE_HOOK(UCanvasPanelSlot);
     UTYPE_HOOK(UCheckBox);
     UTYPE_HOOK(UClass);
@@ -253,6 +259,8 @@ namespace pybind11 {
     UTYPE_HOOK(UMeshComponent);
     UTYPE_HOOK(UNamedSlot);
     UTYPE_HOOK(UObject);
+    UTYPE_HOOK(UOverlay);
+    UTYPE_HOOK(UOverlaySlot);
     UTYPE_HOOK(UPanelSlot);
     UTYPE_HOOK(UPanelWidget);
     UTYPE_HOOK(UPaperSprite);
@@ -309,10 +317,12 @@ class UEPY_API AActor_CGLUE : public AActor, public IUEPYGlueMixin
 
 public:
     void SuperBeginPlay();
+    void SuperEndPlay(EEndPlayReason::Type reason);
     void SuperTick(float dt);
 
 protected:
     virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
     virtual void Tick(float dt) override;
 };
 

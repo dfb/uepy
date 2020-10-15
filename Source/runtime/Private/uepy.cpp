@@ -98,7 +98,7 @@ FPyObjectTracker *FPyObjectTracker::Get()
             {
                 UObject *obj = entry.Key;
                 FPyObjectTracker::Slot& slot = entry.Value;
-                LOG("TRK post-PIE obj: %s %p (%d refs)", *obj->GetName(), obj, slot.refs);
+                LOG("TRK post-PIE obj: type:%s name:%s %p (%d refs)", *obj->GetClass()->GetName(), *obj->GetName(), obj, slot.refs);
             }
             for (auto d : globalTracker->delegates)
             {
@@ -257,14 +257,21 @@ void FPyObjectTracker::AddReferencedObjects(FReferenceCollector& InCollector)
 // AActor_CGLUE
 AActor_CGLUE::AActor_CGLUE() { PrimaryActorTick.bCanEverTick = true; PrimaryActorTick.bStartWithTickEnabled = false; }
 void AActor_CGLUE::BeginPlay() { try { pyInst.attr("BeginPlay")(); } catchpy; }
+void AActor_CGLUE::EndPlay(const EEndPlayReason::Type reason) { try { pyInst.attr("EndPlay")((int)reason); } catchpy; }
 void AActor_CGLUE::Tick(float dt) { try { pyInst.attr("Tick")(dt); } catchpy; }
 void AActor_CGLUE::SuperBeginPlay() { Super::BeginPlay(); }
+void AActor_CGLUE::SuperEndPlay(EEndPlayReason::Type reason) { Super::EndPlay(reason); }
 void AActor_CGLUE::SuperTick(float dt) { Super::Tick(dt); }
 
 UClass *PyObjectToUClass(py::object& klassThing)
 {   
     // TODO: the logic in here is super fragile
 
+    if (klassThing.is_none())
+    {
+        LERROR("Cannot cast None to UClass");
+        return nullptr;
+    }
     // see if it's a registered subclass of a glue class
     if (py::hasattr(klassThing, "engineClass"))
     {
@@ -288,6 +295,7 @@ UClass *PyObjectToUClass(py::object& klassThing)
             //LOG("XXXD %s --> %s", UTF8_TO_TCHAR(py::repr(klassThing).cast<std::string>().c_str()), *klass->GetName());
             return klass; // caller already called StaticClass on it
         }
+
         return uobj->GetClass();
     } catch (std::exception e)
     {

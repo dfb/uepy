@@ -133,7 +133,11 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         return ret;
     });
 
+    // Given a UObject, returns its address as a number
     m.def("AddressOf", [](UObject* obj) { return (unsigned long long)obj; });
+
+    // Force garbage collection to happen
+    m.def("ForceGC", []() { if (GEngine) GEngine->ForceGarbageCollection(true); });
 
     py::class_<FPaths>(m, "FPaths")
         .def_static("ProjectDir", []() { return std::string(TCHAR_TO_UTF8(*FPaths::ProjectDir())); })
@@ -145,6 +149,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def_static("StaticClass", []() { return UObject::StaticClass(); })
         .def("GetClass", [](UObject& self) { return self.GetClass(); })
         .def("GetName", [](UObject& self) { std::string s = TCHAR_TO_UTF8(*self.GetName()); return s; })
+        .def("ConditionalBeginDestroy", [](UObject* self) { if (self->IsValidLowLevel()) self->ConditionalBeginDestroy(); })
         .def("IsA", [](UObject& self, py::object& _klass)
         {
             UClass *klass = PyObjectToUClass(_klass);
@@ -783,6 +788,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def_static("StaticClass", []() { return AActor_CGLUE::StaticClass(); }) // TODO: I think this can go away once we have the C++ APIs take PyClassOrUClass
         .def_static("Cast", [](UObject *obj) { return Cast<AActor_CGLUE>(obj); }, py::return_value_policy::reference)
         .def("SuperBeginPlay", [](AActor_CGLUE& self) { self.SuperBeginPlay(); })
+        .def("SuperEndPlay", [](AActor_CGLUE& self, int reason) { self.SuperEndPlay((EEndPlayReason::Type)reason); })
         .def("SuperTick", [](AActor_CGLUE& self, float dt) { self.SuperTick(dt); })
         ;
 
