@@ -65,14 +65,17 @@ def FindGlueClass(klass):
     until it finds a glue class, and returns it. Otherwise, returns None.'''
     bases = klass.__bases__
     for b in bases:
+        # NOTE: if you reload(uepy) in the UE4 editor py console, this check will fail because you'll probably have multiple
+        # versions of PyGlueMetaclass floating around - in that case, it's best to just restart UE4 for now. :(
         if type(b) is PyGlueMetaclass and b.__name__.endswith('_PGLUE'):
             return b
 
     # Keep looking
     for b in bases:
         g = FindGlueClass(b)
-        if g:
+        if g is not None:
             return g
+
     return None
 
 _allGlueClasses = {} # class name -> each glue class that has been defined
@@ -94,7 +97,7 @@ class PyGlueMetaclass(type):
         if MANGLE_CLASS_NAMES and not isGlueClass and not dct.get('_uepy_no_mangle_name'):
             moduleName = dct.get('__module__')
             if moduleName:
-                name = moduleName + '.' + name
+                name = moduleName.replace('.', '__') + '__' + name
 
         newPyClass = super().__new__(metaclass, name, bases, dct)
         if isGlueClass:
@@ -105,13 +108,13 @@ class PyGlueMetaclass(type):
             # A glue class has no base classes, so this class is /not/ a glue class, so we need to find its glue class
             # so that we can automatically cast its engineObj when creating instances.
             pyGlueClass = FindGlueClass(newPyClass)
-            assert pyGlueClass, 'Failed to find py glue class for ' + repr((name, bases))
+            assert pyGlueClass is not None, 'Failed to find py glue class for ' + repr((name, bases))
 
             # We've found the Python side of the glue class, now get the C++ side as that's what we need to use to register
             # with the engine
             cppGlueClassName = pyGlueClass.__name__[:-6] + '_CGLUE'
             if MANGLE_CLASS_NAMES:
-                cppGlueClassName = cppGlueClassName.split('.')[-1]
+                cppGlueClassName = cppGlueClassName.split('__')[-1]
             cppGlueClass = getattr(glueclasses, cppGlueClassName, None)
             assert cppGlueClass, 'Failed to find C++ glue class for ' + repr((name, bases))
             newPyClass.cppGlueClass = cppGlueClass
@@ -143,9 +146,11 @@ class AActor_PGLUE(metaclass=PyGlueMetaclass):
     def GetRootComponent(self): return self.engineObj.GetRootComponent()
     def SetRootComponent(self, s): self.engineObj.SetRootComponent(s)
     def BeginPlay(self): pass
+    def EndPlay(self, reason): pass
     def Tick(self, dt): pass
     def SuperBeginPlay(self): self.engineObj.SuperBeginPlay() # TODO: it'd be nice to make this call happen via super().BeginPlay() at some point
     def SuperTick(self, dt): self.engineObj.SuperTick(dt) # # TODO: ditto
+    def SuperEndPlay(self, reason): self.engineObj.SuperEndPlay(reason)
     def IsActorTickEnabled(self): return self.engineObj.IsActorTickEnabled()
     def SetActorTickEnabled(self, e): self.engineObj.SetActorTickEnabled(e)
     def SetActorTickInterval(self, i): self.engineObj.SetActorTickInterval(i)
@@ -174,6 +179,9 @@ class UEPYAssistantActor(AActor_PGLUE):
 
     def Tick(self, dt):
         self.watcher.Check()
+
+def AddHelper():
+    SpawnActor(GetWorld(), UEPYAssistantActor)
 
 def CPROPS(cls, *propNames):
     '''Creates Python read/write properties for C++ properties'''
