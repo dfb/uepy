@@ -226,6 +226,10 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("GetForwardVector", [](USceneComponent& self) { return self.GetForwardVector(); })
         .def("GetRightVector", [](USceneComponent& self) { return self.GetRightVector(); })
         .def("GetUpVector", [](USceneComponent& self) { return self.GetUpVector(); })
+        .def("GetComponentLocation", [](USceneComponent& self) { return self.GetComponentLocation(); })
+        .def("GetComponentRotation", [](USceneComponent& self) { return self.GetComponentRotation(); })
+        .def("GetComponentQuat", [](USceneComponent& self) { return self.GetComponentQuat(); })
+        .def("GetComponentScale", [](USceneComponent& self) { return self.GetComponentScale(); })
         ;
 
     py::class_<UPrimitiveComponent, USceneComponent, UnrealTracker<UPrimitiveComponent>>(m, "UPrimitiveComponent")

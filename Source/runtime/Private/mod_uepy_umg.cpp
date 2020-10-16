@@ -234,11 +234,6 @@ void _LoadModuleUMG(py::module& uepy)
         .def("SetContent", [](UContentWidget& self, UWidget *obj) { return self.SetContent(obj); })
         ;
 
-    py::class_<UCanvasPanel, UPanelWidget, UnrealTracker<UCanvasPanel>>(m, "UCanvasPanel")
-        .def_static("StaticClass", []() { return UCanvasPanel::StaticClass(); })
-        .def_static("Cast", [](UObject *slot) { return Cast<UCanvasPanel>(slot); }, py::return_value_policy::reference)
-        ;
-
     py::class_<UOverlay, UPanelWidget, UnrealTracker<UOverlay>>(m, "UOverlay")
         .def_static("StaticClass", []() { return UOverlay::StaticClass(); })
         .def_static("Cast", [](UObject *slot) { return Cast<UOverlay>(slot); }, py::return_value_policy::reference)
