@@ -159,6 +159,14 @@ void _LoadModuleUMG(py::module& uepy)
         .def("AddChild", [](UHorizontalBox& self, UWidget *child) { return self.AddChild(child); })
         ;
 
+    py::class_<UGridPanel, UPanelWidget, UnrealTracker<UGridPanel>>(m, "UGridPanel")
+        .def_static("StaticClass", []() { return UGridPanel::StaticClass(); })
+        .def_static("Cast", [](UObject *w) { return Cast<UGridPanel>(w); }, py::return_value_policy::reference)
+        .def("AddChildToGrid", [](UGridPanel& self, UWidget* content, int row, int col) { return self.AddChildToGrid(content, row, col); })
+        .def("SetColumnFill", [](UGridPanel& self, int index, float coefficient) { self.SetColumnFill(index, coefficient); })
+        .def("SetRowFill", [](UGridPanel& self, int index, float coefficient) { self.SetRowFill(index, coefficient); })
+        ;
+
     py::class_<UPanelSlot, UVisual, UnrealTracker<UPanelSlot>>(m, "UPanelSlot")
         .def_static("StaticClass", []() { return UPanelSlot::StaticClass(); })
         .def_static("Cast", [](UObject *obj) { return Cast<UPanelSlot>(obj); }, py::return_value_policy::reference)
@@ -190,6 +198,20 @@ void _LoadModuleUMG(py::module& uepy)
         .def("SetOffsets", [](UCanvasPanelSlot& self, FMargin& m) { self.SetOffsets(m); })
         .def("GetAnchors", [](UCanvasPanelSlot& self) { return self.GetAnchors(); })
         .def("SetAnchors", [](UCanvasPanelSlot& self, FAnchors& a) { self.SetAnchors(a); })
+        ;
+
+    py::class_<UGridSlot, UPanelSlot, UnrealTracker<UGridSlot>>(m, "UGridSlot")
+        .def_static("StaticClass", []() { return UGridSlot::StaticClass(); })
+        .def_static("Cast", [](UObject *obj) { return Cast<UGridSlot>(obj); }, py::return_value_policy::reference)
+        .def("SetPadding", [](UGridSlot& self, FMargin& pad) { self.SetPadding(pad); })
+        .def("SetRow", [](UGridSlot& self, int row) { self.SetRow(row); })
+        .def("SetRowSpan", [](UGridSlot& self, int span) { self.SetRowSpan(span); })
+        .def("SetColumn", [](UGridSlot& self, int col) { self.SetColumn(col); })
+        .def("SetColumnSpan", [](UGridSlot& self, int span) { self.SetColumnSpan(span); })
+        .def("SetLayer", [](UGridSlot& self, int layer) { self.SetLayer(layer); })
+        .def("SetNudge", [](UGridSlot& self, FVector2D& nudge) { self.SetNudge(nudge); })
+        .def("SetHorizontalAlignment", [](UGridSlot& self, int a) { self.SetHorizontalAlignment((EHorizontalAlignment)a); })
+        .def("SetVerticalAlignment", [](UGridSlot& self, int a) { self.SetVerticalAlignment((EVerticalAlignment)a); })
         ;
 
     py::class_<FSlateChildSize>(m, "FSlateChildSize")
@@ -232,6 +254,11 @@ void _LoadModuleUMG(py::module& uepy)
         .def_static("StaticClass", []() { return UContentWidget::StaticClass(); })
         .def_static("Cast", [](UObject *slot) { return Cast<UContentWidget>(slot); }, py::return_value_policy::reference)
         .def("SetContent", [](UContentWidget& self, UWidget *obj) { return self.SetContent(obj); })
+        ;
+
+    py::class_<UCanvasPanel, UPanelWidget, UnrealTracker<UCanvasPanel>>(m, "UCanvasPanel")
+        .def_static("StaticClass", []() { return UCanvasPanel::StaticClass(); })
+        .def_static("Cast", [](UObject *slot) { return Cast<UCanvasPanel>(slot); }, py::return_value_policy::reference)
         ;
 
     py::class_<UOverlay, UPanelWidget, UnrealTracker<UOverlay>>(m, "UOverlay")

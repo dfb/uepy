@@ -26,6 +26,8 @@
 #include "Components/ComboBoxString.h"
 #include "Components/ContentWidget.h"
 #include "Components/EditableTextBox.h"
+#include "Components/GridPanel.h"
+#include "Components/GridSlot.h"
 #include "Components/HorizontalBox.h"
 #include "Components/HorizontalBoxSlot.h"
 #include "Components/Image.h"
@@ -50,6 +52,7 @@
 #include "Paper2D/Classes/PaperSprite.h"
 #include "Particles/ParticleSystem.h"
 #include "Runtime/CoreUObject/Public/UObject/GCObject.h"
+#include <functional>
 
 #include "uepy.generated.h"
 
@@ -87,7 +90,9 @@ namespace py = pybind11;
 #define ENUM_PROP(propName, propType, className)\
 .def_property(#propName, [](className& self) { return (int)self.propName; }, [](className& self, int v) { self.propName = (propType)v; })
 
-
+// in order to be able pass from BP to Python any custom (game-specific) structs, the game has to provide a conversion function for them
+typedef std::function<py::object(UScriptStruct* s, void *value)> BPToPyFunc;
+UEPY_API void PyRegisterStructConverter(BPToPyFunc converterFunc);
 
 class FToolBarBuilder;
 class FMenuBuilder;
@@ -246,6 +251,8 @@ namespace pybind11 {
     UTYPE_HOOK(UContentWidget);
     UTYPE_HOOK(UEditableTextBox);
     UTYPE_HOOK(UFileMediaSource);
+    UTYPE_HOOK(UGridPanel);
+    UTYPE_HOOK(UGridSlot);
     UTYPE_HOOK(UHorizontalBox);
     UTYPE_HOOK(UHorizontalBoxSlot);
     UTYPE_HOOK(UImage);
@@ -331,10 +338,11 @@ protected:
 // of a glue class. In all cases, it finds the appropriate UClass object and returns it.
 UEPY_API UClass *PyObjectToUClass(py::object& klassThing);
 
-// gets/sets a UPROPERTY on an object
+// stuff for integrating into the UE4 reflection system (e.g. calling BPs)
 py::object GetObjectUProperty(UObject *obj, std::string k);
 void SetObjectUProperty(UObject *obj, std::string k, py::object& value);
 py::object CallObjectUFunction(UObject *obj, std::string funcName, py::tuple& args);
 void BindDelegateCallback(UObject *obj, std::string eventName, py::object& callback);
 void UnbindDelegateCallback(UObject *obj, std::string eventName, py::object& callback);
+void RegisterCustomStruct(UScriptStruct *s);
 

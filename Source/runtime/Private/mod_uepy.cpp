@@ -176,6 +176,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
 
     py::class_<UClass, UObject, UnrealTracker<UClass>>(m, "UClass") // TODO: UClass --> UStruct --> UField --> UObject
         .def_static("Cast", [](UObject *obj) { return Cast<UClass>(obj); }, py::return_value_policy::reference)
+        .def("GetDefaultObject", [](UClass& self) { return self.GetDefaultObject(); }, py::return_value_policy::reference)
         .def("ImplementsInterface", [](UClass& self, py::object interfaceClass)
         {
             UClass *k = PyObjectToUClass(interfaceClass);

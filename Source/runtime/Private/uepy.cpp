@@ -409,6 +409,12 @@ void SetObjectUProperty(UObject *obj, std::string k, py::object& value)
     }
 }
 
+std::vector<BPToPyFunc> structHandlerFuncs;
+void PyRegisterStructConverter(BPToPyFunc converterFunc)
+{
+    structHandlerFuncs.push_back(converterFunc);
+}
+
 #define _GETPROP(enginePropClass, cppType) \
 if (auto t##enginePropClass = Cast<enginePropClass>(prop))\
 {\
@@ -458,12 +464,8 @@ py::object _getuprop(UProperty *prop, uint8* buffer, int index)
         return ret;
     }
 
-    // TODO For structures, I haven't come up with a good way to get a struct property in a generic way - we can get a void*
-    // to the data, but in order for py::cast to work, we need to provide the intended type. Ideas:
-    // - make the caller provide the type or at least a buffer to receive it ... or something
-    // - return a UserStruct or something and then uh... yeah
-    // - tap into pybind11 and find all the structs it knows about and create a template-based something or...
-    // For now we check a few common struct types and punt on the rest - hopefully we won't be using this too much anyway
+    // For structures, we handle some specific builtin ones below and then leave it up to the game code to handle
+    // any others.
     if (auto structprop = Cast<UStructProperty>(prop))
     {
         UScriptStruct* theStruct = structprop->Struct;
@@ -491,6 +493,15 @@ py::object _getuprop(UProperty *prop, uint8* buffer, int index)
         {
             FLinearColor v = *structprop->ContainerPtrToValuePtr<FLinearColor>(buffer, index);
             return py::cast(v);
+        }
+
+        // now give the game code a try
+        void *raw = structprop->ContainerPtrToValuePtr<void*>(buffer, index);
+        for (auto converter : structHandlerFuncs)
+        {
+            py::object obj = converter(theStruct, raw);
+            if (!obj.is_none())
+                return obj;
         }
     }
 
