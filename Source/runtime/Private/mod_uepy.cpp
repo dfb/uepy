@@ -197,6 +197,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
     py::class_<UStaticMesh, UObject, UnrealTracker<UStaticMesh>>(m, "UStaticMesh")
         .def_static("StaticClass", []() { return UStaticMesh::StaticClass(); })
         .def_static("Cast", [](UObject *obj) { return Cast<UStaticMesh>(obj); }, py::return_value_policy::reference)
+        .def("GetBounds", [](UStaticMesh& self) { return self.GetBounds(); })
         ;
 
     py::class_<UActorComponent, UObject, UnrealTracker<UActorComponent>>(m, "UActorComponent")
@@ -207,6 +208,23 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("RegisterComponent", [](UActorComponent& self) { self.RegisterComponent(); })
         .def("UnregisterComponent", [](UActorComponent& self) { self.UnregisterComponent(); })
         .def("DestroyComponent", [](UActorComponent& self) { self.DestroyComponent(); })
+        .def_property("ComponentTags", [](UActorComponent& self)
+            {
+                py::list ret;
+                for (FName& tag : self.ComponentTags)
+                {
+                    std::string stag = TCHAR_TO_UTF8(*tag.ToString());
+                    ret.append(stag);
+                }
+                return ret;
+            },
+            [](UActorComponent& self, py::list pytags)
+            {
+                self.ComponentTags.Empty();
+                for (const py::handle pytag : pytags)
+                    self.ComponentTags.Emplace(pytag.cast<std::string>().c_str());
+            })
+        ;
         ;
 
     py::class_<USceneComponent, UActorComponent, UnrealTracker<USceneComponent>>(m, "USceneComponent")
@@ -231,6 +249,12 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("GetComponentRotation", [](USceneComponent& self) { return self.GetComponentRotation(); })
         .def("GetComponentQuat", [](USceneComponent& self) { return self.GetComponentQuat(); })
         .def("GetComponentScale", [](USceneComponent& self) { return self.GetComponentScale(); })
+        .def("GetComponentToWorld", [](USceneComponent& self) { return self.GetComponentToWorld(); })
+        .def("SetWorldLocation", [](USceneComponent& self, FVector& loc) { self.SetWorldLocation(loc); })
+        .def("SetWorldRotation", [](USceneComponent& self, FQuat& rot) { self.SetWorldRotation(rot); })
+        .def("GetSocketTransform", [](USceneComponent& self, std::string& name) { return self.GetSocketTransform(FSTR(name)); })
+        .def("GetSocketLocation", [](USceneComponent& self, std::string& name) { return self.GetSocketLocation(FSTR(name)); })
+        .def("GetSocketRotation", [](USceneComponent& self, std::string& name) { return self.GetSocketRotation(FSTR(name)); })
         ;
 
     py::class_<UPrimitiveComponent, USceneComponent, UnrealTracker<UPrimitiveComponent>>(m, "UPrimitiveComponent")
@@ -267,6 +291,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def_static("Cast", [](UObject *obj) { return Cast<UStaticMeshComponent>(obj); }, py::return_value_policy::reference)
         .def("SetStaticMesh", [](UStaticMeshComponent& self, UStaticMesh *newMesh) -> bool { return self.SetStaticMesh(newMesh); })
         .def("SetMaterial", [](UStaticMeshComponent& self, int index, UMaterialInterface *newMat) -> void { self.SetMaterial(index, newMat); }) // technically, UMaterialInterface
+        .def_readwrite("StreamingDistanceMultiplier", &UStaticMeshComponent::StreamingDistanceMultiplier)
         ;
 
     py::class_<UWorld, UObject, UnrealTracker<UWorld>>(m, "UWorld")
@@ -343,6 +368,20 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def_readwrite("Max", &FBox::Max)
         .def_readwrite("IsValid", &FBox::IsValid)
         .def(py::self + py::self)
+        ;
+
+    py::class_<FBoxSphereBounds>(m, "FBoxSphereBounds")
+        .def(py::init<>())
+        .def(py::init<FVector&,FVector&,float>())
+        .def(py::init<FBox&,FSphere&>())
+        .def(py::init<FBox&>())
+        .def(py::self + py::self)
+        .def(py::self == py::self)
+        .def_readwrite("Origin", &FBoxSphereBounds::Origin)
+        .def_readwrite("BoxExtent", &FBoxSphereBounds::BoxExtent)
+        .def_readwrite("SphereRadius", &FBoxSphereBounds::SphereRadius)
+        .def("GetBox", [](FBoxSphereBounds& self) { return self.GetBox(); })
+        .def("GetSphere", [](FBoxSphereBounds& self) { return self.GetSphere(); })
         ;
 
     py::class_<UKismetMathLibrary, UObject, UnrealTracker<UKismetMathLibrary>>(m, "UKismetMathLibrary")
@@ -451,6 +490,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("SetActorRotation", [](AActor& self, FRotator& r) { self.SetActorRotation(r); })
         .def("SetActorTransform", [](AActor& self, FTransform& t) { self.SetActorTransform(t); })
         .def("GetActorTransform", [](AActor& self) { return self.GetActorTransform(); })
+        .def("GetTransform", [](AActor& self) { return self.GetTransform(); })
         .def("SetRootComponent", [](AActor& self, USceneComponent *s) { self.SetRootComponent(s); })
         .def("GetRootComponent", [](AActor& self) { return self.GetRootComponent(); })
         .def("SetActorScale3D", [](AActor& self, FVector& v) { self.SetActorScale3D(v); })
@@ -852,6 +892,78 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("SetMediaPlayer", [](UMediaSoundComponent& self, UMediaPlayer* player) { self.SetMediaPlayer(player); })
         .def("SetVolumeMultiplier", [](UMediaSoundComponent& self, float m) { self.SetVolumeMultiplier(m); })
         .def("GetAudioComponent", [](UMediaSoundComponent& self) { return self.GetAudioComponent(); })
+        ;
+
+    py::class_<ULightComponentBase, USceneComponent, UnrealTracker<ULightComponentBase>>(m, "ULightComponentBase")
+        .def_static("StaticClass", []() { return ULightComponentBase::StaticClass(); })
+        .def_static("Cast", [](UObject *obj) { return Cast<ULightComponentBase>(obj); }, py::return_value_policy::reference)
+        .def_readwrite("Intensity", &ULightComponentBase::Intensity)
+        .def("SetCastStaticShadows", [](ULightComponentBase& self, bool b) { self.CastStaticShadows = b; })
+        .def("SetCastDynamicShadows", [](ULightComponentBase& self, bool b) { self.CastDynamicShadows = b; })
+        .def("SetTransmission", [](ULightComponentBase& self, bool b) { self.bTransmission = b; })
+        .def_readwrite("IndirectLightingIntensity", &ULightComponentBase::IndirectLightingIntensity)
+        .def_readwrite("LightColor", &ULightComponentBase::LightColor)
+        .def("SetCastShadows", [](ULightComponentBase& self, bool b) { self.SetCastShadows(b); })
+        .def("SetCastVolumetricShadow", [](ULightComponentBase& self, bool b) { self.SetCastVolumetricShadow(b); })
+        .def("SetAffectReflection", [](ULightComponentBase& self, bool b) { self.SetAffectReflection(b); })
+        .def("SetAffectGlobalIllumination", [](ULightComponentBase& self, bool b) { self.SetAffectGlobalIllumination(b); })
+        .def("SetCastRaytracedShadow", [](ULightComponentBase& self, bool b) { self.SetCastRaytracedShadow(b); })
+        .def("SetSamplesPerPixel", [](ULightComponentBase& self, int i) { self.SetSamplesPerPixel(i); })
+        ;
+
+    py::class_<ULightComponent, ULightComponentBase, UnrealTracker<ULightComponent>>(m, "ULightComponent")
+        .def_static("StaticClass", []() { return ULightComponent::StaticClass(); })
+        .def_static("Cast", [](UObject *obj) { return Cast<ULightComponent>(obj); }, py::return_value_policy::reference)
+        .def("GetBoundingBox", [](ULightComponent& self) { return self.GetBoundingBox(); })
+        .def("GetBoundingSphere", [](ULightComponent& self) { return self.GetBoundingSphere(); })
+        .def("GetDirection", [](ULightComponent& self) { return self.GetDirection(); })
+        .def("GetMaterial", [](ULightComponent& self, int index) { return self.GetMaterial(index); })
+        .def("GetNumMaterials", [](ULightComponent& self) { return self.GetNumMaterials(); })
+        .def("SetAffectDynamicIndirectLighting", [](ULightComponent& self, bool b) { self.SetAffectDynamicIndirectLighting(b); })
+        .def("SetAffectTranslucentLighting", [](ULightComponent& self, bool b) { self.SetAffectTranslucentLighting(b); })
+        .def("SetBloomScale", [](ULightComponent& self, float f) { self.SetBloomScale(f); })
+        .def("SetBloomThreshold", [](ULightComponent& self, float f) { self.SetBloomThreshold(f); })
+        .def("SetBloomTint", [](ULightComponent& self, FColor& c) { self.SetBloomTint(c); })
+        .def("SetEnableLightShaftBloom", [](ULightComponent& self, bool b) { self.SetEnableLightShaftBloom(b); })
+        .def("SetForceCachedShadowsForMovablePrimitives", [](ULightComponent& self, bool b) { self.SetForceCachedShadowsForMovablePrimitives(b); })
+        .def("SetIndirectLightingIntensity", [](ULightComponent& self, float f) { self.SetIndirectLightingIntensity(f); })
+        .def("SetIntensity", [](ULightComponent& self, float f) { self.SetIntensity(f); })
+        .def("SetLightBrightness", [](ULightComponent& self, float f) { self.SetLightBrightness(f); })
+        .def("SetLightColor", [](ULightComponent& self, FLinearColor& c, bool bSRGB) { self.SetLightColor(c, bSRGB); })
+        .def("SetLightFunctionDisabledBrightness", [](ULightComponent& self, float f) { self.SetLightFunctionDisabledBrightness(f); })
+        .def("SetLightFunctionFadeDistance", [](ULightComponent& self, float f) { self.SetLightFunctionFadeDistance(f); })
+        .def("SetLightFunctionMaterial", [](ULightComponent& self, UMaterialInterface* m) { self.SetLightFunctionMaterial(m); })
+        .def("SetLightFunctionScale", [](ULightComponent& self, FVector& v) { self.SetLightFunctionScale(v); })
+        .def("SetMaterial", [](ULightComponent& self, int index, UMaterialInterface* m) { self.SetMaterial(index, m); })
+        .def("SetShadowBias", [](ULightComponent& self, float f) { self.SetShadowBias(f); })
+        .def("SetShadowSlopeBias", [](ULightComponent& self, float f) { self.SetShadowSlopeBias(f); })
+        .def("SetSpecularScale", [](ULightComponent& self, float f) { self.SetSpecularScale(f); })
+        .def("SetTemperature", [](ULightComponent& self, float f) { self.SetTemperature(f); })
+        .def("SetTransmission", [](ULightComponent& self, bool b) { self.SetTransmission(b); })
+        .def("SetVolumetricScatteringIntensity", [](ULightComponent& self, float f) { self.SetVolumetricScatteringIntensity(f); })
+        ;
+
+    py::class_<ULocalLightComponent, ULightComponent, UnrealTracker<ULocalLightComponent>>(m, "ULocalLightComponent")
+        .def_static("StaticClass", []() { return ULocalLightComponent::StaticClass(); })
+        .def_static("Cast", [](UObject *obj) { return Cast<ULocalLightComponent>(obj); }, py::return_value_policy::reference)
+        .def("SetAttenuationRadius", [](ULocalLightComponent& self, float r) { self.SetAttenuationRadius(r); })
+        .def("SetIntensityUnits", [](ULocalLightComponent& self, int u) { self.SetIntensityUnits((ELightUnits)u); })
+        ;
+
+    py::class_<UPointLightComponent, ULocalLightComponent, UnrealTracker<UPointLightComponent>>(m, "UPointLightComponent")
+        .def_static("StaticClass", []() { return UPointLightComponent::StaticClass(); })
+        .def_static("Cast", [](UObject *obj) { return Cast<UPointLightComponent>(obj); }, py::return_value_policy::reference)
+        .def("SetLightFalloffExponent", [](UPointLightComponent& self, float f) { self.SetLightFalloffExponent(f); })
+        .def("SetSourceRadius", [](UPointLightComponent& self, float f) { self.SetSourceRadius(f); })
+        .def("SetSoftSourceRadius", [](UPointLightComponent& self, float f) { self.SetSoftSourceRadius(f); })
+        .def("SetSourceLength", [](UPointLightComponent& self, float f) { self.SetSourceLength(f); })
+        ;
+
+    py::class_<USpotLightComponent, UPointLightComponent, UnrealTracker<USpotLightComponent>>(m, "USpotLightComponent")
+        .def_static("StaticClass", []() { return USpotLightComponent::StaticClass(); })
+        .def_static("Cast", [](UObject *obj) { return Cast<USpotLightComponent>(obj); }, py::return_value_policy::reference)
+        .def("SetInnerConeAngle", [](USpotLightComponent& self, float f) { self.SetInnerConeAngle(f); })
+        .def("SetOuterConeAngle", [](USpotLightComponent& self, float f) { self.SetOuterConeAngle(f); })
         ;
 
     py::class_<FSlateAtlasData>(m, "FSlateAtlasData")

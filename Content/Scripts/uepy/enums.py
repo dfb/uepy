@@ -61,3 +61,6 @@ class EOrientation:
 class EControllerHand:
     Left, Right, AnyHand = range(3)
 
+class ELightUnits:
+    Unitless, Candelas, Lumens = range(3)
+

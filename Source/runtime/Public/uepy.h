@@ -38,6 +38,7 @@
 #include "Components/SizeBox.h"
 #include "Components/SizeBoxSlot.h"
 #include "Components/Spacer.h"
+#include "Components/SpotLightComponent.h"
 #include "Components/TextBlock.h"
 #include "Components/VerticalBox.h"
 #include "Components/VerticalBoxSlot.h"
@@ -239,9 +240,9 @@ namespace pybind11 {
     UTYPE_HOOK(APlayerController);
     UTYPE_HOOK(UActorComponent);
     UTYPE_HOOK(UAudioComponent);
+    UTYPE_HOOK(UBlueprintGeneratedClass);
     UTYPE_HOOK(UBorder);
     UTYPE_HOOK(UBorderSlot);
-    UTYPE_HOOK(UBlueprintGeneratedClass);
     UTYPE_HOOK(UButton);
     UTYPE_HOOK(UCanvasPanel);
     UTYPE_HOOK(UCanvasPanelSlot);
@@ -257,6 +258,9 @@ namespace pybind11 {
     UTYPE_HOOK(UHorizontalBoxSlot);
     UTYPE_HOOK(UImage);
     UTYPE_HOOK(UInterface);
+    UTYPE_HOOK(ULightComponent);
+    UTYPE_HOOK(ULightComponentBase);
+    UTYPE_HOOK(ULocalLightComponent);
     UTYPE_HOOK(UMaterial);
     UTYPE_HOOK(UMaterialInstance);
     UTYPE_HOOK(UMaterialInstanceDynamic);
@@ -272,12 +276,14 @@ namespace pybind11 {
     UTYPE_HOOK(UPanelWidget);
     UTYPE_HOOK(UPaperSprite);
     UTYPE_HOOK(UParticleSystem);
+    UTYPE_HOOK(UPointLightComponent);
     UTYPE_HOOK(UPrimitiveComponent);
     UTYPE_HOOK(USceneComponent);
     UTYPE_HOOK(USizeBox);
     UTYPE_HOOK(USizeBoxSlot);
     UTYPE_HOOK(USoundClass);
     UTYPE_HOOK(USpacer);
+    UTYPE_HOOK(USpotLightComponent);
     UTYPE_HOOK(UStaticMesh);
     UTYPE_HOOK(UStaticMeshComponent);
     UTYPE_HOOK(UTextBlock);
