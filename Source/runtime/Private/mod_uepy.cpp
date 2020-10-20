@@ -203,6 +203,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
     py::class_<UActorComponent, UObject, UnrealTracker<UActorComponent>>(m, "UActorComponent")
         .def_static("StaticClass", []() { return UActorComponent::StaticClass(); })
         .def_static("Cast", [](UObject *obj) { return Cast<UActorComponent>(obj); }, py::return_value_policy::reference)
+        .def("ComponentHasTag", [](UActorComponent& self, std::string& tag) { return self.ComponentHasTag(FSTR(tag)); })
         .def("SetActive", [](UActorComponent& self, bool a) { self.SetActive(a); })
         .def("IsRegistered", [](UActorComponent& self) { return self.IsRegistered(); })
         .def("RegisterComponent", [](UActorComponent& self) { self.RegisterComponent(); })
@@ -236,12 +237,17 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("SetRelativeRotation", [](USceneComponent& self, FRotator r) { self.SetRelativeRotation(r); })
         .def("GetRelativeScale3D", [](USceneComponent& self) { return self.RelativeScale3D; })
         .def("SetRelativeScale3D", [](USceneComponent& self, FVector v) { self.SetRelativeScale3D(v); })
+        .def("GetRelativeTransfor", [](USceneComponent& self) { return self.GetRelativeTransform(); })
+        .def("SetRelativeTransform", [](USceneComponent& self, FTransform& t) { self.SetRelativeTransform(t); })
+        .def("ResetRelativeTransform", [](USceneComponent& self) { self.ResetRelativeTransform(); })
         .def("AttachToComponent", [](USceneComponent& self, USceneComponent *parent) { return self.AttachToComponent(parent, FAttachmentTransformRules::KeepRelativeTransform); }) // TODO: AttachmentRules, socket
         .def("DetachFromComponent", [](USceneComponent& self) { self.DetachFromComponent(FDetachmentTransformRules::KeepWorldTransform); })
         .def("SetRelativeLocationAndRotation", [](USceneComponent& self, FVector& loc, FRotator& rot) { self.SetRelativeLocationAndRotation(loc, rot); })
         .def("SetRelativeTransform", [](USceneComponent& self, FTransform& t) { self.SetRelativeTransform(t); })
         .def("SetVisibility", [](USceneComponent& self, bool b) { self.SetVisibility(b); })
-        .def("SetHiddenInGame", [](USceneComponent& self, bool b) { self.SetHiddenInGame(b); })
+        .def("GetHiddenInGame", [](USceneComponent& self) { return self.bHiddenInGame; })
+        .def("SetHiddenInGame", [](USceneComponent& self, bool b, bool propagate) { self.SetHiddenInGame(b, propagate); })
+        .def("IsVisible", [](USceneComponent& self) { return self.IsVisible(); })
         .def("GetForwardVector", [](USceneComponent& self) { return self.GetForwardVector(); })
         .def("GetRightVector", [](USceneComponent& self) { return self.GetRightVector(); })
         .def("GetUpVector", [](USceneComponent& self) { return self.GetUpVector(); })
@@ -255,6 +261,17 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("GetSocketTransform", [](USceneComponent& self, std::string& name) { return self.GetSocketTransform(FSTR(name)); })
         .def("GetSocketLocation", [](USceneComponent& self, std::string& name) { return self.GetSocketLocation(FSTR(name)); })
         .def("GetSocketRotation", [](USceneComponent& self, std::string& name) { return self.GetSocketRotation(FSTR(name)); })
+        .def("CalcBounds", [](USceneComponent&self, FTransform& locToWorld) { return self.CalcBounds(locToWorld); })
+        ;
+
+    py::class_<UDecalComponent, USceneComponent, UnrealTracker<UDecalComponent>>(m, "UDecalComponent")
+        .def_static("StaticClass", []() { return UDecalComponent::StaticClass(); })
+        .def_static("Cast", [](UObject *obj) { return Cast<UDecalComponent>(obj); }, py::return_value_policy::reference)
+        .def_readwrite("DecalSize", &UDecalComponent::DecalSize)
+        .def("SetFadeIn", [](UDecalComponent& self, float startDelay, float dur) { self.SetFadeIn(startDelay, dur); })
+        .def("SetFadeOut", [](UDecalComponent& self, float startDelay, float dur) { self.SetFadeOut(startDelay, dur); })
+        .def("SetFadeScreenSize", [](UDecalComponent& self, float size) { self.SetFadeScreenSize(size); })
+        .def("SetDecalMaterial", [](UDecalComponent& self, UMaterialInterface* mat) { self.SetDecalMaterial(mat); })
         ;
 
     py::class_<UPrimitiveComponent, USceneComponent, UnrealTracker<UPrimitiveComponent>>(m, "UPrimitiveComponent")
@@ -269,9 +286,30 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("SetCastShadow", [](UPrimitiveComponent& self, bool s) { self.SetCastShadow(s); })
         ;
 
+    py::class_<UFXSystemComponent, UPrimitiveComponent, UnrealTracker<UFXSystemComponent>>(m, "UFXSystemComponent")
+        .def_static("StaticClass", []() { return UFXSystemComponent::StaticClass(); })
+        .def_static("Cast", [](UObject *obj) { return Cast<UFXSystemComponent>(obj); }, py::return_value_policy::reference)
+        .def("SetFloatParameter", [](UFXSystemComponent& self, std::string name, float v) { self.SetFloatParameter(FSTR(name), v); })
+        .def("SetVectorParameter", [](UFXSystemComponent& self, std::string name, FVector& v) { self.SetVectorParameter(FSTR(name), v); })
+        .def("SetColorParameter", [](UFXSystemComponent& self, std::string name, FLinearColor& v) { self.SetColorParameter(FSTR(name), v); })
+        .def("SetActorParameter", [](UFXSystemComponent& self, std::string name, AActor* v) { self.SetActorParameter(FSTR(name), v); })
+        ;
+
+    py::class_<UParticleSystemComponent, UFXSystemComponent, UnrealTracker<UParticleSystemComponent>>(m, "UParticleSystemComponent")
+        .def_static("StaticClass", []() { return UParticleSystemComponent::StaticClass(); })
+        .def_static("Cast", [](UObject *obj) { return Cast<UParticleSystemComponent>(obj); }, py::return_value_policy::reference)
+        .def("SetTemplate", [](UParticleSystemComponent& self, UParticleSystem* sys) { self.SetTemplate(sys); })
+        ;
+
     py::class_<UShapeComponent, UPrimitiveComponent, UnrealTracker<UShapeComponent>>(m, "UShapeComponent")
         .def_static("StaticClass", []() { return UShapeComponent::StaticClass(); })
         .def_static("Cast", [](UObject *obj) { return Cast<UShapeComponent>(obj); }, py::return_value_policy::reference)
+        ;
+
+    py::class_<USphereComponent, UShapeComponent, UnrealTracker<USphereComponent>>(m, "USphereComponent")
+        .def_static("StaticClass", []() { return USphereComponent::StaticClass(); })
+        .def_static("Cast", [](UObject *obj) { return Cast<USphereComponent>(obj); }, py::return_value_policy::reference)
+        .def("SetSphereRadius", [](USphereComponent& self, float r) { self.SetSphereRadius(r); })
         ;
 
     py::class_<UBoxComponent, UShapeComponent, UnrealTracker<UBoxComponent>>(m, "UBoxComponent")
@@ -362,12 +400,15 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         ;
 
     py::class_<FBox>(m, "FBox")
-        .def(py::init<>())
+        .def(py::init([]() { FBox b(EForceInit::ForceInit); return b; }))
         .def(py::init<FVector,FVector>())
         .def_readwrite("Min", &FBox::Min)
         .def_readwrite("Max", &FBox::Max)
         .def_readwrite("IsValid", &FBox::IsValid)
+        .def("GetCenter", [](FBox& self) { return self.GetCenter(); })
+        .def("GetSize", [](FBox& self) { return self.GetSize(); })
         .def(py::self + py::self)
+        .def(py::self += py::self)
         ;
 
     py::class_<FBoxSphereBounds>(m, "FBoxSphereBounds")
@@ -435,6 +476,11 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def_static("Cast", [](UObject *obj) { return Cast<UMaterialInstance>(obj); }, py::return_value_policy::reference)
         ;
 
+    py::class_<UMaterialInstanceConstant, UMaterialInstance, UnrealTracker<UMaterialInstanceConstant>>(m, "UMaterialInstanceConstant")
+        .def_static("StaticClass", []() { return UMaterialInstanceConstant::StaticClass(); })
+        .def_static("Cast", [](UObject *obj) { return Cast<UMaterialInstanceConstant>(obj); }, py::return_value_policy::reference)
+        ;
+
     py::class_<UMaterialInstanceDynamic, UMaterialInstance, UnrealTracker<UMaterialInstanceDynamic>>(m, "UMaterialInstanceDynamic")
         .def_static("StaticClass", []() { return UMaterialInstanceDynamic::StaticClass(); })
         .def_static("Cast", [](UObject *obj) { return Cast<UMaterialInstanceDynamic>(obj); }, py::return_value_policy::reference)
@@ -500,6 +546,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("SetActorTickEnabled", [](AActor& self, bool enabled) { self.SetActorTickEnabled(enabled); })
         .def("SetActorTickInterval", [](AActor& self, float interval) { self.SetActorTickInterval(interval); })
         .def("GetActorTickInterval", [](AActor& self) { return self.GetActorTickInterval(); })
+        .def("GetActorHiddenInGame", [](AActor& self) { self.bHidden; })
         .def("SetActorHiddenInGame", [](AActor& self, bool b) { self.SetActorHiddenInGame(b); })
         .def("HasAuthority", [](AActor& self) { return self.HasAuthority(); })
         .def("GetOwner", [](AActor& self) { return self.GetOwner(); })
@@ -581,6 +628,8 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def(py::self + py::self)
         .def(py::self - py::self)
         .def(-py::self)
+        .def(int() * py::self)
+        .def(py::self * int())
         .def(float() * py::self)
         .def(py::self * float())
         .def("__iter__", [](FVector& self) { return CheesyIterator<float>({self.X, self.Y, self.Z}); })
@@ -633,6 +682,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         ;
 
     py::class_<FTransform>(m, "FTransform")
+        .def_readonly_static("Identity", &FTransform::Identity)
         .def(py::init<>())
         .def(py::init([](FVector& loc, FRotator& rot, FVector& scale) { return FTransform(rot, loc, scale); }))
         .def("Inverse", [](FTransform& self) { return self.Inverse(); })
@@ -903,6 +953,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("SetTransmission", [](ULightComponentBase& self, bool b) { self.bTransmission = b; })
         .def_readwrite("IndirectLightingIntensity", &ULightComponentBase::IndirectLightingIntensity)
         .def_readwrite("LightColor", &ULightComponentBase::LightColor)
+        .def_property("bAffectsWorld", [](ULightComponentBase& self, bool b) { self.bAffectsWorld=b; }, [](ULightComponentBase& self) { return self.bAffectsWorld; })
         .def("SetCastShadows", [](ULightComponentBase& self, bool b) { self.SetCastShadows(b); })
         .def("SetCastVolumetricShadow", [](ULightComponentBase& self, bool b) { self.SetCastVolumetricShadow(b); })
         .def("SetAffectReflection", [](ULightComponentBase& self, bool b) { self.SetAffectReflection(b); })
@@ -914,6 +965,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
     py::class_<ULightComponent, ULightComponentBase, UnrealTracker<ULightComponent>>(m, "ULightComponent")
         .def_static("StaticClass", []() { return ULightComponent::StaticClass(); })
         .def_static("Cast", [](UObject *obj) { return Cast<ULightComponent>(obj); }, py::return_value_policy::reference)
+        .def_property("bUseTemperature", [](ULightComponent& self, bool b) { self.bUseTemperature=b; }, [](ULightComponent& self) { return self.bUseTemperature; })
         .def("GetBoundingBox", [](ULightComponent& self) { return self.GetBoundingBox(); })
         .def("GetBoundingSphere", [](ULightComponent& self) { return self.GetBoundingSphere(); })
         .def("GetDirection", [](ULightComponent& self) { return self.GetDirection(); })
@@ -957,6 +1009,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("SetSourceRadius", [](UPointLightComponent& self, float f) { self.SetSourceRadius(f); })
         .def("SetSoftSourceRadius", [](UPointLightComponent& self, float f) { self.SetSoftSourceRadius(f); })
         .def("SetSourceLength", [](UPointLightComponent& self, float f) { self.SetSourceLength(f); })
+        .def_property("bUseInverseSquaredFalloff", [](UPointLightComponent& self, bool b) { self.bUseInverseSquaredFalloff=b; }, [](UPointLightComponent& self) { return self.bUseInverseSquaredFalloff; })
         ;
 
     py::class_<USpotLightComponent, UPointLightComponent, UnrealTracker<USpotLightComponent>>(m, "USpotLightComponent")

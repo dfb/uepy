@@ -1,3 +1,6 @@
+class EForceInit:
+    ForceInit, ForceInitToZero = range(2)
+
 class EEngineMode:
     '''Tells which mode we're in right now'''
     Unknown, Build, SrcCLI, Editor, PIE = range(5)
@@ -63,4 +66,7 @@ class EControllerHand:
 
 class ELightUnits:
     Unitless, Candelas, Lumens = range(3)
+
+class EVisibilityPropagation:
+    NoPropagation, DirtyOnly, Propagate = range(3)
 

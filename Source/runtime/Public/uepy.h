@@ -25,6 +25,7 @@
 #include "Components/CheckBox.h"
 #include "Components/ComboBoxString.h"
 #include "Components/ContentWidget.h"
+#include "Components/DecalComponent.h"
 #include "Components/EditableTextBox.h"
 #include "Components/GridPanel.h"
 #include "Components/GridSlot.h"
@@ -35,9 +36,11 @@
 #include "Components/Overlay.h"
 #include "Components/OverlaySlot.h"
 #include "Components/PanelWidget.h"
+#include "Particles/ParticleSystemComponent.h"
 #include "Components/SizeBox.h"
 #include "Components/SizeBoxSlot.h"
 #include "Components/Spacer.h"
+#include "Components/SphereComponent.h"
 #include "Components/SpotLightComponent.h"
 #include "Components/TextBlock.h"
 #include "Components/VerticalBox.h"
@@ -47,6 +50,7 @@
 #include "Components/WrapBoxSlot.h"
 #include "FileMediaSource.h"
 #include "GameFramework/PlayerController.h"
+#include "Materials/MaterialInstanceConstant.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "MediaPlayer.h"
 #include "MediaSoundComponent.h"
@@ -250,6 +254,7 @@ namespace pybind11 {
     UTYPE_HOOK(UClass);
     UTYPE_HOOK(UComboBoxString);
     UTYPE_HOOK(UContentWidget);
+    UTYPE_HOOK(UDecalComponent);
     UTYPE_HOOK(UEditableTextBox);
     UTYPE_HOOK(UFileMediaSource);
     UTYPE_HOOK(UGridPanel);
@@ -263,6 +268,7 @@ namespace pybind11 {
     UTYPE_HOOK(ULocalLightComponent);
     UTYPE_HOOK(UMaterial);
     UTYPE_HOOK(UMaterialInstance);
+    UTYPE_HOOK(UMaterialInstanceConstant);
     UTYPE_HOOK(UMaterialInstanceDynamic);
     UTYPE_HOOK(UMaterialInterface);
     UTYPE_HOOK(UMediaPlayer);
@@ -276,6 +282,7 @@ namespace pybind11 {
     UTYPE_HOOK(UPanelWidget);
     UTYPE_HOOK(UPaperSprite);
     UTYPE_HOOK(UParticleSystem);
+    UTYPE_HOOK(UParticleSystemComponent);
     UTYPE_HOOK(UPointLightComponent);
     UTYPE_HOOK(UPrimitiveComponent);
     UTYPE_HOOK(USceneComponent);
@@ -283,6 +290,7 @@ namespace pybind11 {
     UTYPE_HOOK(USizeBoxSlot);
     UTYPE_HOOK(USoundClass);
     UTYPE_HOOK(USpacer);
+    UTYPE_HOOK(USphereComponent);
     UTYPE_HOOK(USpotLightComponent);
     UTYPE_HOOK(UStaticMesh);
     UTYPE_HOOK(UStaticMeshComponent);
