@@ -95,6 +95,24 @@ namespace py = pybind11;
 #define ENUM_PROP(propName, propType, className)\
 .def_property(#propName, [](className& self) { return (int)self.propName; }, [](className& self, int v) { self.propName = (propType)v; })
 
+// used for cases where we have a simple, fixed-size struct and we want to support x,y,z = v unpacking/iteration
+template<class T>
+struct PyCheesyIterator
+{
+    PyCheesyIterator(std::initializer_list<T> args)
+    {
+        for (auto a : args)
+            source.append(a);
+    }
+    int j = 0;
+    py::list source;
+    T next()
+    {
+        if (j >= source.size()) throw py::stop_iteration();
+        return source[j++].cast<T>();
+    }
+};
+
 // in order to be able pass from BP to Python any custom (game-specific) structs, the game has to provide a conversion function for them
 typedef std::function<py::object(UScriptStruct* s, void *value)> BPToPyFunc;
 UEPY_API void PyRegisterStructConverter(BPToPyFunc converterFunc);

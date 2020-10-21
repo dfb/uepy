@@ -70,25 +70,6 @@ UTexture2D *LoadTextureFromFile(FString path)
 
 using namespace pybind11::literals;
 
-// used for cases where we have a simple, fixed-size struct and we want to support x,y,z = v unpacking/iteration
-template<class T>
-struct CheesyIterator
-{
-    CheesyIterator(std::initializer_list<T> args)
-    {
-        for (auto a : args)
-            source.append(a);
-    }
-    int j = 0;
-    py::list source;
-    T next()
-    {
-        if (j >= source.size()) throw py::stop_iteration();
-        return source[j++].cast<T>();
-    }
-
-};
-
 // this module is automagically loaded by virtual of the global declaration and the use of the embedded module macro
 // other builtin modules get added via FUEPythonDelegates::LaunchInit
 PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module uses _<name> and then we provide a <name> .py wrapper for additional stuffs
@@ -150,6 +131,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("GetClass", [](UObject& self) { return self.GetClass(); })
         .def("GetName", [](UObject& self) { std::string s = TCHAR_TO_UTF8(*self.GetName()); return s; })
         .def("ConditionalBeginDestroy", [](UObject* self) { if (self->IsValidLowLevel()) self->ConditionalBeginDestroy(); })
+        .def("IsValid", [](UObject* self) { return self->IsValidLowLevel() && !self->IsPendingKillOrUnreachable(); })
         .def("IsA", [](UObject& self, py::object& _klass)
         {
             UClass *klass = PyObjectToUClass(_klass);
@@ -262,6 +244,15 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("GetSocketLocation", [](USceneComponent& self, std::string& name) { return self.GetSocketLocation(FSTR(name)); })
         .def("GetSocketRotation", [](USceneComponent& self, std::string& name) { return self.GetSocketRotation(FSTR(name)); })
         .def("CalcBounds", [](USceneComponent&self, FTransform& locToWorld) { return self.CalcBounds(locToWorld); })
+        .def("GetChildrenComponents", [](USceneComponent& self, bool incAllDescendents)
+        {
+            TArray<USceneComponent*> kids;
+            self.GetChildrenComponents(incAllDescendents, kids);
+            py::list ret;
+            for (auto kid : kids)
+                ret.append(kid);
+            return ret;
+        })
         ;
 
     py::class_<UDecalComponent, USceneComponent, UnrealTracker<UDecalComponent>>(m, "UDecalComponent")
@@ -373,8 +364,14 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         ;
 
     py::class_<FHitResult>(m, "FHitResult")
-        .def_property_readonly("Normal", [](FHitResult& self) { FVector v = self.ImpactPoint; return v; })
-        .def_property_readonly("Actor", [](FHitResult& self) { AActor *a = nullptr; if (self.Actor.IsValid()) a = self.Actor.Get(); return a; })
+        .def_property_readonly("Normal", [](FHitResult& self) { FVector v = self.Normal; return v; })
+        .def_property_readonly("Location", [](FHitResult& self) { FVector v = self.Location; return v; })
+        .def_property_readonly("ImpactPoint", [](FHitResult& self) { FVector v = self.ImpactPoint; return v; })
+        .def_property_readonly("ImpactNormal", [](FHitResult& self) { FVector v = self.ImpactNormal; return v; })
+        .def_property_readonly("Actor", [](FHitResult& self) { AActor* a = nullptr; if (self.Actor.IsValid()) a = self.Actor.Get(); return a; })
+        .def_property_readonly("Component", [](FHitResult& self) { UPrimitiveComponent* c = nullptr; if (self.Component.IsValid()) c = self.Component.Get(); return c; })
+        .def_readonly("Time", &FHitResult::Time)
+        .def_readonly("Distance", &FHitResult::Distance)
         ;
 
     py::class_<UKismetSystemLibrary, UObject, UnrealTracker<UKismetSystemLibrary>>(m, "UKismetSystemLibrary")
@@ -590,14 +587,14 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def_static("Cast", [](UObject *obj) { return Cast<AGameState>(obj); }, py::return_value_policy::reference)
         ;
 
-    py::class_<CheesyIterator<float>>(m, "CheesyFloatIterator")
-        .def("__iter__", [](CheesyIterator<float> &it) -> CheesyIterator<float>& { return it; })
-        .def("__next__", &CheesyIterator<float>::next)
+    py::class_<PyCheesyIterator<float>>(m, "CheesyFloatIterator")
+        .def("__iter__", [](PyCheesyIterator<float> &it) -> PyCheesyIterator<float>& { return it; })
+        .def("__next__", &PyCheesyIterator<float>::next)
         ;
 
-    py::class_<CheesyIterator<int>>(m, "CheesyIntIterator")
-        .def("__iter__", [](CheesyIterator<int> &it) -> CheesyIterator<int>& { return it; })
-        .def("__next__", &CheesyIterator<int>::next)
+    py::class_<PyCheesyIterator<int>>(m, "CheesyIntIterator")
+        .def("__iter__", [](PyCheesyIterator<int> &it) -> PyCheesyIterator<int>& { return it; })
+        .def("__next__", &PyCheesyIterator<int>::next)
         ;
 
     py::class_<FVector2D>(m, "FVector2D")
@@ -611,7 +608,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def(-py::self)
         .def(float() * py::self)
         .def(py::self * float())
-        .def("__iter__", [](FVector2D& self) { return CheesyIterator<float>({self.X, self.Y}); })
+        .def("__iter__", [](FVector2D& self) { return PyCheesyIterator<float>({self.X, self.Y}); })
         ;
 
     py::class_<FVector>(m, "FVector")
@@ -632,7 +629,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def(py::self * int())
         .def(float() * py::self)
         .def(py::self * float())
-        .def("__iter__", [](FVector& self) { return CheesyIterator<float>({self.X, self.Y, self.Z}); })
+        .def("__iter__", [](FVector& self) { return PyCheesyIterator<float>({self.X, self.Y, self.Z}); })
         .def("Rotation", [](FVector& self) { return self.Rotation(); })
         .def("ToOrientationQuat", [](FVector& self) { return self.ToOrientationQuat(); })
         .def_readonly_static("ZeroVector", &FVector::ZeroVector)
@@ -663,12 +660,13 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("RotateVector", [](FRotator& self, FVector& v) { return self.RotateVector(v); })
         .def("UnrotateVector", [](FRotator& self, FVector& v) { return self.UnrotateVector(v); })
         .def("Quaternion", [](FRotator& self) { return self.Quaternion(); })
-        .def("__iter__", [](FRotator& self) { return CheesyIterator<float>({self.Roll, self.Pitch, self.Yaw}); })
+        .def("__iter__", [](FRotator& self) { return PyCheesyIterator<float>({self.Roll, self.Pitch, self.Yaw}); })
         .def(float() * py::self)
         .def(py::self * float())
         ;
 
     py::class_<FQuat>(m, "FQuat")
+        .def(py::init<>())
         .def(py::init<float,float,float,float>())
         .def_readwrite("X", &FQuat::X)
         .def_readwrite("Y", &FQuat::Y)
@@ -679,6 +677,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def_readwrite("z", &FQuat::Z)
         .def_readwrite("w", &FQuat::W)
         .def_static("FindBetweenVectors", [](FVector& a, FVector& b) { return FQuat::FindBetweenVectors(a,b); })
+        .def("Rotator", [](FQuat& self) { return self.Rotator(); })
         ;
 
     py::class_<FTransform>(m, "FTransform")
@@ -711,7 +710,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def_readwrite("b", &FColor::B)
         .def_readwrite("A", &FColor::A)
         .def_readwrite("a", &FColor::A)
-        .def("__iter__", [](FColor& self) { return CheesyIterator<int>({self.R, self.G, self.B, self.A}); })
+        .def("__iter__", [](FColor& self) { return PyCheesyIterator<int>({self.R, self.G, self.B, self.A}); })
         ;
 
     py::class_<FLinearColor>(m, "FLinearColor")
@@ -724,7 +723,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def_readwrite("b", &FLinearColor::B)
         .def_readwrite("A", &FLinearColor::A)
         .def_readwrite("a", &FLinearColor::A)
-        .def("__iter__", [](FLinearColor& self) { return CheesyIterator<float>({self.R, self.G, self.B, self.A}); })
+        .def("__iter__", [](FLinearColor& self) { return PyCheesyIterator<float>({self.R, self.G, self.B, self.A}); })
         .def_readonly_static("White", &FLinearColor::White)
         .def_readonly_static("Gray", &FLinearColor::Gray)
         .def_readonly_static("Black", &FLinearColor::Black)
@@ -885,6 +884,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("SuperBeginPlay", [](AActor_CGLUE& self) { self.SuperBeginPlay(); })
         .def("SuperEndPlay", [](AActor_CGLUE& self, int reason) { self.SuperEndPlay((EEndPlayReason::Type)reason); })
         .def("SuperTick", [](AActor_CGLUE& self, float dt) { self.SuperTick(dt); })
+        .def("UpdateTickSettings", [](AActor_CGLUE& self, bool canEverTick, bool startWithTickEnabled) { self.PrimaryActorTick.bCanEverTick = canEverTick; self.PrimaryActorTick.bStartWithTickEnabled = startWithTickEnabled; })
         ;
 
     py::class_<APawn, AActor, UnrealTracker<APawn>>(m, "APawn")

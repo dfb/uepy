@@ -145,11 +145,9 @@ class AActor_PGLUE(metaclass=PyGlueMetaclass):
     def CreateUStaticMeshComponent(self, name): return self.engineObj.CreateUStaticMeshComponent(name)
     def GetRootComponent(self): return self.engineObj.GetRootComponent()
     def SetRootComponent(self, s): self.engineObj.SetRootComponent(s)
-    def BeginPlay(self): pass
+    def BeginPlay(self): self.engineObj.SuperBeginPlay()
     def EndPlay(self, reason): pass
-    def Tick(self, dt): pass
-    def SuperBeginPlay(self): self.engineObj.SuperBeginPlay() # TODO: it'd be nice to make this call happen via super().BeginPlay() at some point
-    def SuperTick(self, dt): self.engineObj.SuperTick(dt) # # TODO: ditto
+    def Tick(self, dt): self.engineObj.SuperTick(dt) # # TODO: ditto
     def SuperEndPlay(self, reason): self.engineObj.SuperEndPlay(reason)
     def IsActorTickEnabled(self): return self.engineObj.IsActorTickEnabled()
     def SetActorTickEnabled(self, e): self.engineObj.SetActorTickEnabled(e)
@@ -161,6 +159,7 @@ class AActor_PGLUE(metaclass=PyGlueMetaclass):
     def Set(self, k, v): self.engineObj.Set(k, v)
     def Get(self, k): return self.engineObj.Get(k)
     def Call(self, funcName, *args): return self.engineObj.Call(funcName, *args)
+    def UpdateTickSettings(self, canEverTick, startWithTickEnabled): self.engineObj.UpdateTickSettings(canEverTick, startWithTickEnabled)
 
 class UEPYAssistantActor(AActor_PGLUE):
     '''Spawn one of these into a level to have it watch for source code changes and automatically reload modified code.
