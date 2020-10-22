@@ -650,5 +650,65 @@ void UnbindDelegateCallback(UObject *obj, std::string _eventName, py::object& ca
     }
 }
 
+void BroadcastEvent(UObject* obj, std::string eventName, py::tuple& args)
+{
+    FName propName = FSTR(eventName);
+    UProperty* prop = obj->GetClass()->FindPropertyByName(propName);
+    if (!prop)
+    {
+        LERROR("Failed to find property %s on object %s", *propName.ToString(), *obj->GetName());
+        return;
+    }
+
+    UMulticastInlineDelegateProperty *delprop = Cast<UMulticastInlineDelegateProperty>(prop);
+    if (!delprop)
+    {
+        LERROR("Property %s on object %s is not a multicast delegate property", *propName.ToString(), *obj->GetName());
+        return;
+    }
+
+    FMulticastScriptDelegate delegate = delprop->GetPropertyValue_InContainer(obj);
+    uint8* propArgsBuffer = (uint8*)FMemory_Alloca(delprop->SignatureFunction->PropertiesSize);
+    FMemory::Memzero(propArgsBuffer, delprop->SignatureFunction->PropertiesSize);
+
+    UProperty *returnProp = nullptr;
+    int nextPyArg = 0;
+    int numPyArgs = args.size();
+    for (TFieldIterator<UProperty> iter(delprop->SignatureFunction); iter ; ++iter)
+    {
+        UProperty *p = *iter;
+        if (!p->HasAnyPropertyFlags(CPF_Parm))
+            continue;
+        if (p->HasAnyPropertyFlags(CPF_OutParm))//ReturnParm))
+            continue; // these shouldn't exist on a delegate event, right??
+
+        // convert the python value to a UProp value
+        if (nextPyArg >= numPyArgs)
+        {
+            LERROR("Not enough arguments in call to %s", *propName.ToString());
+            // TODO: we're probably leaking memory here (see cleanup code below)
+            return;
+        }
+
+        py::object arg = args[nextPyArg++];
+        if (!_setuprop(p, propArgsBuffer, arg, 0))
+        {
+            LERROR("Failed to convert Python arg %d in call to %s:", nextPyArg-1, *propName.ToString());
+            return;
+        }
+    }
+
+    delegate.ProcessMulticastDelegate<UObject>(propArgsBuffer);
+
+    // Cleanup
+    for (TFieldIterator<UProperty> iter(delprop->SignatureFunction) ; iter ; ++iter)
+    {
+        UProperty *p = *iter;
+        if (iter->HasAnyPropertyFlags(CPF_Parm))
+            p->DestroyValue_InContainer(propArgsBuffer);
+    }
+
+}
+
 //#pragma optimize("", on)
 

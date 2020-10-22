@@ -376,5 +376,5 @@ void SetObjectUProperty(UObject *obj, std::string k, py::object& value);
 py::object CallObjectUFunction(UObject *obj, std::string funcName, py::tuple& args);
 void BindDelegateCallback(UObject *obj, std::string eventName, py::object& callback);
 void UnbindDelegateCallback(UObject *obj, std::string eventName, py::object& callback);
-void RegisterCustomStruct(UScriptStruct *s);
+void BroadcastEvent(UObject* obj, std::string eventName, py::tuple& args);
 
