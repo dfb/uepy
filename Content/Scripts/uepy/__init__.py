@@ -85,8 +85,15 @@ def GetPythonEngineSubclasses():
 def GetAllGlueClasses():
     return list(_allGlueClasses.values())
 
-MANGLE_CLASS_NAMES = True
+def MergedClassDefaults(klass):
+    '''Recursively merges all klass.classDefaults into a single dict and returns them'''
+    ret = {}
+    for base in klass.__bases__[::-1]:
+        ret.update(MergedClassDefaults(base))
+    ret.update(getattr(klass, 'classDefaults', {}))
+    return ret
 
+MANGLE_CLASS_NAMES = True
 class PyGlueMetaclass(type):
     def __new__(metaclass, name, bases, dct):
         isGlueClass = not bases # (a glue class has no bases)
@@ -120,7 +127,19 @@ class PyGlueMetaclass(type):
             newPyClass.cppGlueClass = cppGlueClass
 
             # Register this class with UE4 so that BPs, the editor, the level, etc. can all refer to it by name
-            newPyClass.engineClass = RegisterPythonSubclass(name, cppGlueClass.StaticClass(), newPyClass)
+            ec = newPyClass.engineClass = RegisterPythonSubclass(name, cppGlueClass.StaticClass(), newPyClass)
+
+            # Apply any CDO properties (in the py class's 'classDefaults' dict)
+            if not hasattr(cppGlueClass, 'Cast'):
+                log('WARNING: No Cast method found for', ec.GetName())
+            else:
+                cdo = cppGlueClass.Cast(ec.GetDefaultObject())
+                for k, v in MergedClassDefaults(newPyClass).items():
+                    try:
+                        setattr(cdo, k, v)
+                    except:
+                        logTB()
+                        log('Python class %s declares class default "%s" but setting the property failed' % (name, k))
 
         return newPyClass
 
