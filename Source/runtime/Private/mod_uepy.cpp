@@ -868,16 +868,19 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         return world->SpawnActor(actorClass, &location, &rotation, info);
     }, py::arg("world"), py::arg("actorClass"), py::arg("location")=FVector(0,0,0), py::arg("rotation")=FRotator(0,0,0), py::return_value_policy::reference);
 
-    m.def("NewObject", [](py::object& _class, UObject *owner)
+    m.def("NewObject", [](py::object& _class, UObject *owner, std::string& name)
     {
         UClass *klass = PyObjectToUClass(_class);
         if (!owner)
             owner = GetTransientPackage();
-        UObject *obj = NewObject<UObject>(owner, klass);
+        FName instName = NAME_None;
+        if (name.length())
+            instName = FSTR(name);
+        UObject *obj = NewObject<UObject>(owner, klass, instName);
         if (obj)
             obj->PostLoad(); // ? is this right ?
         return obj;
-    }, py::return_value_policy::reference);
+    }, py::return_value_policy::reference, py::arg("class"), py::arg("owner"), py::arg("name")="");
 
     py::class_<AActor_CGLUE, AActor, UnrealTracker<AActor_CGLUE>>(glueclasses, "AActor_CGLUE")
         .def_static("StaticClass", []() { return AActor_CGLUE::StaticClass(); }) // TODO: I think this can go away once we have the C++ APIs take PyClassOrUClass
