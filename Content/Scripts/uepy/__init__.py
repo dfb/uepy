@@ -174,7 +174,7 @@ class UEPYAssistantActor(AActor_PGLUE):
         S.log = log
         S.logTB = logTB
         self.watcher = S.SourceWatcher(self.mainModuleName)
-        self.SuperBeginPlay()
+        super().BeginPlay()
 
     def Tick(self, dt):
         self.watcher.Check()
