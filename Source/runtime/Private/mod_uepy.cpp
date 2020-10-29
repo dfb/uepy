@@ -121,15 +121,16 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
     m.def("ForceGC", []() { if (GEngine) GEngine->ForceGarbageCollection(true); });
 
     py::class_<FPaths>(m, "FPaths")
-        .def_static("ProjectDir", []() { return std::string(TCHAR_TO_UTF8(*FPaths::ProjectDir())); })
-        .def_static("ProjectContentDir", []() { return std::string(TCHAR_TO_UTF8(*FPaths::ProjectContentDir())); })
-        .def_static("ProjectPluginsDir", []() { return std::string(TCHAR_TO_UTF8(*FPaths::ProjectPluginsDir())); })
+        .def_static("ProjectDir", []() { return PYSTR(FPaths::ProjectDir()); })
+        .def_static("ProjectContentDir", []() { return PYSTR(FPaths::ProjectContentDir()); })
+        .def_static("ProjectPluginsDir", []() { return PYSTR(FPaths::ProjectPluginsDir()); })
         ;
 
     py::class_<UObject, UnrealTracker<UObject>>(m, "UObject")
         .def_static("StaticClass", []() { return UObject::StaticClass(); })
         .def("GetClass", [](UObject& self) { return self.GetClass(); })
-        .def("GetName", [](UObject& self) { std::string s = TCHAR_TO_UTF8(*self.GetName()); return s; })
+        .def("GetName", [](UObject& self) { return PYSTR(self.GetName()); })
+        .def("GetPathName", [](UObject& self) { return PYSTR(self.GetPathName()); })
         .def("ConditionalBeginDestroy", [](UObject* self) { if (self->IsValidLowLevel()) self->ConditionalBeginDestroy(); })
         .def("IsValid", [](UObject* self) { return self->IsValidLowLevel() && !self->IsPendingKillOrUnreachable(); })
         .def("IsA", [](UObject& self, py::object& _klass)
@@ -142,6 +143,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         // and just return it as a UObject, though the caller would then need to also cast it, e.g.
         // self.foo = uepy.AsUStaticMeshComponent(self.CreateDefaultSubObject(uepy.UStaticMeshComponent, 'mymesh'))
         // which seems like a lot of typing, so for now I'm creating class-specific versions.
+        // TODO: I think we want to get rid of this in favor of NewObject
         .def("CreateUStaticMeshComponent", [](UObject& self, py::str name)
         {
             std::string sname = name;
@@ -181,6 +183,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def_static("StaticClass", []() { return UStaticMesh::StaticClass(); })
         .def_static("Cast", [](UObject *obj) { return Cast<UStaticMesh>(obj); }, py::return_value_policy::reference)
         .def("GetBounds", [](UStaticMesh& self) { return self.GetBounds(); })
+        .def("GetSize", [](UStaticMesh& self) { return self.GetBounds().BoxExtent * 2; })
         ;
 
     py::class_<UActorComponent, UObject, UnrealTracker<UActorComponent>>(m, "UActorComponent")
@@ -196,10 +199,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
             {
                 py::list ret;
                 for (FName& tag : self.ComponentTags)
-                {
-                    std::string stag = TCHAR_TO_UTF8(*tag.ToString());
-                    ret.append(stag);
-                }
+                    ret.append(PYSTR(tag.ToString()));
                 return ret;
             },
             [](UActorComponent& self, py::list pytags)
@@ -220,7 +220,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("SetRelativeRotation", [](USceneComponent& self, FRotator r) { self.SetRelativeRotation(r); })
         .def("GetRelativeScale3D", [](USceneComponent& self) { return self.RelativeScale3D; })
         .def("SetRelativeScale3D", [](USceneComponent& self, FVector v) { self.SetRelativeScale3D(v); })
-        .def("GetRelativeTransfor", [](USceneComponent& self) { return self.GetRelativeTransform(); })
+        .def("GetRelativeTransform", [](USceneComponent& self) { return self.GetRelativeTransform(); })
         .def("SetRelativeTransform", [](USceneComponent& self, FTransform& t) { self.SetRelativeTransform(t); })
         .def("ResetRelativeTransform", [](USceneComponent& self) { self.ResetRelativeTransform(); })
         .def("AttachToComponent", [](USceneComponent& self, USceneComponent *parent) { return self.AttachToComponent(parent, FAttachmentTransformRules::KeepRelativeTransform); }) // TODO: AttachmentRules, socket
@@ -244,7 +244,8 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("GetSocketTransform", [](USceneComponent& self, std::string& name) { return self.GetSocketTransform(FSTR(name)); })
         .def("GetSocketLocation", [](USceneComponent& self, std::string& name) { return self.GetSocketLocation(FSTR(name)); })
         .def("GetSocketRotation", [](USceneComponent& self, std::string& name) { return self.GetSocketRotation(FSTR(name)); })
-        .def("CalcBounds", [](USceneComponent&self, FTransform& locToWorld) { return self.CalcBounds(locToWorld); })
+        .def("CalcBounds", [](USceneComponent& self, FTransform& locToWorld) { return self.CalcBounds(locToWorld); })
+        .def("GetAttachParent", [](USceneComponent& self) { return self.GetAttachParent(); })
         .def("GetChildrenComponents", [](USceneComponent& self, bool incAllDescendents)
         {
             TArray<USceneComponent*> kids;
@@ -319,6 +320,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
     py::class_<UStaticMeshComponent, UMeshComponent, UnrealTracker<UStaticMeshComponent>>(m, "UStaticMeshComponent")
         .def_static("StaticClass", []() { return UStaticMeshComponent::StaticClass(); })
         .def_static("Cast", [](UObject *obj) { return Cast<UStaticMeshComponent>(obj); }, py::return_value_policy::reference)
+        .def("GetStaticMesh", [](UStaticMeshComponent& self) { return self.GetStaticMesh(); })
         .def("SetStaticMesh", [](UStaticMeshComponent& self, UStaticMesh *newMesh) -> bool { return self.SetStaticMesh(newMesh); })
         .def("SetMaterial", [](UStaticMeshComponent& self, int index, UMaterialInterface *newMat) -> void { self.SetMaterial(index, newMat); }) // technically, UMaterialInterface
         .def_readwrite("StreamingDistanceMultiplier", &UStaticMeshComponent::StreamingDistanceMultiplier)
@@ -376,9 +378,9 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         ;
 
     py::class_<UKismetSystemLibrary, UObject, UnrealTracker<UKismetSystemLibrary>>(m, "UKismetSystemLibrary")
-        .def_static("GetPathName", [](UObject* obj) { return UKismetSystemLibrary::GetPathName(obj); })
-        .def_static("GetDisplayName", [](UObject* obj) { return UKismetSystemLibrary::GetDisplayName(obj); })
-        .def_static("GetObjectName", [](UObject* obj) { return UKismetSystemLibrary::GetObjectName(obj); })
+        .def_static("GetPathName", [](UObject* obj) { return PYSTR(UKismetSystemLibrary::GetPathName(obj)); })
+        .def_static("GetDisplayName", [](UObject* obj) { return PYSTR(UKismetSystemLibrary::GetDisplayName(obj)); })
+        .def_static("GetObjectName", [](UObject* obj) { return PYSTR(UKismetSystemLibrary::GetObjectName(obj)); })
         .def_static("IsValid", [](UObject* obj) { return UKismetSystemLibrary::IsValid(obj); })
         .def_static("DrawDebugLine", [](UObject *worldCtx, FVector& start, FVector& end, FLinearColor& color, float duration, float thickness) { UKismetSystemLibrary::DrawDebugLine(worldCtx, start, end, color, duration, thickness); })
         .def_static("DrawDebugBox", [](UObject *worldCtx, FVector& center, FVector& extent, FLinearColor& color, FRotator& rot, float duration, float thickness) { UKismetSystemLibrary::DrawDebugBox(worldCtx, center, extent, color, rot, duration, thickness); })
@@ -472,6 +474,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
     py::class_<UMaterialInstance, UMaterialInterface, UnrealTracker<UMaterialInstance>>(m, "UMaterialInstance")
         .def_static("StaticClass", []() { return UMaterialInstance::StaticClass(); })
         .def_static("Cast", [](UObject *obj) { return Cast<UMaterialInstance>(obj); }, py::return_value_policy::reference)
+        .def_readwrite("Parent", &UMaterialInstance::Parent)
         ;
 
     py::class_<UMaterialInstanceConstant, UMaterialInstance, UnrealTracker<UMaterialInstanceConstant>>(m, "UMaterialInstanceConstant")
@@ -547,17 +550,14 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("GetActorHiddenInGame", [](AActor& self) { self.bHidden; })
         .def("SetActorHiddenInGame", [](AActor& self, bool b) { self.SetActorHiddenInGame(b); })
         .def("HasAuthority", [](AActor& self) { return self.HasAuthority(); })
-        .def("GetOwner", [](AActor& self) { return self.GetOwner(); })
+        .def("GetOwner", [](AActor& self) { return self.GetOwner(); }, py::return_value_policy::reference)
         .def("BindOnEndPlay", [](AActor* self, py::object callback) { UEPY_BIND(self, OnEndPlay, AActor_OnEndPlay, callback); })
         .def("UnbindOnEndPlay", [](AActor* self, py::object callback) { UEPY_UNBIND(self, OnEndPlay, AActor_OnEndPlay, callback); })
         .def_property("Tags", [](AActor& self)
             {
                 py::list ret;
                 for (FName& tag : self.Tags)
-                {
-                    std::string stag = TCHAR_TO_UTF8(*tag.ToString());
-                    ret.append(stag);
-                }
+                    ret.append(PYSTR(tag.ToString()));
                 return ret;
             },
             [](AActor& self, py::list pytags)
@@ -651,6 +651,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         ;
 
     py::class_<FRotator>(m, "FRotator")
+        .def(py::init([]() { return FRotator(0,0,0); }))
         .def(py::init([](float roll=0, float pitch=0, float yaw=0) { FRotator r; r.Roll=roll; r.Pitch=pitch; r.Yaw=yaw; return r; })) //<float, float, float>(), "roll"_a=0.0f, "pitch"_a=0.0f, "yaw"_a=0.0f) // weird order, but matches UnrealEnginePython
         .def_readwrite("roll", &FRotator::Roll)
         .def_readwrite("Roll", &FRotator::Roll)
@@ -679,6 +680,18 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def_readwrite("w", &FQuat::W)
         .def_static("FindBetweenVectors", [](FVector& a, FVector& b) { return FQuat::FindBetweenVectors(a,b); })
         .def("Rotator", [](FQuat& self) { return self.Rotator(); })
+        .def(py::self * py::self)
+        .def(py::self + py::self)
+        .def(py::self | py::self)
+        .def(py::self += py::self)
+        .def(py::self - py::self)
+        .def(py::self -= py::self)
+        .def(py::self == py::self)
+        .def(py::self * FVector())
+        .def(py::self * float())
+        .def(py::self / float())
+        .def(py::self *= float())
+        .def(py::self /= float())
         ;
 
     py::class_<FTransform>(m, "FTransform")
@@ -835,7 +848,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
                     IUEPYGlueMixin *p = Cast<IUEPYGlueMixin>(engineObj);
                     FString className = engineObj->GetClass()->GetName();
                     py::object& pyClass = pyClassMap[className];
-                    p->pyInst = pyClass(engineObj); // the metaclass in uepy.__init__ requires engineObj to be passed as the first param; it gobbles it up and auto-sets self.engineObj on the new instance
+                    pyClass(engineObj); // the metaclass in uepy.__init__ requires engineObj to be passed as the first param; it gobbles it up and auto-sets self.engineObj on the new instance
                 }
                 catchpy;
             }
@@ -850,6 +863,13 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         engineClass->AssembleReferenceTokenStream();
         engineClass->GetDefaultObject();
         return engineClass;
+    });
+
+    // used during class construction to set pyInst
+    m.def("InternalSetPyInst", [](UObject* self, py::object& inst)
+    {
+        IUEPYGlueMixin *p = Cast<IUEPYGlueMixin>(self);
+        p->pyInst = inst;
     });
 
     m.def("StaticLoadObject", [](py::object& _typeClass, std::string refPath) {

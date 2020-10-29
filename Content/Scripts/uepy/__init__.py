@@ -148,15 +148,42 @@ class PyGlueMetaclass(type):
         # we intercept it, strip it out, and set it for them.
         inst = object.__new__(cls)
 
+        # Before calling the Python constructor, we need to make sure that the pyInst member is set on the C++ side, because
+        # it's possible that the __init__ function calls some C++ function that in turn tries to call one of the Python
+        # instance's methods. But in order for that to work, pyInst has to be set at that point.
+        InternalSetPyInst(engineObj, inst)
+
         # engineObj is right now just a plain UObject pointer from pybind's perspective, but we want it to be a pointer to
         # the glue class.
         inst.engineObj = cls.cppGlueClass.Cast(engineObj)
-        inst.__init__(*args, **kwargs)
+        try:
+            inst.__init__(*args, **kwargs)
+        except:
+            logTB()
         return inst
+
+def CPROPS(cls, *propNames):
+    '''Creates Python read/write properties for C++ properties'''
+    for _name in propNames:
+        def setup(name):
+            def _get(self): return getattr(self.engineObj, name)
+            def _set(self, value): setattr(self.engineObj, name, value)
+            setattr(cls, name, property(_get, _set))
+        setup(_name) # create a closure so we don't lose the name
+
+def BPPROPS(cls, *propNames):
+    '''Creates Python read/write properties for BP (reflection system) properties'''
+    for _name in propNames:
+        def setup(name):
+            def _get(self): return self.engineObj.Get(name)
+            def _set(self, value): self.engineObj.Set(name, value)
+            setattr(cls, name, property(_get, _set))
+        setup(_name) # create a closure so we don't lose the name
 
 class AActor_PGLUE(metaclass=PyGlueMetaclass):
     '''Glue class for AActor'''
     def GetWorld(self): return self.engineObj.GetWorld()
+    def GetOwner(self): return self.engineObj.GetOwner()
     def SetActorLocation(self, v): self.engineObj.SetActorLocation(v) # this works because engineObj is a pointer to a real instance, and we will also write wrapper code to expose these APIs anyway
     def GetActorLocation(self): return self.engineObj.GetActorLocation()
     def GetActorRotation(self): return self.engineObj.GetActorRotation()
@@ -168,6 +195,7 @@ class AActor_PGLUE(metaclass=PyGlueMetaclass):
     def EndPlay(self, reason): pass
     def Tick(self, dt): self.engineObj.SuperTick(dt) # # TODO: ditto
     def SuperEndPlay(self, reason): self.engineObj.SuperEndPlay(reason)
+    def HasAuthority(self): return self.engineObj.HasAuthority()
     def IsActorTickEnabled(self): return self.engineObj.IsActorTickEnabled()
     def SetActorTickEnabled(self, e): self.engineObj.SetActorTickEnabled(e)
     def SetActorTickInterval(self, i): self.engineObj.SetActorTickInterval(i)
@@ -179,6 +207,11 @@ class AActor_PGLUE(metaclass=PyGlueMetaclass):
     def Get(self, k): return self.engineObj.Get(k)
     def Call(self, funcName, *args): return self.engineObj.Call(funcName, *args)
     def UpdateTickSettings(self, canEverTick, startWithTickEnabled): self.engineObj.UpdateTickSettings(canEverTick, startWithTickEnabled)
+
+    @property
+    def configStr(self):
+        return self.engineObj.configStr
+CPROPS(AActor_PGLUE, 'Tags', 'useNewTool', 'useNewRotationStuff', 'useNewStretching')
 
 class UEPYAssistantActor(AActor_PGLUE):
     '''Spawn one of these into a level to have it watch for source code changes and automatically reload modified code.
@@ -200,24 +233,6 @@ class UEPYAssistantActor(AActor_PGLUE):
 
 def AddHelper():
     SpawnActor(GetWorld(), UEPYAssistantActor)
-
-def CPROPS(cls, *propNames):
-    '''Creates Python read/write properties for C++ properties'''
-    for _name in propNames:
-        def setup(name):
-            def _get(self): return getattr(self.engineObj, name)
-            def _set(self, value): setattr(self.engineObj, name, value)
-            setattr(cls, name, property(_get, _set))
-        setup(_name) # create a closure so we don't lose the name
-
-def BPPROPS(cls, *propNames):
-    '''Creates Python read/write properties for BP (reflection system) properties'''
-    for _name in propNames:
-        def setup(name):
-            def _get(self): return self.engineObj.Get(name)
-            def _set(self, value): self.engineObj.Set(name, value)
-            setattr(cls, name, property(_get, _set))
-        setup(_name) # create a closure so we don't lose the name
 
 class UUserWidget_PGLUE(metaclass=PyGlueMetaclass):
     '''Base class of all Python subclasses from AActor-derived C++ classes'''

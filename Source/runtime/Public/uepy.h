@@ -70,6 +70,9 @@ namespace py = pybind11;
 // std::string --> FString, sort of
 #define FSTR(stdstr) UTF8_TO_TCHAR((stdstr).c_str())
 
+// FString --> std::string
+#define PYSTR(fstr) std::string(TCHAR_TO_UTF8(*fstr))
+
 // helpers for declaring py::class_ properties
 #define LIST_PROP(listName, listType, className)\
 .def_property(#listName, [](className& self)\
