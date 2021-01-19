@@ -2,6 +2,7 @@
 #include "uepy.h"
 #include "common.h"
 #include "Kismet/GameplayStatics.h"
+#include "Kismet/ImportanceSamplingLibrary.h"
 #include "Kismet/KismetMathLibrary.h"
 #include "Kismet/KismetMaterialLibrary.h"
 #include "Kismet/KismetSystemLibrary.h"
@@ -21,6 +22,31 @@
 //#pragma optimize("", off)
 
 static std::map<FString, py::object> pyClassMap; // class name --> python class
+
+/* Update a texture with a new BGRA image. Note that this has to be called
+ * on the game thread, or it will cause a crash
+ */
+void UpdateTextureBGRA(UTexture2D *tex, uint8 *bgra, int32 width, int32 height)
+{
+    void *textureData = tex->PlatformData->Mips[0].BulkData.Lock(LOCK_READ_WRITE);
+    FMemory::Memcpy(textureData, bgra, width * height * 4);
+    tex->PlatformData->Mips[0].BulkData.Unlock();
+    tex->UpdateResource();
+}
+
+/* Create a texture from a 32-bit BGRA impage
+ */
+UTexture2D *TextureFromBGRA(uint8 *bgra, int32 width, int32 height)
+{
+    UTexture2D *tex = UTexture2D::CreateTransient(width, height, PF_B8G8R8A8);
+    if (tex)
+    {
+        UpdateTextureBGRA(tex, bgra, width, height);
+        return tex;
+    }
+    LWARN("Failed to create texture");
+    return nullptr;
+}
 
 UTexture2D *LoadTextureFromFile(FString path)
 {
@@ -51,18 +77,10 @@ UTexture2D *LoadTextureFromFile(FString path)
         return nullptr;
     }
 
-    const TArray<uint8> *uncompressedData;
+    TArray64<uint8> uncompressedData;
     if (imageWrapper->GetRaw(ERGBFormat::BGRA, 8, uncompressedData))
     {
-        UTexture2D *tex = UTexture2D::CreateTransient(imageWrapper->GetWidth(), imageWrapper->GetHeight(), PF_B8G8R8A8);
-        if (tex)
-        {
-            void *textureData = tex->PlatformData->Mips[0].BulkData.Lock(LOCK_READ_WRITE);
-            FMemory::Memcpy(textureData, uncompressedData->GetData(), uncompressedData->Num());
-            tex->PlatformData->Mips[0].BulkData.Unlock();
-            tex->UpdateResource();
-            return tex;
-        }
+        return TextureFromBGRA(uncompressedData.GetData(), imageWrapper->GetWidth(), imageWrapper->GetHeight());
     }
     LWARN("Failed to read image data for %s", *path);
     return nullptr;
@@ -86,7 +104,8 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
 
     m.attr("commandLineRaw") = FCommandLine::Get();
 
-    // tells what mode we're in right now - editor (0), PIE (1), source from the command line (2), or a build (3). -1 for unknown.
+    // tells what mode we're in right now - PIE (4), editor (3), source from the command line (2), or a build (1).
+    // NOTE: currently PIE vs editor doesn't work - it always returns 3 (but src CLI and build modes *are* properly detected)
     // returns EEngineMode from enums.py
     m.def("GetEngineMode", []()
     {
@@ -114,11 +133,231 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         return ret;
     });
 
+    py::class_<PyCheesyIterator<float>>(m, "CheesyFloatIterator")
+        .def("__iter__", [](PyCheesyIterator<float> &it) -> PyCheesyIterator<float>& { return it; })
+        .def("__next__", &PyCheesyIterator<float>::next)
+        ;
+
+    py::class_<PyCheesyIterator<int>>(m, "CheesyIntIterator")
+        .def("__iter__", [](PyCheesyIterator<int> &it) -> PyCheesyIterator<int>& { return it; })
+        .def("__next__", &PyCheesyIterator<int>::next)
+        ;
+
+    py::class_<FVector2D>(m, "FVector2D")
+        .def(py::init<FVector2D>())
+        .def(py::init<float,float>(), "x"_a=0.0f, "y"_a=0.0f)
+        .def_readwrite("x", &FVector2D::X)
+        .def_readwrite("X", &FVector2D::X)
+        .def_readwrite("y", &FVector2D::Y)
+        .def_readwrite("Y", &FVector2D::Y)
+        .def(py::self == py::self)
+        .def(py::self != py::self)
+        .def(py::self + py::self)
+        .def(py::self - py::self)
+        .def(py::self * py::self)
+        .def(py::self / py::self)
+        .def(-py::self)
+        .def(float() * py::self)
+        .def(py::self * float())
+        .def(py::self / float())
+        .def("__iter__", [](FVector2D& self) { return PyCheesyIterator<float>({self.X, self.Y}); })
+        ;
+
+    py::class_<FVector>(m, "FVector")
+        .def(py::init<FVector>())
+        .def(py::init([]() { return FVector(0,0,0); }))
+        .def(py::init([](float n) { return FVector(n,n,n); })) // note this special case of FVector(a) === FVector(a,a,a)
+        .def(py::init([](float x, float y) { return FVector(x,y,0); }))
+        .def(py::init([](float x, float y, float z) { return FVector(x,y,z); }))
+        .def_readwrite("x", &FVector::X)
+        .def_readwrite("X", &FVector::X)
+        .def_readwrite("y", &FVector::Y)
+        .def_readwrite("Y", &FVector::Y)
+        .def_readwrite("z", &FVector::Z)
+        .def_readwrite("Z", &FVector::Z)
+        .def(py::self == py::self)
+        .def(py::self != py::self)
+        .def(py::self + py::self)
+        .def(py::self - py::self)
+        .def(py::self * py::self)
+        .def(py::self / py::self)
+        .def(-py::self)
+        .def(int() * py::self)
+        .def(py::self * int())
+        .def(float() * py::self)
+        .def(py::self * float())
+        .def(py::self / float())
+        .def("__iter__", [](FVector& self) { return PyCheesyIterator<float>({self.X, self.Y, self.Z}); })
+        .def("Rotation", [](FVector& self) { return self.Rotation(); })
+        .def("ToOrientationQuat", [](FVector& self) { return self.ToOrientationQuat(); })
+        .def_readonly_static("ZeroVector", &FVector::ZeroVector)
+        .def_readonly_static("OneVector", &FVector::OneVector)
+        .def_readonly_static("UpVector", &FVector::UpVector)
+        .def_readonly_static("DownVector", &FVector::DownVector)
+        .def_readonly_static("ForwardVector", &FVector::ForwardVector)
+        .def_readonly_static("BackwardVector", &FVector::BackwardVector)
+        .def_readonly_static("RightVector", &FVector::RightVector)
+        .def_readonly_static("LeftVector", &FVector::LeftVector)
+        .def("Size", [](FVector& self) { return self.Size(); })
+        .def("SizeSquared", [](FVector& self) { return self.SizeSquared(); })
+        .def("IsNearlyZero", [](FVector& self) { return self.IsNearlyZero(); })
+        .def("Normalize", [](FVector& self) { return self.Normalize(); })
+        .def("IsNormalized", [](FVector& self) { return self.IsNormalized(); })
+        .def_static("DotProduct", [](FVector& a, FVector& b) { return FVector::DotProduct(a, b); })
+        .def_static("CrossProduct", [](FVector& a, FVector& b) { return FVector::CrossProduct(a, b); })
+        ;
+
+    py::class_<FRotator>(m, "FRotator")
+        .def(py::init<FRotator>())
+        .def(py::init([]() { return FRotator(0,0,0); }))
+        .def(py::init([](float n) { return FRotator(n,n,n); })) // note this special case of FRotator(a) === FRotator(a,a,a)
+        .def(py::init([](float roll=0, float pitch=0, float yaw=0) { FRotator r; r.Roll=roll; r.Pitch=pitch; r.Yaw=yaw; return r; })) //<float, float, float>(), "roll"_a=0.0f, "pitch"_a=0.0f, "yaw"_a=0.0f) // weird order, but matches UnrealEnginePython
+        .def_readwrite("roll", &FRotator::Roll)
+        .def_readwrite("Roll", &FRotator::Roll)
+        .def_readwrite("pitch", &FRotator::Pitch)
+        .def_readwrite("Pitch", &FRotator::Pitch)
+        .def_readwrite("yaw", &FRotator::Yaw)
+        .def_readwrite("Yaw", &FRotator::Yaw)
+        .def("RotateVector", [](FRotator& self, FVector& v) { return self.RotateVector(v); })
+        .def("UnrotateVector", [](FRotator& self, FVector& v) { return self.UnrotateVector(v); })
+        .def("Quaternion", [](FRotator& self) { return self.Quaternion(); })
+        .def("__iter__", [](FRotator& self) { return PyCheesyIterator<float>({self.Roll, self.Pitch, self.Yaw}); })
+        .def(float() * py::self)
+        .def(py::self * float())
+        ;
+
+    py::class_<FQuat>(m, "FQuat")
+        .def(py::init<FQuat>())
+        .def(py::init<>())
+        .def(py::init<float,float,float,float>())
+        .def_readwrite("X", &FQuat::X)
+        .def_readwrite("Y", &FQuat::Y)
+        .def_readwrite("Z", &FQuat::Z)
+        .def_readwrite("W", &FQuat::W)
+        .def_readwrite("x", &FQuat::X)
+        .def_readwrite("y", &FQuat::Y)
+        .def_readwrite("z", &FQuat::Z)
+        .def_readwrite("w", &FQuat::W)
+        .def_static("FindBetweenVectors", [](FVector& a, FVector& b) { return FQuat::FindBetweenVectors(a,b); })
+        .def("Rotator", [](FQuat& self) { return self.Rotator(); })
+        .def(py::self * py::self)
+        .def(py::self + py::self)
+        .def(py::self | py::self)
+        .def(py::self += py::self)
+        .def(py::self - py::self)
+        .def(py::self -= py::self)
+        .def(py::self == py::self)
+        .def(py::self * FVector())
+        .def(py::self * float())
+        .def(py::self / float())
+        .def(py::self *= float())
+        .def(py::self /= float())
+        ;
+
+    py::class_<FTransform>(m, "FTransform")
+        .def(py::init<FTransform>())
+        .def_readonly_static("Identity", &FTransform::Identity)
+        .def(py::init<>())
+        .def(py::init([](FVector& loc, FRotator& rot, FVector& scale) { return FTransform(rot, loc, scale); }))
+        .def("Inverse", [](FTransform& self) { return self.Inverse(); })
+        .def("Rotator", [](FTransform& self) { return self.Rotator(); })
+        .def("GetRotation", [](FTransform& self) { return self.Rotator(); })
+        .def("SetRotation", [](FTransform& self, FRotator& r) { FQuat q(r); self.SetRotation(q); })
+        .def("GetTranslation", [](FTransform& self) { return self.GetTranslation(); })
+        .def("GetLocation", [](FTransform& self) { return self.GetLocation(); })
+        .def("SetTranslation", [](FTransform& self, FVector& t) { self.SetTranslation(t); })
+        .def("SetLocation", [](FTransform& self, FVector& t) { self.SetLocation(t); })
+        .def("GetScale3D", [](FTransform& self) { return self.GetScale3D(); })
+        .def("SetScale3D", [](FTransform& self, FVector& v) { self.SetScale3D(v); })
+        .def("TransformPosition", [](FTransform& self, FVector& pos) { return self.TransformPosition(pos); })
+        .def_property("translation", [](FTransform& self) { return self.GetTranslation(); }, [](FTransform& self, FVector& v) { self.SetTranslation(v); })
+        .def_property("scale", [](FTransform& self) { return self.GetScale3D(); }, [](FTransform& self, FVector& v) { self.SetScale3D(v); })
+        .def_property("rotation", [](FTransform& self) { return self.Rotator(); }, [](FTransform& self, FRotator& r) { FQuat q(r); self.SetRotation(q); })
+        ;
+
+    py::class_<FColor>(m, "FColor")
+        .def(py::init<FColor>())
+        .def(py::init<int, int, int, int>(), "r"_a=0, "g"_a=0, "b"_a=0, "a"_a=0)
+        .def_readwrite("R", &FColor::R)
+        .def_readwrite("r", &FColor::R)
+        .def_readwrite("G", &FColor::G)
+        .def_readwrite("g", &FColor::G)
+        .def_readwrite("B", &FColor::B)
+        .def_readwrite("b", &FColor::B)
+        .def_readwrite("A", &FColor::A)
+        .def_readwrite("a", &FColor::A)
+        .def("__iter__", [](FColor& self) { return PyCheesyIterator<int>({self.R, self.G, self.B, self.A}); })
+        ;
+
+    py::class_<FLinearColor>(m, "FLinearColor")
+        .def(py::init<FLinearColor>())
+        .def(py::init<float, float, float, float>(), "r"_a=0.0f, "g"_a=0.0f, "b"_a=0.0f, "a"_a=1.0f)
+        .def_readwrite("R", &FLinearColor::R)
+        .def_readwrite("r", &FLinearColor::R)
+        .def_readwrite("G", &FLinearColor::G)
+        .def_readwrite("g", &FLinearColor::G)
+        .def_readwrite("B", &FLinearColor::B)
+        .def_readwrite("b", &FLinearColor::B)
+        .def_readwrite("A", &FLinearColor::A)
+        .def_readwrite("a", &FLinearColor::A)
+        .def("__iter__", [](FLinearColor& self) { return PyCheesyIterator<float>({self.R, self.G, self.B, self.A}); })
+        .def_readonly_static("White", &FLinearColor::White)
+        .def_readonly_static("Gray", &FLinearColor::Gray)
+        .def_readonly_static("Black", &FLinearColor::Black)
+        .def_readonly_static("Transparent", &FLinearColor::Transparent)
+        .def_readonly_static("Red", &FLinearColor::Red)
+        .def_readonly_static("Green", &FLinearColor::Green)
+        .def_readonly_static("Blue", &FLinearColor::Blue)
+        .def_readonly_static("Yellow", &FLinearColor::Yellow)
+        ;
+
+    py::class_<FMargin>(m, "FMargin")
+        .def(py::init<FMargin>())
+        .def(py::init<>())
+        .def(py::init<float>())
+        .def(py::init<float,float>())
+        .def(py::init<float,float,float,float>())
+        .def_readwrite("Left", &FMargin::Left)
+        .def_readwrite("Top", &FMargin::Top)
+        .def_readwrite("Right", &FMargin::Right)
+        .def_readwrite("Bottom", &FMargin::Bottom)
+        .def_readwrite("left", &FMargin::Left)
+        .def_readwrite("top", &FMargin::Top)
+        .def_readwrite("right", &FMargin::Right)
+        .def_readwrite("bottom", &FMargin::Bottom)
+        ;
+
+    py::class_<FAnchors>(m, "FAnchors")
+        .def(py::init<FAnchors>())
+        .def(py::init<>())
+        .def(py::init<float>())
+        .def(py::init<float,float>())
+        .def(py::init<float,float,float,float>())
+        .def_readwrite("Minimum", &FAnchors::Minimum)
+        .def_readwrite("Maximum", &FAnchors::Maximum)
+        ;
+
     // Given a UObject, returns its address as a number
     m.def("AddressOf", [](UObject* obj) { return (unsigned long long)obj; });
 
     // Force garbage collection to happen
     m.def("ForceGC", []() { if (GEngine) GEngine->ForceGarbageCollection(true); });
+
+    // Enables a telnet-ish remote REPL
+    m.def("EnableRemoteConsole", [](std::string& host, int port, float processInterval, py::object& env)
+    {
+        LOG("Enabling remote console on %d (%.1f)", port, processInterval);
+        try {
+            py::object rrepl = py::module::import("uepy.rrepl").attr("RemoteREPL")(host, port, env);
+            FTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda([rrepl](float dt)
+            {
+                try {
+                    rrepl.attr("Process")();
+                } catchpy;
+                return true; // true = repeat
+            }), processInterval);
+        } catchpy;
+    });
 
     py::class_<FPaths>(m, "FPaths")
         .def_static("ProjectDir", []() { return PYSTR(FPaths::ProjectDir()); })
@@ -135,6 +374,8 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("IsValid", [](UObject* self) { return self->IsValidLowLevel() && !self->IsPendingKillOrUnreachable(); })
         .def("IsA", [](UObject& self, py::object& _klass)
         {
+            if (!self.IsValidLowLevel())
+                return false;
             UClass *klass = PyObjectToUClass(_klass);
             return self.IsA(klass);
         })
@@ -179,10 +420,42 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def_static("Cast", [](UObject *obj) { return Cast<UInterface>(obj); }, py::return_value_policy::reference)
         ;
 
+    py::class_<UCurveBase, UObject, UnrealTracker<UCurveBase>>(m, "UCurveBase")
+        .def_static("StaticClass", []() { return UCurveBase::StaticClass(); })
+        .def_static("Cast", [](UObject *obj) { return Cast<UCurveBase>(obj); }, py::return_value_policy::reference)
+        .def("CreateCurveFromCSVString", [](UCurveBase& self, std::string s) { self.CreateCurveFromCSVString(FSTR(s)); })
+        .def("ResetCurve", [](UCurveBase& self) { self.ResetCurve(); })
+        .def("GetTimeRange", [](UCurveBase& self)
+        {
+            float min, max;
+            self.GetTimeRange(min, max);
+            return py::make_tuple(min, max);
+        })
+        .def("GetValueRange", [](UCurveBase& self)
+        {
+            float min, max;
+            self.GetValueRange(min, max);
+            return py::make_tuple(min, max);
+        })
+        ;
+
+    py::class_<UCurveFloat, UCurveBase, UnrealTracker<UCurveFloat>>(m, "UCurveFloat")
+        .def_static("StaticClass", []() { return UCurveFloat::StaticClass(); })
+        .def_static("Cast", [](UObject *obj) { return Cast<UCurveFloat>(obj); }, py::return_value_policy::reference)
+        .def("GetFloatValue", [](UCurveFloat& self, float f) { return self.GetFloatValue(f); })
+        ;
+
+    py::class_<UCurveVector, UCurveBase, UnrealTracker<UCurveVector>>(m, "UCurveVector")
+        .def_static("StaticClass", []() { return UCurveVector::StaticClass(); })
+        .def_static("Cast", [](UObject *obj) { return Cast<UCurveVector>(obj); }, py::return_value_policy::reference)
+        .def("GetVectorValue", [](UCurveVector& self, float f) { return self.GetVectorValue(f); })
+        ;
+
     py::class_<UStaticMesh, UObject, UnrealTracker<UStaticMesh>>(m, "UStaticMesh")
         .def_static("StaticClass", []() { return UStaticMesh::StaticClass(); })
         .def_static("Cast", [](UObject *obj) { return Cast<UStaticMesh>(obj); }, py::return_value_policy::reference)
         .def("GetBounds", [](UStaticMesh& self) { return self.GetBounds(); })
+        .def("GetBoundingBox", [](UStaticMesh& self) { return self.GetBoundingBox(); })
         .def("GetSize", [](UStaticMesh& self) { return self.GetBounds().BoxExtent * 2; })
         ;
 
@@ -214,11 +487,11 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
     py::class_<USceneComponent, UActorComponent, UnrealTracker<USceneComponent>>(m, "USceneComponent")
         .def_static("StaticClass", []() { return USceneComponent::StaticClass(); })
         .def_static("Cast", [](UObject *obj) { return Cast<USceneComponent>(obj); }, py::return_value_policy::reference)
-        .def("GetRelativeLocation", [](USceneComponent& self) { return self.RelativeLocation; }) // todo: GetRelativeLocation is added in 4.25
+        .def("GetRelativeLocation", [](USceneComponent& self) { return self.GetRelativeLocation(); })
         .def("SetRelativeLocation", [](USceneComponent& self, FVector v) { self.SetRelativeLocation(v); })
-        .def("GetRelativeRotation", [](USceneComponent& self) { return self.RelativeRotation; })
+        .def("GetRelativeRotation", [](USceneComponent& self) { return self.GetRelativeRotation(); })
         .def("SetRelativeRotation", [](USceneComponent& self, FRotator r) { self.SetRelativeRotation(r); })
-        .def("GetRelativeScale3D", [](USceneComponent& self) { return self.RelativeScale3D; })
+        .def("GetRelativeScale3D", [](USceneComponent& self) { return self.GetRelativeScale3D(); })
         .def("SetRelativeScale3D", [](USceneComponent& self, FVector v) { self.SetRelativeScale3D(v); })
         .def("GetRelativeTransform", [](USceneComponent& self) { return self.GetRelativeTransform(); })
         .def("SetRelativeTransform", [](USceneComponent& self, FTransform& t) { self.SetRelativeTransform(t); })
@@ -227,10 +500,15 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("DetachFromComponent", [](USceneComponent& self) { self.DetachFromComponent(FDetachmentTransformRules::KeepWorldTransform); })
         .def("SetRelativeLocationAndRotation", [](USceneComponent& self, FVector& loc, FRotator& rot) { self.SetRelativeLocationAndRotation(loc, rot); })
         .def("SetRelativeTransform", [](USceneComponent& self, FTransform& t) { self.SetRelativeTransform(t); })
-        .def("SetVisibility", [](USceneComponent& self, bool b) { self.SetVisibility(b); })
+        .def("AddRelativeLocation", [](USceneComponent& self, FVector& deltaLoc) { self.AddRelativeLocation(deltaLoc); })
+        .def("AddLocalOffset", [](USceneComponent& self, FVector& deltaLoc) { self.AddLocalOffset(deltaLoc); })
+        .def("AddLocalRotation", [](USceneComponent& self, FRotator& deltaRot) { self.AddLocalRotation(deltaRot); })
+        .def("AddLocalRotation", [](USceneComponent& self, FQuat& deltaRot) { self.AddLocalRotation(deltaRot); })
+        .def("SetVisibility", [](USceneComponent& self, bool visible, bool propagate) { self.SetVisibility(visible, propagate); }, py::arg("visible"), py::arg("propagate")=false)
         .def("GetHiddenInGame", [](USceneComponent& self) { return self.bHiddenInGame; })
-        .def("SetHiddenInGame", [](USceneComponent& self, bool b, bool propagate) { self.SetHiddenInGame(b, propagate); })
+        .def("SetHiddenInGame", [](USceneComponent& self, bool hidden, bool propagate) { self.SetHiddenInGame(hidden, propagate); }, py::arg("hidden"), py::arg("propagate")=false)
         .def("IsVisible", [](USceneComponent& self) { return self.IsVisible(); })
+        .def_property_readonly("bVisible", [](USceneComponent& self) { return (int)self.GetVisibleFlag(); }) // TODO: get rid of this
         .def("GetForwardVector", [](USceneComponent& self) { return self.GetForwardVector(); })
         .def("GetRightVector", [](USceneComponent& self) { return self.GetRightVector(); })
         .def("GetUpVector", [](USceneComponent& self) { return self.GetUpVector(); })
@@ -240,6 +518,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("GetComponentScale", [](USceneComponent& self) { return self.GetComponentScale(); })
         .def("GetComponentToWorld", [](USceneComponent& self) { return self.GetComponentToWorld(); })
         .def("SetWorldLocation", [](USceneComponent& self, FVector& loc) { self.SetWorldLocation(loc); })
+        .def("SetWorldRotation", [](USceneComponent& self, FRotator& rot) { self.SetWorldRotation(rot); })
         .def("SetWorldRotation", [](USceneComponent& self, FQuat& rot) { self.SetWorldRotation(rot); })
         .def("GetSocketTransform", [](USceneComponent& self, std::string& name) { return self.GetSocketTransform(FSTR(name)); })
         .def("GetSocketLocation", [](USceneComponent& self, std::string& name) { return self.GetSocketLocation(FSTR(name)); })
@@ -254,7 +533,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
             for (auto kid : kids)
                 ret.append(kid);
             return ret;
-        })
+        }, py::return_value_policy::reference)
         ;
 
     py::class_<UDecalComponent, USceneComponent, UnrealTracker<UDecalComponent>>(m, "UDecalComponent")
@@ -273,10 +552,12 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("SetCollisionEnabled", [](UPrimitiveComponent& self, int c) { self.SetCollisionEnabled((ECollisionEnabled::Type)c); })
         .def("SetCollisionObjectType", [](UPrimitiveComponent& self, int c) { self.SetCollisionObjectType((ECollisionChannel)c); })
         .def("SetCollisionResponseToAllChannels", [](UPrimitiveComponent& self, int r) { self.SetCollisionResponseToAllChannels((ECollisionResponse)r); })
-        .def("SetCollisionResponseTChannel", [](UPrimitiveComponent& self, int c, int r) { self.SetCollisionResponseToChannel((ECollisionChannel)c, (ECollisionResponse)r); })
+        .def("SetCollisionResponseToChannel", [](UPrimitiveComponent& self, int c, int r) { self.SetCollisionResponseToChannel((ECollisionChannel)c, (ECollisionResponse)r); })
         .def("SetRenderCustomDepth", [](UPrimitiveComponent& self, bool b) { self.SetRenderCustomDepth(b); })
         .def("SetCustomDepthStencilValue", [](UPrimitiveComponent& self, int v) { self.SetCustomDepthStencilValue(v); })
+        .def_readonly("CustomDepthStencilValue", &UPrimitiveComponent::CustomDepthStencilValue)
         .def("SetCastShadow", [](UPrimitiveComponent& self, bool s) { self.SetCastShadow(s); })
+        .def_property_readonly("bRenderCustomDepth", [](UPrimitiveComponent& self) { return (bool)self.bRenderCustomDepth; })
         ;
 
     py::class_<UFXSystemComponent, UPrimitiveComponent, UnrealTracker<UFXSystemComponent>>(m, "UFXSystemComponent")
@@ -315,6 +596,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
     py::class_<UMeshComponent, UPrimitiveComponent, UnrealTracker<UMeshComponent>>(m, "UMeshComponent")
         .def_static("StaticClass", []() { return UMeshComponent::StaticClass(); })
         .def_static("Cast", [](UObject *obj) { return Cast<UMeshComponent>(obj); }, py::return_value_policy::reference)
+        .def("SetMaterial", [](UMeshComponent& self, int index, UMaterialInterface* mat) { self.SetMaterial(index, mat); })
         ;
 
     py::class_<UStaticMeshComponent, UMeshComponent, UnrealTracker<UStaticMeshComponent>>(m, "UStaticMeshComponent")
@@ -324,6 +606,16 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("SetStaticMesh", [](UStaticMeshComponent& self, UStaticMesh *newMesh) -> bool { return self.SetStaticMesh(newMesh); })
         .def("SetMaterial", [](UStaticMeshComponent& self, int index, UMaterialInterface *newMat) -> void { self.SetMaterial(index, newMat); }) // technically, UMaterialInterface
         .def_readwrite("StreamingDistanceMultiplier", &UStaticMeshComponent::StreamingDistanceMultiplier)
+        ;
+
+    py::class_<UInstancedStaticMeshComponent, UStaticMeshComponent, UnrealTracker<UInstancedStaticMeshComponent>>(m, "UInstancedStaticMeshComponent")
+        .def_static("StaticClass", []() { return UInstancedStaticMeshComponent::StaticClass(); })
+        .def_static("Cast", [](UObject *obj) { return Cast<UInstancedStaticMeshComponent>(obj); }, py::return_value_policy::reference)
+        .def("AddInstance", [](UInstancedStaticMeshComponent& self, FTransform& t) { return self.AddInstance(t); })
+        .def("RemoveInstance", [](UInstancedStaticMeshComponent& self, int index) { return self.RemoveInstance(index); })
+        .def("ClearInstances", [](UInstancedStaticMeshComponent& self) { self.ClearInstances(); })
+        .def("GetInstanceCount", [](UInstancedStaticMeshComponent& self) { return self.GetInstanceCount(); })
+        .def_readwrite("InstancingRandomSeed", &UInstancedStaticMeshComponent::InstancingRandomSeed)
         ;
 
     py::class_<UWorld, UObject, UnrealTracker<UWorld>>(m, "UWorld")
@@ -336,7 +628,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
             for (TActorIterator<AActor> it(self); it ; ++it)
                 ret.append(*it);
             return ret;
-        })
+        }, py::return_value_policy::reference)
         ;
 
     m.def("GetAllWorlds", []()
@@ -345,7 +637,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         for (TObjectIterator<UWorld> iter; iter; ++iter)
             ret.append(*iter);
         return ret;
-    });
+    }, py::return_value_policy::reference);
 
     py::class_<UGameplayStatics, UObject, UnrealTracker<UGameplayStatics>>(m, "UGameplayStatics") // not sure that it makes sense to really expose this fully
         .def_static("GetGameInstance", [](UWorld *world) { return UGameplayStatics::GetGameInstance(world); })
@@ -362,7 +654,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
                     ret.append(a);
             }
             return ret;
-            })
+            }, py::return_value_policy::reference)
         .def_static("GetPlayerController", [](UObject *worldCtx, int playerIndex) { return UGameplayStatics::GetPlayerController(worldCtx, playerIndex); })
         ;
 
@@ -396,14 +688,21 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
             ret.append(hitResult);
             ret.append(hit);
             return ret;
-        })
+        }, py::arg("worldCtx"), py::arg("start"), py::arg("end"), py::arg("channel"), py::arg("isComplex"), py::arg("_ignore"), py::arg("type"), py::arg("ignoreSelf"), py::arg("traceColor")=FLinearColor::Red, py::arg("hitColor")=FLinearColor::Green, py::arg("drawTime")=5.0f)
+        ;
+
+    py::class_<UImportanceSamplingLibrary, UObject, UnrealTracker<UImportanceSamplingLibrary>>(m, "UImportanceSamplingLibrary")
+        .def_static("RandomSobolCell2D", [](int index, int numCells, FVector2D& cell, FVector2D& seed) { return UImportanceSamplingLibrary::RandomSobolCell2D(index, numCells, cell, seed); })
         ;
 
     py::class_<FBox>(m, "FBox")
+        .def(py::init<FBox>())
         .def(py::init([]() { FBox b(EForceInit::ForceInit); return b; }))
         .def(py::init<FVector,FVector>())
         .def_readwrite("Min", &FBox::Min)
         .def_readwrite("Max", &FBox::Max)
+        .def_readwrite("min", &FBox::Min)
+        .def_readwrite("max", &FBox::Max)
         .def_readwrite("IsValid", &FBox::IsValid)
         .def("GetCenter", [](FBox& self) { return self.GetCenter(); })
         .def("GetSize", [](FBox& self) { return self.GetSize(); })
@@ -412,6 +711,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         ;
 
     py::class_<FBoxSphereBounds>(m, "FBoxSphereBounds")
+        .def(py::init<FBoxSphereBounds>())
         .def(py::init<>())
         .def(py::init<FVector&,FVector&,float>())
         .def(py::init<FBox&,FSphere&>())
@@ -426,13 +726,25 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         ;
 
     py::class_<UKismetMathLibrary, UObject, UnrealTracker<UKismetMathLibrary>>(m, "UKismetMathLibrary")
+        .def_static("DegSin", [](float& a) { return UKismetMathLibrary::DegSin(a); })
+        .def_static("DegAsin", [](float& a) { return UKismetMathLibrary::DegAsin(a); })
+        .def_static("DegCos", [](float& a) { return UKismetMathLibrary::DegCos(a); })
+        .def_static("DegAcos", [](float& a) { return UKismetMathLibrary::DegAcos(a); })
+        .def_static("DegTan", [](float& a) { return UKismetMathLibrary::DegTan(a); })
+        .def_static("DegAtan", [](float& a) { return UKismetMathLibrary::DegAtan(a); })
         .def_static("TEase", [](FTransform& a, FTransform& b, float alpha, int easingFunc, float blend, int steps) { return UKismetMathLibrary::TEase(a, b, alpha, (EEasingFunc::Type)easingFunc, blend, steps); })
         .def_static("VEase", [](FVector& a, FVector& b, float alpha, int easingFunc, float blend, int steps) { return UKismetMathLibrary::VEase(a, b, alpha, (EEasingFunc::Type)easingFunc, blend, steps); })
         .def_static("REase", [](FRotator& a, FRotator& b, float alpha, bool shortestPath, int easingFunc, float blend, int steps) { return UKismetMathLibrary::REase(a, b, alpha, shortestPath, (EEasingFunc::Type)easingFunc, blend, steps); })
+        .def_static("EqualEqual_VectorVector", [](FVector& a, FVector& b, float error) { return UKismetMathLibrary::EqualEqual_VectorVector(a, b, error); }, py::arg("a"), py::arg("b"), py::arg("error")=1.e-4f)
+        .def_static("FClamp", [](float v, float min, float max) { return UKismetMathLibrary::FClamp(v, min, max); })
+        .def_static("FindLookAtRotation", [](FVector& start, FVector& target) { return UKismetMathLibrary::FindLookAtRotation(start, target); })
         .def_static("GetForwardVector", [](FRotator& rot) { return UKismetMathLibrary::GetForwardVector(rot); })
         .def_static("GetRightVector", [](FRotator& rot) { return UKismetMathLibrary::GetRightVector(rot); })
         .def_static("GetUpVector", [](FRotator& rot) { return UKismetMathLibrary::GetUpVector(rot); })
-        .def_static("Normal", [](FVector& a) { return UKismetMathLibrary::Normal(a); })
+        .def_static("InverseTransformRotation", [](FTransform& t, FRotator& r) { return UKismetMathLibrary::InverseTransformRotation(t, r); })
+        .def_static("InverseTransformLocation", [](FTransform& t, FVector& l) { return UKismetMathLibrary::InverseTransformLocation(t, l); })
+        .def_static("Normal", [](FVector& a, float tolerance) { return UKismetMathLibrary::Normal(a, tolerance); }, py::arg("a"), py::arg("tolerance")=1.e-4f)
+        .def_static("NormalizeToRange", [](float v, float min, float max) { return UKismetMathLibrary::NormalizeToRange(v, min, max); })
         .def_static("MakeRotFromX", [](FVector& x) { return UKismetMathLibrary::MakeRotFromX(x); })
         .def_static("MakeRotFromY", [](FVector& y) { return UKismetMathLibrary::MakeRotFromY(y); })
         .def_static("MakeRotFromZ", [](FVector& z) { return UKismetMathLibrary::MakeRotFromZ(z); })
@@ -442,11 +754,15 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def_static("MakeRotFromYZ", [](FVector& y, FVector& z) { return UKismetMathLibrary::MakeRotFromYZ(y, z); })
         .def_static("MakeRotFromZX", [](FVector& z, FVector& x) { return UKismetMathLibrary::MakeRotFromZX(z, x); })
         .def_static("MakeRotFromZY", [](FVector& z, FVector& y) { return UKismetMathLibrary::MakeRotFromZY(z, y); })
+        .def_static("NearlyEqual_FloatFloat", [](float a, float b, float tolerance) { return UKismetMathLibrary::NearlyEqual_FloatFloat(a, b, tolerance); })
         .def_static("RandomUnitVectorInConeInDegrees", [](FVector& coneDir, float coneHalfAngle) { return UKismetMathLibrary::RandomUnitVectorInConeInDegrees(coneDir, coneHalfAngle); })
-        .def_static("InRange_FloatFloat", [](float v, float min, float max) { return UKismetMathLibrary::InRange_FloatFloat(v, min, max); })
+        .def_static("InRange_FloatFloat", [](float v, float min, float max, bool inclusiveMin, bool inclusiveMax) { return UKismetMathLibrary::InRange_FloatFloat(v, min, max, inclusiveMin, inclusiveMax); }, py::arg("v"), py::arg("min"), py::arg("max"), py::arg("inclusiveMin")=true, py::arg("inclusiveMax")=true)
+        .def_static("Lerp", [](float a, float b, float alpha) { return UKismetMathLibrary::Lerp(a, b, alpha); })
         .def_static("RLerp", [](FRotator a, FRotator b, float alpha, bool shortestPath) { return UKismetMathLibrary::RLerp(a,b,alpha,shortestPath); })
         .def_static("VLerp", [](FVector a, FVector b, float alpha) { return UKismetMathLibrary::VLerp(a,b,alpha); })
+        .def_static("VSize", [](FVector& a) { return UKismetMathLibrary::VSize(a); })
         .def_static("FInterpTo", [](float cur, float target, float deltaTime, float speed) { return UKismetMathLibrary::FInterpTo(cur, target, deltaTime, speed); })
+        .def_static("RotateAngleAxis", [](FVector& v, float angleDeg, FVector& axis) { return UKismetMathLibrary::RotateAngleAxis(v, angleDeg, axis); })
         .def_static("RGBToHSV", [](FLinearColor& c)
         {
             float h,s,v,a;
@@ -459,9 +775,11 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
             return ret;
         })
         .def_static("HSVToRGB", [](float h, float s, float v, float a) { return UKismetMathLibrary::HSVToRGB(h,s,v,a); })
+        .def_static("TransformRotation", [](FTransform& t, FRotator& r) { return UKismetMathLibrary::TransformRotation(t, r); })
+        .def_static("TransformLocation", [](FTransform& t, FVector& l) { return UKismetMathLibrary::TransformLocation(t, l); })
         ;
 
-    py::class_<UMaterialInterface, UnrealTracker<UMaterialInterface>>(m, "UMaterialInterface")
+    py::class_<UMaterialInterface, UObject, UnrealTracker<UMaterialInterface>>(m, "UMaterialInterface")
         .def_static("StaticClass", []() { return UMaterialInterface::StaticClass(); })
         .def_static("Cast", [](UObject *obj) { return Cast<UMaterialInterface>(obj); }, py::return_value_policy::reference)
         ;
@@ -485,7 +803,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
     py::class_<UMaterialInstanceDynamic, UMaterialInstance, UnrealTracker<UMaterialInstanceDynamic>>(m, "UMaterialInstanceDynamic")
         .def_static("StaticClass", []() { return UMaterialInstanceDynamic::StaticClass(); })
         .def_static("Cast", [](UObject *obj) { return Cast<UMaterialInstanceDynamic>(obj); }, py::return_value_policy::reference)
-        .def("SetTextureParameterValue", [](UMaterialInstanceDynamic& self, std::string name, UTexture2D* value) -> void { self.SetTextureParameterValue(UTF8_TO_TCHAR(name.c_str()), value); })
+        .def("SetTextureParameterValue", [](UMaterialInstanceDynamic& self, std::string name, UTexture* value) -> void { self.SetTextureParameterValue(UTF8_TO_TCHAR(name.c_str()), value); })
         .def("SetScalarParameterValue", [](UMaterialInstanceDynamic& self, std::string name, float v) { self.SetScalarParameterValue(FSTR(name), v); })
         .def("GetScalarParameterValue", [](UMaterialInstanceDynamic& self, std::string name) { return self.K2_GetScalarParameterValue(FSTR(name)); })
         .def("SetVectorParameterValue", [](UMaterialInstanceDynamic& self, std::string name, FLinearColor& v) { self.SetVectorParameterValue(FSTR(name), v); })
@@ -520,6 +838,42 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
     py::class_<UTexture2D, UTexture, UnrealTracker<UTexture2D>>(m, "UTexture2D")
         .def_static("StaticClass", []() { return UTexture2D::StaticClass(); })
         .def_static("Cast", [](UObject *w) { return Cast<UTexture2D>(w); }, py::return_value_policy::reference)
+        .def("GetSizeX", [](UTexture2D& self) { return self.GetSizeX(); })
+        .def("GetSizeY", [](UTexture2D& self) { return self.GetSizeY(); })
+        ;
+
+    py::class_<UTextureRenderTarget, UTexture, UnrealTracker<UTextureRenderTarget>>(m, "UTextureRenderTarget")
+        .def_static("StaticClass", []() { return UTextureRenderTarget::StaticClass(); })
+        .def_static("Cast", [](UObject *w) { return Cast<UTextureRenderTarget>(w); }, py::return_value_policy::reference)
+        .def_readwrite("TargetGamma", &UTextureRenderTarget::TargetGamma)
+        ;
+
+    py::class_<UTextureRenderTarget2D, UTextureRenderTarget, UnrealTracker<UTextureRenderTarget2D>>(m, "UTextureRenderTarget2D")
+        .def_static("StaticClass", []() { return UTextureRenderTarget2D::StaticClass(); })
+        .def_static("Cast", [](UObject *w) { return Cast<UTextureRenderTarget2D>(w); }, py::return_value_policy::reference)
+        .def_readonly("SizeX", &UTextureRenderTarget2D::SizeX)
+        .def_readonly("SizeY", &UTextureRenderTarget2D::SizeY)
+        .def_readonly("ClearColor", &UTextureRenderTarget2D::ClearColor)
+        ;
+
+    py::class_<UCanvasRenderTarget2D, UTextureRenderTarget2D, UnrealTracker<UCanvasRenderTarget2D>>(m, "UCanvasRenderTarget2D")
+        .def_static("StaticClass", []() { return UCanvasRenderTarget2D::StaticClass(); })
+        .def_static("Cast", [](UObject *w) { return Cast<UCanvasRenderTarget2D>(w); }, py::return_value_policy::reference)
+        .def_static("CreateCanvasRenderTarget2D", [](UObject* worldCtx, py::object& _subclass, int w, int h)
+        {
+            UClass *subclass = PyObjectToUClass(_subclass);
+            if (!subclass)
+            {
+                LERROR("Cannot convert class param to a subclass of CanvasRenderTarget2D");
+                return (UCanvasRenderTarget2D*)nullptr;
+            }
+            return UCanvasRenderTarget2D::CreateCanvasRenderTarget2D(worldCtx, subclass, w, h);
+        })
+        ;
+
+    py::class_<UMediaTexture, UTexture, UnrealTracker<UMediaTexture>>(m, "UMediaTexture")
+        .def_static("StaticClass", []() { return UMediaTexture::StaticClass(); })
+        .def_static("Cast", [](UObject *w) { return Cast<UMediaTexture>(w); }, py::return_value_policy::reference)
         ;
 
     py::class_<UGameInstance, UObject, UnrealTracker<UGameInstance>>(m, "UGameInstance")
@@ -538,6 +892,13 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("SetActorTransform", [](AActor& self, FTransform& t) { self.SetActorTransform(t); })
         .def("GetActorTransform", [](AActor& self) { return self.GetActorTransform(); })
         .def("GetTransform", [](AActor& self) { return self.GetTransform(); })
+        .def("GetComponentsByClass", [](AActor& self, py::object& _klass)
+        {
+            py::list ret;
+            for (auto comp : self.GetComponentsByClass(PyObjectToUClass(_klass)))
+                ret.append(comp);
+            return ret;
+        }, py::return_value_policy::reference)
         .def("SetRootComponent", [](AActor& self, USceneComponent *s) { self.SetRootComponent(s); })
         .def("GetRootComponent", [](AActor& self) { return self.GetRootComponent(); })
         .def("SetActorScale3D", [](AActor& self, FVector& v) { self.SetActorScale3D(v); })
@@ -547,7 +908,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("SetActorTickEnabled", [](AActor& self, bool enabled) { self.SetActorTickEnabled(enabled); })
         .def("SetActorTickInterval", [](AActor& self, float interval) { self.SetActorTickInterval(interval); })
         .def("GetActorTickInterval", [](AActor& self) { return self.GetActorTickInterval(); })
-        .def("GetActorHiddenInGame", [](AActor& self) { self.bHidden; })
+        .def("IsHidden", [](AActor& self) { return self.IsHidden(); })
         .def("SetActorHiddenInGame", [](AActor& self, bool b) { self.SetActorHiddenInGame(b); })
         .def("HasAuthority", [](AActor& self) { return self.HasAuthority(); })
         .def("GetOwner", [](AActor& self) { return self.GetOwner(); }, py::return_value_policy::reference)
@@ -588,189 +949,6 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def_static("Cast", [](UObject *obj) { return Cast<AGameState>(obj); }, py::return_value_policy::reference)
         ;
 
-    py::class_<PyCheesyIterator<float>>(m, "CheesyFloatIterator")
-        .def("__iter__", [](PyCheesyIterator<float> &it) -> PyCheesyIterator<float>& { return it; })
-        .def("__next__", &PyCheesyIterator<float>::next)
-        ;
-
-    py::class_<PyCheesyIterator<int>>(m, "CheesyIntIterator")
-        .def("__iter__", [](PyCheesyIterator<int> &it) -> PyCheesyIterator<int>& { return it; })
-        .def("__next__", &PyCheesyIterator<int>::next)
-        ;
-
-    py::class_<FVector2D>(m, "FVector2D")
-        .def(py::init<float,float>(), "x"_a=0.0f, "y"_a=0.0f)
-        .def_readwrite("x", &FVector2D::X)
-        .def_readwrite("X", &FVector2D::X)
-        .def_readwrite("y", &FVector2D::Y)
-        .def_readwrite("Y", &FVector2D::Y)
-        .def(py::self + py::self)
-        .def(py::self - py::self)
-        .def(-py::self)
-        .def(float() * py::self)
-        .def(py::self * float())
-        .def("__iter__", [](FVector2D& self) { return PyCheesyIterator<float>({self.X, self.Y}); })
-        ;
-
-    py::class_<FVector>(m, "FVector")
-        .def(py::init([]() { return FVector(0,0,0); }))
-        .def(py::init([](float n) { return FVector(n,n,n); })) // note this special case of FVector(a) === FVector(a,a,a)
-        .def(py::init([](float x, float y) { return FVector(x,y,0); }))
-        .def(py::init([](float x, float y, float z) { return FVector(x,y,z); }))
-        .def_readwrite("x", &FVector::X)
-        .def_readwrite("X", &FVector::X)
-        .def_readwrite("y", &FVector::Y)
-        .def_readwrite("Y", &FVector::Y)
-        .def_readwrite("z", &FVector::Z)
-        .def_readwrite("Z", &FVector::Z)
-        .def(py::self + py::self)
-        .def(py::self - py::self)
-        .def(-py::self)
-        .def(int() * py::self)
-        .def(py::self * int())
-        .def(float() * py::self)
-        .def(py::self * float())
-        .def("__iter__", [](FVector& self) { return PyCheesyIterator<float>({self.X, self.Y, self.Z}); })
-        .def("Rotation", [](FVector& self) { return self.Rotation(); })
-        .def("ToOrientationQuat", [](FVector& self) { return self.ToOrientationQuat(); })
-        .def_readonly_static("ZeroVector", &FVector::ZeroVector)
-        .def_readonly_static("OneVector", &FVector::OneVector)
-        .def_readonly_static("UpVector", &FVector::UpVector)
-        .def_readonly_static("DownVector", &FVector::DownVector)
-        .def_readonly_static("ForwardVector", &FVector::ForwardVector)
-        .def_readonly_static("BackwardVector", &FVector::BackwardVector)
-        .def_readonly_static("RightVector", &FVector::RightVector)
-        .def_readonly_static("LeftVector", &FVector::LeftVector)
-        .def("Size", [](FVector& self) { return self.Size(); })
-        .def("SizeSquared", [](FVector& self) { return self.SizeSquared(); })
-        .def("IsNearlyZero", [](FVector& self) { return self.IsNearlyZero(); })
-        .def("Normalize", [](FVector& self) { return self.Normalize(); })
-        .def("IsNormalized", [](FVector& self) { return self.IsNormalized(); })
-        .def_static("DotProduct", [](FVector& a, FVector& b) { return FVector::DotProduct(a, b); })
-        .def_static("CrossProduct", [](FVector& a, FVector& b) { return FVector::CrossProduct(a, b); })
-        ;
-
-    py::class_<FRotator>(m, "FRotator")
-        .def(py::init([]() { return FRotator(0,0,0); }))
-        .def(py::init([](float roll=0, float pitch=0, float yaw=0) { FRotator r; r.Roll=roll; r.Pitch=pitch; r.Yaw=yaw; return r; })) //<float, float, float>(), "roll"_a=0.0f, "pitch"_a=0.0f, "yaw"_a=0.0f) // weird order, but matches UnrealEnginePython
-        .def_readwrite("roll", &FRotator::Roll)
-        .def_readwrite("Roll", &FRotator::Roll)
-        .def_readwrite("pitch", &FRotator::Pitch)
-        .def_readwrite("Pitch", &FRotator::Pitch)
-        .def_readwrite("yaw", &FRotator::Yaw)
-        .def_readwrite("Yaw", &FRotator::Yaw)
-        .def("RotateVector", [](FRotator& self, FVector& v) { return self.RotateVector(v); })
-        .def("UnrotateVector", [](FRotator& self, FVector& v) { return self.UnrotateVector(v); })
-        .def("Quaternion", [](FRotator& self) { return self.Quaternion(); })
-        .def("__iter__", [](FRotator& self) { return PyCheesyIterator<float>({self.Roll, self.Pitch, self.Yaw}); })
-        .def(float() * py::self)
-        .def(py::self * float())
-        ;
-
-    py::class_<FQuat>(m, "FQuat")
-        .def(py::init<>())
-        .def(py::init<float,float,float,float>())
-        .def_readwrite("X", &FQuat::X)
-        .def_readwrite("Y", &FQuat::Y)
-        .def_readwrite("Z", &FQuat::Z)
-        .def_readwrite("W", &FQuat::W)
-        .def_readwrite("x", &FQuat::X)
-        .def_readwrite("y", &FQuat::Y)
-        .def_readwrite("z", &FQuat::Z)
-        .def_readwrite("w", &FQuat::W)
-        .def_static("FindBetweenVectors", [](FVector& a, FVector& b) { return FQuat::FindBetweenVectors(a,b); })
-        .def("Rotator", [](FQuat& self) { return self.Rotator(); })
-        .def(py::self * py::self)
-        .def(py::self + py::self)
-        .def(py::self | py::self)
-        .def(py::self += py::self)
-        .def(py::self - py::self)
-        .def(py::self -= py::self)
-        .def(py::self == py::self)
-        .def(py::self * FVector())
-        .def(py::self * float())
-        .def(py::self / float())
-        .def(py::self *= float())
-        .def(py::self /= float())
-        ;
-
-    py::class_<FTransform>(m, "FTransform")
-        .def_readonly_static("Identity", &FTransform::Identity)
-        .def(py::init<>())
-        .def(py::init([](FVector& loc, FRotator& rot, FVector& scale) { return FTransform(rot, loc, scale); }))
-        .def("Inverse", [](FTransform& self) { return self.Inverse(); })
-        .def("Rotator", [](FTransform& self) { return self.Rotator(); })
-        .def("GetRotation", [](FTransform& self) { return self.Rotator(); })
-        .def("SetRotation", [](FTransform& self, FRotator& r) { FQuat q(r); self.SetRotation(q); })
-        .def("GetTranslation", [](FTransform& self) { return self.GetTranslation(); })
-        .def("GetLocation", [](FTransform& self) { return self.GetLocation(); })
-        .def("SetTranslation", [](FTransform& self, FVector& t) { self.SetTranslation(t); })
-        .def("SetLocation", [](FTransform& self, FVector& t) { self.SetLocation(t); })
-        .def("GetScale3D", [](FTransform& self) { return self.GetScale3D(); })
-        .def("SetScale3D", [](FTransform& self, FVector& v) { self.SetScale3D(v); })
-        .def("TransformPosition", [](FTransform& self, FVector& pos) { return self.TransformPosition(pos); })
-        .def_property("translation", [](FTransform& self) { return self.GetTranslation(); }, [](FTransform& self, FVector& v) { self.SetTranslation(v); })
-        .def_property("scale", [](FTransform& self) { return self.GetScale3D(); }, [](FTransform& self, FVector& v) { self.SetScale3D(v); })
-        .def_property("rotation", [](FTransform& self) { return self.Rotator(); }, [](FTransform& self, FRotator& r) { FQuat q(r); self.SetRotation(q); })
-        ;
-
-    py::class_<FColor>(m, "FColor")
-        .def(py::init<int, int, int, int>(), "r"_a=0, "g"_a=0, "b"_a=0, "a"_a=0)
-        .def_readwrite("R", &FColor::R)
-        .def_readwrite("r", &FColor::R)
-        .def_readwrite("G", &FColor::G)
-        .def_readwrite("g", &FColor::G)
-        .def_readwrite("B", &FColor::B)
-        .def_readwrite("b", &FColor::B)
-        .def_readwrite("A", &FColor::A)
-        .def_readwrite("a", &FColor::A)
-        .def("__iter__", [](FColor& self) { return PyCheesyIterator<int>({self.R, self.G, self.B, self.A}); })
-        ;
-
-    py::class_<FLinearColor>(m, "FLinearColor")
-        .def(py::init<float, float, float, float>(), "r"_a=0.0f, "g"_a=0.0f, "b"_a=0.0f, "a"_a=1.0f)
-        .def_readwrite("R", &FLinearColor::R)
-        .def_readwrite("r", &FLinearColor::R)
-        .def_readwrite("G", &FLinearColor::G)
-        .def_readwrite("g", &FLinearColor::G)
-        .def_readwrite("B", &FLinearColor::B)
-        .def_readwrite("b", &FLinearColor::B)
-        .def_readwrite("A", &FLinearColor::A)
-        .def_readwrite("a", &FLinearColor::A)
-        .def("__iter__", [](FLinearColor& self) { return PyCheesyIterator<float>({self.R, self.G, self.B, self.A}); })
-        .def_readonly_static("White", &FLinearColor::White)
-        .def_readonly_static("Gray", &FLinearColor::Gray)
-        .def_readonly_static("Black", &FLinearColor::Black)
-        .def_readonly_static("Transparent", &FLinearColor::Transparent)
-        .def_readonly_static("Red", &FLinearColor::Red)
-        .def_readonly_static("Green", &FLinearColor::Green)
-        .def_readonly_static("Blue", &FLinearColor::Blue)
-        .def_readonly_static("Yellow", &FLinearColor::Yellow)
-        ;
-
-    py::class_<FMargin>(m, "FMargin")
-        .def(py::init<>())
-        .def(py::init<float>())
-        .def(py::init<float,float>())
-        .def(py::init<float,float,float,float>())
-        .def_readwrite("Left", &FMargin::Left)
-        .def_readwrite("Top", &FMargin::Top)
-        .def_readwrite("Right", &FMargin::Right)
-        .def_readwrite("Bottom", &FMargin::Bottom)
-        .def_readwrite("left", &FMargin::Left)
-        .def_readwrite("top", &FMargin::Top)
-        .def_readwrite("right", &FMargin::Right)
-        .def_readwrite("bottom", &FMargin::Bottom)
-        ;
-
-    py::class_<FAnchors>(m, "FAnchors")
-        .def(py::init<>())
-        .def(py::init<float>())
-        .def(py::init<float,float>())
-        .def_readwrite("Minimum", &FAnchors::Minimum)
-        .def_readwrite("Maximum", &FAnchors::Maximum)
-        ;
-
     m.def("log", [](py::args args) -> void
     {
         TArray<FString> parts;
@@ -808,7 +986,17 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         return LoadTextureFromFile(UTF8_TO_TCHAR(spath.c_str()));
     }, py::return_value_policy::reference);
 
-    m.def("RegisterPythonSubclass", [](py::str fqClassName, UClass *engineParentClass, const py::object pyClass) -> UClass*
+    m.def("TextureFromBGRA", [](const char *bgra, int width, int height) -> UTexture2D*
+    {
+        return TextureFromBGRA((uint8 *)bgra, width, height);
+    }, py::return_value_policy::reference);
+
+    m.def("UpdateTextureBGRA", [](UTexture2D *tex, const char *bgra, int width, int height) -> void
+    {
+        return UpdateTextureBGRA(tex, (uint8 *)bgra, width, height);
+    });
+
+    m.def("RegisterPythonSubclass", [](py::str fqClassName, UClass *engineParentClass, py::object& pyClass, py::list& interfaceClasses) -> UClass*
     {
         std::string sname = fqClassName;
         //UClass *engineParentClass = FindObject<UClass>(ANY_PACKAGE, UTF8_TO_TCHAR(((std::string)engineParentClassPath).c_str()));
@@ -854,8 +1042,29 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
             }
         };
 
+        // add in any interfaces that this class implements, both from the parent class as well as the python subclass itself
+        // Note that (for now at least) there isn't really any way for the Python class to /actually/ implement a BP interface,
+        // only a c++ interface. It can declare that it implements it, but we don't yet support exposing UFunctions (and ideally
+        // we never will, but for modus there are a bunch of cases where we filter objects based on which interfaces the objects
+        // say they implement)
         for (FImplementedInterface& info : engineParentClass->Interfaces)
             engineClass->Interfaces.Add(info);
+        for (auto h : interfaceClasses)
+        {
+            py::object _interfaceClass = h.cast<py::object>();
+            UClass *interfaceClass = PyObjectToUClass(_interfaceClass);
+            if (!interfaceClass || !interfaceClass->HasAnyClassFlags(CLASS_Interface))
+            {
+                LERROR("Class %s created with invalid interface class %s", *name, *FSTR(py::repr(_interfaceClass).cast<std::string>()));
+                continue;
+            }
+
+            FImplementedInterface info;
+            info.Class = interfaceClass;
+            info.PointerOffset = 0;
+            info.bImplementedByK2 = false;
+            engineClass->Interfaces.Emplace(info);
+        }
 
         engineClass->ClearFunctionMapsCaches();
         engineClass->Bind();
@@ -977,7 +1186,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("SetTransmission", [](ULightComponentBase& self, bool b) { self.bTransmission = b; })
         .def_readwrite("IndirectLightingIntensity", &ULightComponentBase::IndirectLightingIntensity)
         .def_readwrite("LightColor", &ULightComponentBase::LightColor)
-        .def_property("bAffectsWorld", [](ULightComponentBase& self, bool b) { self.bAffectsWorld=b; }, [](ULightComponentBase& self) { return self.bAffectsWorld; })
+        .def_property("bAffectsWorld", [](ULightComponentBase& self) { return (bool)self.bAffectsWorld; }, [](ULightComponentBase& self, bool b) { self.bAffectsWorld=(uint32)b; })
         .def("SetCastShadows", [](ULightComponentBase& self, bool b) { self.SetCastShadows(b); })
         .def("SetCastVolumetricShadow", [](ULightComponentBase& self, bool b) { self.SetCastVolumetricShadow(b); })
         .def("SetAffectReflection", [](ULightComponentBase& self, bool b) { self.SetAffectReflection(b); })
@@ -989,7 +1198,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
     py::class_<ULightComponent, ULightComponentBase, UnrealTracker<ULightComponent>>(m, "ULightComponent")
         .def_static("StaticClass", []() { return ULightComponent::StaticClass(); })
         .def_static("Cast", [](UObject *obj) { return Cast<ULightComponent>(obj); }, py::return_value_policy::reference)
-        .def_property("bUseTemperature", [](ULightComponent& self, bool b) { self.bUseTemperature=b; }, [](ULightComponent& self) { return self.bUseTemperature; })
+        .def_property("bUseTemperature", [](ULightComponent& self) { return (bool)self.bUseTemperature; }, [](ULightComponent& self, bool b) { self.bUseTemperature=(int32)b; })
         .def("GetBoundingBox", [](ULightComponent& self) { return self.GetBoundingBox(); })
         .def("GetBoundingSphere", [](ULightComponent& self) { return self.GetBoundingSphere(); })
         .def("GetDirection", [](ULightComponent& self) { return self.GetDirection(); })
@@ -1004,8 +1213,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("SetForceCachedShadowsForMovablePrimitives", [](ULightComponent& self, bool b) { self.SetForceCachedShadowsForMovablePrimitives(b); })
         .def("SetIndirectLightingIntensity", [](ULightComponent& self, float f) { self.SetIndirectLightingIntensity(f); })
         .def("SetIntensity", [](ULightComponent& self, float f) { self.SetIntensity(f); })
-        .def("SetLightBrightness", [](ULightComponent& self, float f) { self.SetLightBrightness(f); })
-        .def("SetLightColor", [](ULightComponent& self, FLinearColor& c, bool bSRGB) { self.SetLightColor(c, bSRGB); })
+        .def("SetLightColor", [](ULightComponent& self, FLinearColor& c, bool bSRGB) { self.SetLightColor(c, bSRGB); }, py::arg("c"), py::arg("bSRGB")=true)
         .def("SetLightFunctionDisabledBrightness", [](ULightComponent& self, float f) { self.SetLightFunctionDisabledBrightness(f); })
         .def("SetLightFunctionFadeDistance", [](ULightComponent& self, float f) { self.SetLightFunctionFadeDistance(f); })
         .def("SetLightFunctionMaterial", [](ULightComponent& self, UMaterialInterface* m) { self.SetLightFunctionMaterial(m); })
@@ -1023,6 +1231,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def_static("StaticClass", []() { return ULocalLightComponent::StaticClass(); })
         .def_static("Cast", [](UObject *obj) { return Cast<ULocalLightComponent>(obj); }, py::return_value_policy::reference)
         .def("SetAttenuationRadius", [](ULocalLightComponent& self, float r) { self.SetAttenuationRadius(r); })
+        .def_readonly("AttenuationRadius", &ULocalLightComponent::AttenuationRadius)
         .def("SetIntensityUnits", [](ULocalLightComponent& self, int u) { self.SetIntensityUnits((ELightUnits)u); })
         ;
 
@@ -1033,7 +1242,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("SetSourceRadius", [](UPointLightComponent& self, float f) { self.SetSourceRadius(f); })
         .def("SetSoftSourceRadius", [](UPointLightComponent& self, float f) { self.SetSoftSourceRadius(f); })
         .def("SetSourceLength", [](UPointLightComponent& self, float f) { self.SetSourceLength(f); })
-        .def_property("bUseInverseSquaredFalloff", [](UPointLightComponent& self, bool b) { self.bUseInverseSquaredFalloff=b; }, [](UPointLightComponent& self) { return self.bUseInverseSquaredFalloff; })
+        .def_property("bUseInverseSquaredFalloff", [](UPointLightComponent& self) { return (bool)self.bUseInverseSquaredFalloff; }, [](UPointLightComponent& self, bool b) { self.bUseInverseSquaredFalloff=(uint32)b; })
         ;
 
     py::class_<USpotLightComponent, UPointLightComponent, UnrealTracker<USpotLightComponent>>(m, "USpotLightComponent")
@@ -1041,6 +1250,22 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def_static("Cast", [](UObject *obj) { return Cast<USpotLightComponent>(obj); }, py::return_value_policy::reference)
         .def("SetInnerConeAngle", [](USpotLightComponent& self, float f) { self.SetInnerConeAngle(f); })
         .def("SetOuterConeAngle", [](USpotLightComponent& self, float f) { self.SetOuterConeAngle(f); })
+        ;
+
+    py::class_<USceneCaptureComponent, USceneComponent, UnrealTracker<USceneCaptureComponent>>(m, "USceneCaptureComponent")
+        .def_static("StaticClass", []() { return USceneCaptureComponent::StaticClass(); })
+        .def_static("Cast", [](UObject *obj) { return Cast<USceneCaptureComponent>(obj); }, py::return_value_policy::reference)
+        .def_property("bCaptureEveryFrame", [](USceneCaptureComponent& self) { return self.bCaptureEveryFrame; }, [](USceneCaptureComponent& self, bool b) { self.bCaptureEveryFrame = b; })
+        ENUM_PROP(CaptureSource, ESceneCaptureSource, USceneCaptureComponent)
+        LIST_PROP(HiddenActors, AActor*, USceneCaptureComponent2D)
+        ;
+
+    py::class_<USceneCaptureComponent2D, USceneCaptureComponent, UnrealTracker<USceneCaptureComponent2D>>(m, "USceneCaptureComponent2D")
+        .def_static("StaticClass", []() { return USceneCaptureComponent2D::StaticClass(); })
+        .def_static("Cast", [](UObject *obj) { return Cast<USceneCaptureComponent2D>(obj); }, py::return_value_policy::reference)
+        .def_readwrite("FOVAngle", &USceneCaptureComponent2D::FOVAngle)
+        .def_readwrite("TextureTarget", &USceneCaptureComponent2D::TextureTarget)
+        .def("CaptureScene", [](USceneCaptureComponent2D& self) { self.CaptureScene(); })
         ;
 
     py::class_<FSlateAtlasData>(m, "FSlateAtlasData")
@@ -1060,4 +1285,3 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
 }
 
 //#pragma optimize("", on)
-

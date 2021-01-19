@@ -45,6 +45,20 @@ void UUserWidget_CGLUE::NativePreConstruct()
     try {
         UWidget *root = GetRootWidget();
         pyInst.attr("Construct")(root);
+
+        // for performance, determine up front if this widget ever wants its Tick method called
+        ticks = py::hasattr(pyInst, "Tick");
+    } catchpy;
+}
+
+void UUserWidget_CGLUE::NativeTick(const FGeometry& geo, float dt)
+{
+    Super::NativeTick(geo, dt);
+    try {
+        // Most widgets don't implement a Tick function so we skip the overhead of calling into
+        // Python unless one is defined
+        if (ticks)
+            pyInst.attr("Tick")(geo, dt);
     } catchpy;
 }
 
@@ -88,8 +102,16 @@ void _LoadModuleUMG(py::module& uepy)
     }, py::return_value_policy::reference, py::arg("owner"), py::arg("_widgetClass"), py::arg("name")=py::none());
 
     py::class_<FSlateColor>(m, "FSlateColor")
+        .def(py::init<FSlateColor>())
         .def(py::init<>())
         .def(py::init<FLinearColor>())
+        ;
+
+    py::class_<FGeometry>(m, "FGeometry")
+        .def(py::init<>())
+        .def("GetLocalSize", [](FGeometry& self) { return self.GetLocalSize(); })
+        .def("GetAbsolutePosition", [](FGeometry& self) { return self.GetAbsolutePosition(); })
+        .def("GetAbsoluteSize", [](FGeometry& self) { return self.GetAbsoluteSize(); })
         ;
 
     py::class_<UVisual, UObject, UnrealTracker<UVisual>>(m, "UVisual")
@@ -103,6 +125,10 @@ void _LoadModuleUMG(py::module& uepy)
         .def("SetIsEnabled", [](UWidget& self, bool e) { self.SetIsEnabled(e); })
         .def("SetVisibility", [](UWidget& self, int v) { self.SetVisibility((ESlateVisibility)v); })
         .def("GetDesiredSize", [](UWidget& self) { return self.GetDesiredSize(); })
+        .def("SetRenderTransformAngle", [](UWidget& self, float a) { self.SetRenderTransformAngle(a); })
+        .def("IsHovered", [](UWidget& self) { return self.IsHovered(); })
+        .def("GetRenderOpacity", [](UWidget& self) { return self.GetRenderOpacity(); })
+        .def("SetRenderOpacity", [](UWidget& self, float o) { self.SetRenderOpacity(o); })
         ;
 
     py::class_<UImage, UWidget, UnrealTracker<UImage>>(m, "UImage")
@@ -113,9 +139,11 @@ void _LoadModuleUMG(py::module& uepy)
         .def("SetBrushSize", [](UImage& self, FVector2D& size) { self.SetBrushSize(size); })
         .def("SetBrushTintColor", [](UImage& self, FSlateColor c) { self.SetBrushTintColor(c); })
         .def("SetBrush", [](UImage& self, FSlateBrush& b) { self.SetBrush(b); })
+        .def("SetBrushImageSize", [](UImage& self, FVector2D& size) { self.Brush.ImageSize = size; }) // hack until we expose FSlateBrush to Python
         .def("SetBrushFromTexture", [](UImage& self, UTexture2D* t, bool matchSize) { self.SetBrushFromTexture(t, matchSize); })
         .def("SetBrushFromMaterial", [](UImage& self, UMaterialInterface* m) { self.SetBrushFromMaterial(m); })
         .def("SetBrushFromSprite", [](UImage& self, UPaperSprite* sprite, bool matchSize) { self.SetBrushFromAtlasInterface(sprite, matchSize); }) // this is a made-up method since we don't currently expose ISlateTextureAtlastInterface to Python
+        .def("SetBrushResourceObject", [](UImage& self, UObject* resourceObj) { self.SetBrushResourceObject(resourceObj); })
         ;
 
     py::class_<UUserWidget, UWidget, UnrealTracker<UUserWidget>>(m, "UUserWidget")
@@ -215,6 +243,7 @@ void _LoadModuleUMG(py::module& uepy)
         ;
 
     py::class_<FSlateChildSize>(m, "FSlateChildSize")
+        .def(py::init<>())
         .def_readwrite("Value", &FSlateChildSize::Value)
         ENUM_PROP(SizeRule, ESlateSizeRule::Type, FSlateChildSize)
         ;
@@ -254,6 +283,15 @@ void _LoadModuleUMG(py::module& uepy)
         .def_static("StaticClass", []() { return UContentWidget::StaticClass(); })
         .def_static("Cast", [](UObject *slot) { return Cast<UContentWidget>(slot); }, py::return_value_policy::reference)
         .def("SetContent", [](UContentWidget& self, UWidget *obj) { return self.SetContent(obj); })
+        ;
+
+    py::class_<UScaleBox, UContentWidget, UnrealTracker<UScaleBox>>(m, "UScaleBox")
+        .def_static("StaticClass", []() { return UScaleBox::StaticClass(); })
+        .def_static("Cast", [](UObject *slot) { return Cast<UScaleBox>(slot); }, py::return_value_policy::reference)
+        .def("SetStretch", [](UScaleBox& self, int type) { self.SetStretch((EStretch::Type)type); })
+        .def("SetStretchDirection", [](UScaleBox& self, int dir) { self.SetStretchDirection((EStretchDirection::Type)dir); })
+        .def("SetUserSpecifiedScale", [](UScaleBox& self, float scale) { self.SetUserSpecifiedScale(scale); })
+        .def("SetIgnoreInheritedScale", [](UScaleBox& self, bool ignore) { self.SetIgnoreInheritedScale(ignore); })
         ;
 
     py::class_<UCanvasPanel, UPanelWidget, UnrealTracker<UCanvasPanel>>(m, "UCanvasPanel")
@@ -318,6 +356,14 @@ void _LoadModuleUMG(py::module& uepy)
         .def("SetFillSpanWhenLessThan", [](UWrapBoxSlot& self, float f) { self.SetFillSpanWhenLessThan(f); })
         .def("SetHorizontalAlignment", [](UWrapBoxSlot& self, int a) { self.SetHorizontalAlignment((EHorizontalAlignment)a); })
         .def("SetVerticalAlignment", [](UWrapBoxSlot& self, int a) { self.SetVerticalAlignment((EVerticalAlignment)a); })
+        ;
+
+    py::class_<UScaleBoxSlot, UPanelSlot, UnrealTracker<UScaleBoxSlot>>(m, "UScaleBoxSlot")
+        .def_static("StaticClass", []() { return UScaleBoxSlot::StaticClass(); })
+        .def_static("Cast", [](UObject *obj) { return Cast<UScaleBoxSlot>(obj); }, py::return_value_policy::reference)
+        .def("SetPadding", [](UScaleBoxSlot& self, FMargin& padding) { self.SetPadding(padding); })
+        .def("SetHorizontalAlignment", [](UScaleBoxSlot& self, int a) { self.SetHorizontalAlignment((EHorizontalAlignment)a); })
+        .def("SetVerticalAlignment", [](UScaleBoxSlot& self, int a) { self.SetVerticalAlignment((EVerticalAlignment)a); })
         ;
 
     py::class_<UOverlaySlot, UPanelSlot, UnrealTracker<UOverlaySlot>>(m, "UOverlaySlot")

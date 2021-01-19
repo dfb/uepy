@@ -50,9 +50,10 @@ public class uepy : ModuleRules
                 "UMG",
             }
         );
-        if (Target.Configuration != UnrealTargetConfiguration.Shipping)
+
+        if (Target.Type == TargetType.Editor)
             PrivateDependencyModuleNames.Add("UnrealEd"); // for FEditorDelegates
-        
+
         DynamicallyLoadedModuleNames.AddRange(
             new string[]
             {
@@ -61,7 +62,7 @@ public class uepy : ModuleRules
             );
 
         // for now it works only if the python files live in the same dir as the plugin DLL, so copy them over
-        string destDir = Path.Combine(ModuleDirectory, "../../Binaries/Win64");
+        string destDir = Path.Combine(PluginDirectory, "../../Binaries/Win64");
         if (!Directory.Exists(destDir))
             Directory.CreateDirectory(destDir);
 

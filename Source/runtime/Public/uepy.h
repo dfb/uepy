@@ -15,10 +15,12 @@
 #pragma pop_macro("check")
 #pragma warning(pop)
 
+#include "IUEPYGlueMixin.h"
 #include "Blueprint/WidgetLayoutLibrary.h"
 #include "Blueprint/WidgetTree.h"
 #include "Components/Border.h"
 #include "Components/BorderSlot.h"
+#include "Components/BoxComponent.h"
 #include "Components/Button.h"
 #include "Components/CanvasPanel.h"
 #include "Components/CanvasPanelSlot.h"
@@ -37,6 +39,9 @@
 #include "Components/OverlaySlot.h"
 #include "Components/PanelWidget.h"
 #include "Particles/ParticleSystemComponent.h"
+#include "Components/ScaleBox.h"
+#include "Components/ScaleBoxSlot.h"
+#include "Components/SceneCaptureComponent2D.h"
 #include "Components/SizeBox.h"
 #include "Components/SizeBoxSlot.h"
 #include "Components/Spacer.h"
@@ -48,12 +53,18 @@
 #include "Components/Widget.h"
 #include "Components/WrapBox.h"
 #include "Components/WrapBoxSlot.h"
+#include "Curves/CurveFloat.h"
+#include "Curves/CurveVector.h"
+#include "Engine/CanvasRenderTarget2D.h"
+#include "Engine/TextureRenderTarget2D.h"
 #include "FileMediaSource.h"
 #include "GameFramework/PlayerController.h"
 #include "Materials/MaterialInstanceConstant.h"
 #include "Materials/MaterialInstanceDynamic.h"
+#include "Materials/MaterialParameterCollection.h"
 #include "MediaPlayer.h"
 #include "MediaSoundComponent.h"
+#include "MediaTexture.h"
 #include "Paper2D/Classes/PaperSprite.h"
 #include "Particles/ParticleSystem.h"
 #include "Runtime/CoreUObject/Public/UObject/GCObject.h"
@@ -268,13 +279,18 @@ namespace pybind11 {
     UTYPE_HOOK(UBlueprintGeneratedClass);
     UTYPE_HOOK(UBorder);
     UTYPE_HOOK(UBorderSlot);
+    UTYPE_HOOK(UBoxComponent);
     UTYPE_HOOK(UButton);
     UTYPE_HOOK(UCanvasPanel);
     UTYPE_HOOK(UCanvasPanelSlot);
+    UTYPE_HOOK(UCanvasRenderTarget2D);
     UTYPE_HOOK(UCheckBox);
     UTYPE_HOOK(UClass);
     UTYPE_HOOK(UComboBoxString);
     UTYPE_HOOK(UContentWidget);
+    UTYPE_HOOK(UCurveBase);
+    UTYPE_HOOK(UCurveFloat);
+    UTYPE_HOOK(UCurveVector);
     UTYPE_HOOK(UDecalComponent);
     UTYPE_HOOK(UEditableTextBox);
     UTYPE_HOOK(UFileMediaSource);
@@ -283,6 +299,7 @@ namespace pybind11 {
     UTYPE_HOOK(UHorizontalBox);
     UTYPE_HOOK(UHorizontalBoxSlot);
     UTYPE_HOOK(UImage);
+    UTYPE_HOOK(UInstancedStaticMeshComponent);
     UTYPE_HOOK(UInterface);
     UTYPE_HOOK(ULightComponent);
     UTYPE_HOOK(ULightComponentBase);
@@ -292,8 +309,10 @@ namespace pybind11 {
     UTYPE_HOOK(UMaterialInstanceConstant);
     UTYPE_HOOK(UMaterialInstanceDynamic);
     UTYPE_HOOK(UMaterialInterface);
+    UTYPE_HOOK(UMaterialParameterCollection);
     UTYPE_HOOK(UMediaPlayer);
     UTYPE_HOOK(UMediaSoundComponent);
+    UTYPE_HOOK(UMediaTexture);
     UTYPE_HOOK(UMeshComponent);
     UTYPE_HOOK(UNamedSlot);
     UTYPE_HOOK(UObject);
@@ -306,7 +325,11 @@ namespace pybind11 {
     UTYPE_HOOK(UParticleSystemComponent);
     UTYPE_HOOK(UPointLightComponent);
     UTYPE_HOOK(UPrimitiveComponent);
+    UTYPE_HOOK(UScaleBox);
+    UTYPE_HOOK(UScaleBoxSlot);
     UTYPE_HOOK(USceneComponent);
+    UTYPE_HOOK(USceneCaptureComponent);
+    UTYPE_HOOK(USceneCaptureComponent2D);
     UTYPE_HOOK(USizeBox);
     UTYPE_HOOK(USizeBoxSlot);
     UTYPE_HOOK(USoundClass);
@@ -318,6 +341,8 @@ namespace pybind11 {
     UTYPE_HOOK(UTextBlock);
     UTYPE_HOOK(UTexture);
     UTYPE_HOOK(UTexture2D);
+    UTYPE_HOOK(UTextureRenderTarget);
+    UTYPE_HOOK(UTextureRenderTarget2D);
     UTYPE_HOOK(UUserWidget);
     UTYPE_HOOK(UVerticalBox);
     UTYPE_HOOK(UVerticalBoxSlot);
@@ -327,21 +352,6 @@ namespace pybind11 {
     UTYPE_HOOK(UWrapBox);
     UTYPE_HOOK(UWrapBoxSlot);
 } // namespace pybind11
-
-// any engine class we want to extend via Python should implement the IUEPYGlueMixin interface
-UINTERFACE()
-class UEPY_API UUEPYGlueMixin : public UInterface
-{
-    GENERATED_BODY()
-};
-
-class IUEPYGlueMixin
-{
-    GENERATED_BODY()
-
-public:
-    py::object pyInst;
-};
 
 struct UEPY_API FUEPyDelegates
 {

@@ -3,9 +3,14 @@
 #include "uepy.h"
 #include "common.h"
 #include "mod_uepy_umg.h"
+#include "Async/Async.h"
 
 #if WITH_EDITOR
 #include "Editor.h"
+#endif
+
+#if PLATFORM_WINDOWS
+#include <fcntl.h>
 #endif
 
 //#pragma optimize("", off)
@@ -16,9 +21,39 @@ py::object _getuprop(UProperty *prop, uint8* buffer, int index);
 
 FUEPyDelegates::FPythonEvent1 FUEPyDelegates::LaunchInit;
 
+// true once interpreter has been finalized. Used to skip some work during shutdown when things are all
+// mixed up
+static bool pyFinalized = false;
+
 void FinishPythonInit()
 {
+    pyFinalized = false;
+
+    {   // hackery to get builds to work - without this, UE4 has some automation tests that complain that the
+        // locale is being changed
+        PyStatus status;
+        PyPreConfig preconfig;
+        PyPreConfig_InitPythonConfig(&preconfig);
+
+        preconfig.configure_locale = 0;
+        preconfig.coerce_c_locale = 0;
+        preconfig.coerce_c_locale_warn = 0;
+
+        status = Py_PreInitialize(&preconfig);
+        if (PyStatus_Exception(status)) {
+            Py_ExitStatusException(status);
+        }
+    }
     py::initialize_interpreter(); // we delay this call so that game modules have a chance to create their embedded py modules
+
+#if PLATFORM_WINDOWS
+    // Inspired by the old python plugin: apparently Py_Initialize changes the modes
+    // to O_BINARY, which causes UE4 to spew stuff in UTF-16.
+    _setmode(_fileno(stdin), O_TEXT);
+    _setmode(_fileno(stdout), O_TEXT);
+    _setmode(_fileno(stderr), O_TEXT);
+#endif
+
     try {
         py::module m = py::module::import("_uepy");
         py::module sys = py::module::import("sys");
@@ -38,11 +73,11 @@ void FinishPythonInit()
         // now give all other modules a chance to startup as well
         FUEPyDelegates::LaunchInit.Broadcast(m);
 
-        // note that main.py's Init is called *after* all plugin/game modules have received the LaunchInit event!
+        // note that main is imported *after* all plugin/game modules have received the LaunchInit event!
+        // Also, we don't call any specific APIs or anything - just let the module load and whatever it needs
+        // to do happens as side effects
         LOG("Loading main.py");
         py::module main = py::module::import("main");
-        //main.reload();
-        main.attr("Init")();
     } catchpy;
 }
 
@@ -51,7 +86,8 @@ void OnPreBeginPIE(bool b)
 {
     try {
         py::module main = py::module::import("main");
-        main.attr("OnPreBeginPIE")();
+        if (py::hasattr(main, "OnPreBeginPIE"))
+            main.attr("OnPreBeginPIE")();
     } catchpy;
 }
 #endif
@@ -72,6 +108,7 @@ void FuepyModule::StartupModule()
 
 void FuepyModule::ShutdownModule()
 {
+    pyFinalized = true;
     py::finalize_interpreter();
 }
 
@@ -98,7 +135,7 @@ FPyObjectTracker *FPyObjectTracker::Get()
             {
                 UObject *obj = entry.Key;
                 FPyObjectTracker::Slot& slot = entry.Value;
-                LOG("TRK post-PIE obj: type:%s name:%s %p (%d refs)", *obj->GetClass()->GetName(), *obj->GetName(), obj, slot.refs);
+                //LOG("TRK post-PIE obj: type:%s name:%s %p (%d refs)", *obj->GetClass()->GetName(), *obj->GetName(), obj, slot.refs);
             }
             for (auto d : globalTracker->delegates)
             {
@@ -113,6 +150,15 @@ FPyObjectTracker *FPyObjectTracker::Get()
 
 void FPyObjectTracker::Track(UObject *o)
 {
+    if (pyFinalized) return; // we're shutting down
+    if (!o || !o->IsValidLowLevel())
+    {
+#if WITH_EDITOR
+        //LERROR("Told to track invalid object");
+#endif
+        return;
+    }
+
     //LOG("TRK Track %s, %p", *o->GetName(), o);
     FPyObjectTracker::Slot& slot = objectMap.FindOrAdd(o);
     slot.refs++;
@@ -123,6 +169,15 @@ void FPyObjectTracker::Track(UObject *o)
 
 void FPyObjectTracker::Untrack(UObject *o)
 {
+    if (pyFinalized) return; // we're shutting down
+    if (!o || !o->IsValidLowLevel())
+    {
+#if WITH_EDITOR
+        //LERROR("Told to untrack invalid object");
+#endif
+        return;
+    }
+
     //LOG("TRK Untrack %s, %p", *o->GetName(), o);
     FPyObjectTracker::Slot *slot = objectMap.Find(o);
     if (!slot)
@@ -179,7 +234,7 @@ UBasePythonDelegate *FPyObjectTracker::FindDelegate(UObject *engineObj, const ch
     FString findMCDelName = UTF8_TO_TCHAR(mcDelName);
     FString findPyDelMethodName = UTF8_TO_TCHAR(pyDelMethodName);
     for (UBasePythonDelegate* delegate : delegates)
-        if (delegate->Matches(engineObj, findMCDelName, findPyDelMethodName, pyCBOwner))
+        if (delegate->valid && delegate->Matches(engineObj, findMCDelName, findPyDelMethodName, pyCBOwner))
             return delegate;
     return nullptr;
 }
@@ -214,14 +269,18 @@ void UBasePythonDelegate::ProcessEvent(UFunction *function, void *params)
         args.append(_getuprop(prop, (uint8*)params, 0));
     }
 
-    try {
-        callback(*args);
-    } catchpy;
+    py::object cb = callback;
+    AsyncTask(ENamedThreads::GameThread, [cb, args]() {
+        try {
+            cb(*args);
+        } catchpy;
+    });
 }
 
 // removes any objects we should no longer be tracking
 void FPyObjectTracker::Purge()
 {
+    if (pyFinalized) return; // we're shutting down
     for (auto it = objectMap.CreateIterator(); it ; ++it)
     {
         UObject *obj = it->Key;
@@ -647,6 +706,10 @@ void UnbindDelegateCallback(UObject *obj, std::string _eventName, py::object& ca
         mcprop->RemoveDelegate(scriptDel, obj);
         scriptDel.Clear();
         delegate->valid = false;
+    }
+    else
+    {
+        LWARN("Failed to unbind %s %s", *obj->GetName(), *eventName.ToString());
     }
 }
 

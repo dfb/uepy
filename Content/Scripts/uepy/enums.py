@@ -18,7 +18,13 @@ class Enum(metaclass=EnumMeta):
     '''Base class for all Enums we expose to Python'''
     @classmethod
     def NameFor(cls, v):
+        '''Given an enum value, returns the string name of that value'''
         return cls._inverse[v]
+
+    @classmethod
+    def Inverse(cls):
+        '''Returns a mapping of enum value --> name'''
+        return cls._inverse
 
 class EForceInit(Enum):
     ForceInit, ForceInitToZero = range(2)
@@ -89,6 +95,11 @@ class EControllerHand(Enum):
 class ELightUnits(Enum):
     Unitless, Candelas, Lumens = range(3)
 
+class ESceneCaptureSource(Enum):
+    SCS_SceneColorHDR, SCS_SceneColorHDRNoAlpha, SCS_FinalColorLDR, SCS_SceneColorSceneDepth, SCS_SceneDepth, SCS_DeviceDepth, SCS_Normal, SCS_BaseColor, SCS_FinalColorHDR = range(9)
+
 class EVisibilityPropagation(Enum):
     NoPropagation, DirtyOnly, Propagate = range(3)
 
+class EStretchDirection: Both, DownOnly, UpOnly = range(3)
+class EStretch: NONE, Fill, ScaleToFit, ScaleToFitX, ScaleToFitY, ScaleToFill, ScaleBySafeZone, UserSpecified = range(8)

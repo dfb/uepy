@@ -34,7 +34,15 @@ class ImportFinder(ast.NodeVisitor):
             self.moduleNames.add(alias.name)
 
     def visit_ImportFrom(self, node):
-        self.moduleNames.add(node.module)
+        # Multiple cases here:
+        # from module import submodule
+        # from module import someVar
+        # We assume all are modules and then later when we try to get them out of sys.modules, the ones that were just someVar
+        # imports will be skipped over
+        if node.module is not None:
+            self.moduleNames.add(node.module)
+            for alias in node.names:
+                self.moduleNames.add(node.module + '.' + alias.name)
 
     @staticmethod
     def Scan(filename):
@@ -54,6 +62,7 @@ class ModuleInfoTracker:
     class ModuleInfo:
         def __init__(self, name, filename, isInSourceRoots):
             self.name = name
+            self.iisr = isInSourceRoots
             self.savedState = None # returned from module's OnModuleBeforeReload
             self.imports = set() # ModuleInfo instances for modules this module directly imports
             self.importedBy = set() # ModuleInfo instances for modules that directly import this module
@@ -214,8 +223,9 @@ class SourceWatcher:
 
     def UpdateSourceRoots(self):
         if self.devModule:
-            self.sourceRoots = getattr(self.devModule, 'MODULE_SOURCE_ROOTS', None)
-            assert self.sourceRoots, 'Dev module did not provide MODULE_SOURCE_ROOTS'
+            self.sourceRoots = getattr(self.devModule, 'MODULE_SOURCE_ROOTS', [])
+            if not self.sourceRoots:
+                log('WARNING: dev module did not provide MODULE_SOURCE_ROOTS')
             self.mit.SetSourceRoots(self.sourceRoots)
 
     def Check(self):
@@ -262,15 +272,4 @@ if __name__ == '__main__':
     while 1:
         sw.Check()
         time.sleep(0.25)
-
-'''
-main.py:
-    if '-scratchpad' in command line args: # launcher checks for ctrl+alt+launchModus and adds -scratchpad
-        GetWatcherActor().Monitor('scratchpad') # module to import
-
-? can we make this work in pre PIE (just normal editor) too?
-    maybe instead of BeginPlay, we just use Tick and see if it has been called before or not (i.e. "on first tick, setup...")
-
-maybe a ue4-specific watcher subclass has better actor-related stuff
-'''
 

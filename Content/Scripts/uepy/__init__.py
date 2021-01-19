@@ -1,7 +1,7 @@
 from _uepy import *
 
 from importlib import reload
-import sys, shlex, json
+import sys, shlex, json, time
 
 from . import enums
 
@@ -81,7 +81,7 @@ def FindGlueClass(klass):
 _allGlueClasses = {} # class name -> each glue class that has been defined
 _allNonGlueClasses = {} # class name -> class object of all registered non-glue Python subclasses that extend engine classes
 def GetPythonEngineSubclasses():
-    return list(_allNonGlueClasses.values())
+    return _allNonGlueClasses
 def GetAllGlueClasses():
     return list(_allGlueClasses.values())
 
@@ -127,7 +127,8 @@ class PyGlueMetaclass(type):
             newPyClass.cppGlueClass = cppGlueClass
 
             # Register this class with UE4 so that BPs, the editor, the level, etc. can all refer to it by name
-            ec = newPyClass.engineClass = RegisterPythonSubclass(name, cppGlueClass.StaticClass(), newPyClass)
+            interfaces = getattr(newPyClass, '__interfaces__', [])
+            ec = newPyClass.engineClass = RegisterPythonSubclass(name, cppGlueClass.StaticClass(), newPyClass, interfaces)
 
             # Apply any CDO properties (in the py class's 'classDefaults' dict)
             if not hasattr(cppGlueClass, 'Cast'):
@@ -184,13 +185,16 @@ class AActor_PGLUE(metaclass=PyGlueMetaclass):
     '''Glue class for AActor'''
     def GetWorld(self): return self.engineObj.GetWorld()
     def GetOwner(self): return self.engineObj.GetOwner()
+    def GetTransform(self): return self.engineObj.GetTransform()
     def SetActorLocation(self, v): self.engineObj.SetActorLocation(v) # this works because engineObj is a pointer to a real instance, and we will also write wrapper code to expose these APIs anyway
     def GetActorLocation(self): return self.engineObj.GetActorLocation()
     def GetActorRotation(self): return self.engineObj.GetActorRotation()
+    def GetActorTransform(self): return self.engineObj.GetActorTransform()
     def SetActorRotation(self, r): self.engineObj.SetActorRotation(r)
     def CreateUStaticMeshComponent(self, name): return self.engineObj.CreateUStaticMeshComponent(name)
     def GetRootComponent(self): return self.engineObj.GetRootComponent()
     def SetRootComponent(self, s): self.engineObj.SetRootComponent(s)
+    def GetComponentsByClass(self, klass): return self.engineObj.GetComponentsByClass(klass)
     def BeginPlay(self): self.engineObj.SuperBeginPlay()
     def EndPlay(self, reason): pass
     def Tick(self, dt): self.engineObj.SuperTick(dt) # # TODO: ditto
@@ -219,17 +223,26 @@ class UEPYAssistantActor(AActor_PGLUE):
     def __init__(self):
         self.SetActorTickEnabled(True)
         self.mainModuleName = 'scratchpad'
+        self.lastCheck = 0
 
     def BeginPlay(self):
-        import sourcewatcher as S
-        reload(S)
-        S.log = log
-        S.logTB = logTB
-        self.watcher = S.SourceWatcher(self.mainModuleName)
+        self.start = time.time()
+        self.watcher = None
         super().BeginPlay()
 
     def Tick(self, dt):
-        self.watcher.Check()
+        now = time.time()
+        if self.watcher is None:
+            if now-self.start > 1:
+                log('Starting source watcher for', self.mainModuleName)
+                import sourcewatcher as S
+                reload(S)
+                S.log = log
+                S.logTB = logTB
+                self.watcher = S.SourceWatcher(self.mainModuleName)
+        elif now-self.lastCheck > 0.25:
+            self.watcher.Check()
+            self.lastCheck = time.time()
 
 def AddHelper():
     SpawnActor(GetWorld(), UEPYAssistantActor)
@@ -237,6 +250,8 @@ def AddHelper():
 class UUserWidget_PGLUE(metaclass=PyGlueMetaclass):
     '''Base class of all Python subclasses from AActor-derived C++ classes'''
     # TODO: why doesn't this live in umg.py?
+    # We do not implement a default Tick but instead have the C++ only call into Python if a Tick function is defined
+    #def Tick(self, geometry, dt): pass
 
 def SpawnActor(world, klass, location=None, rotation=None, **kwargs):
     '''Extends __uepy.SpawnActor_ so that you can also pass in values for any UPROPERTY fields'''

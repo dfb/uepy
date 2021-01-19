@@ -72,7 +72,7 @@ class SpawnerTab(uepy.UUserWidget_PGLUE):
 
     def RepopulateClassList(self):
         self.comboBox.ClearOptions()
-        _classes = uepy.GetPythonEngineSubclasses()
+        _classes = list(uepy.GetPythonEngineSubclasses().values())
         glueClasses = uepy.GetAllGlueClasses() # TODO: filter out glue classes for widgets
         classes = []
         for klass in _classes: # TODO: there's got to be a better way than this
