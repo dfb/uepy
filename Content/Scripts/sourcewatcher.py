@@ -246,6 +246,11 @@ class SourceWatcher:
                     self.UpdateSourceRoots()
                     mi = self.mit.InfoFor(self.devModule)
                     mi.CallModuleHook('OnModuleAfterReload', self, mi.savedState)
+                except ModuleNotFoundError:
+                    # Same as below, but don't log a noisy error
+                    self.devModule = None
+                    self.nextFirstLoadTry = time.time() + 1
+                    return
                 except:
                     self.devModule = None
                     self.nextFirstLoadTry = time.time() + 1
