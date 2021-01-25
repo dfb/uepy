@@ -109,7 +109,7 @@ void FuepyModule::StartupModule()
 void FuepyModule::ShutdownModule()
 {
     pyFinalized = true;
-    py::finalize_interpreter();
+    //py::finalize_interpreter(); TODO: maybe re-enable this? Right now it sometimes means we end with a crash (probably due to something not happening in the right order)
 }
 
 FPyObjectTracker *FPyObjectTracker::Get()
