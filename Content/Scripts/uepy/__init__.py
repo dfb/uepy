@@ -257,9 +257,5 @@ def SpawnActor(world, klass, location=None, rotation=None, **kwargs):
     '''Extends __uepy.SpawnActor_ so that you can also pass in values for any UPROPERTY fields'''
     if location is None: location = FVector(0,0,0)
     if rotation is None: rotation = FRotator(0,0,0)
-    actor = SpawnActor_(world, klass, location, rotation)
-    if actor is not None:
-        for name, value in kwargs.items():
-            actor.Set(name, value)
-    return actor
+    return SpawnActor_(world, klass, location, rotation, kwargs)
 

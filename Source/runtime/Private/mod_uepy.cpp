@@ -1087,15 +1087,39 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         //return Cast<UClass>(obj);
     }, py::return_value_policy::reference);
 
-    m.def("SpawnActor_", [](UWorld *world, py::object& _actorClass, FVector& location, FRotator& rotation)
+    m.def("SpawnActor_", [](UWorld *world, py::object& _actorClass, FVector& location, FRotator& rotation, py::dict kwargs)
     {
         UClass *actorClass = PyObjectToUClass(_actorClass);
         if (!actorClass)
             return (AActor*)nullptr;
-        FActorSpawnParameters info;
-        info.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-        return world->SpawnActor(actorClass, &location, &rotation, info);
-    }, py::arg("world"), py::arg("actorClass"), py::arg("location")=FVector(0,0,0), py::arg("rotation")=FRotator(0,0,0), py::return_value_policy::reference);
+
+        if (py::len(kwargs) == 0)
+        {   // one-shot spawn because no extra params were passed
+            FActorSpawnParameters info;
+            info.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+            return world->SpawnActor(actorClass, &location, &rotation, info);
+        }
+        else
+        {   // caller also wants to pass in some params so we need to do a multi-step spawn
+            FTransform transform(rotation, location);
+            AActor *actor = world->SpawnActorDeferred<AActor>(actorClass, transform);
+            if (!actor)
+            {
+                LERROR("Failed to spawn actor");
+                return (AActor*)nullptr;
+            }
+
+            for (auto item : kwargs)
+            {
+                std::string k = item.first.cast<std::string>();
+                py::object v = py::cast<py::object>(item.second);
+                SetObjectUProperty(actor, k, v);
+            }
+
+            UGameplayStatics::FinishSpawningActor(actor, transform);
+            return actor;
+        }
+    }, py::arg("world"), py::arg("actorClass"), py::arg("location")=FVector(0,0,0), py::arg("rotation")=FRotator(0,0,0), py::arg("kwargs"), py::return_value_policy::reference);
 
     m.def("NewObject", [](py::object& _class, UObject *owner, std::string& name)
     {
