@@ -139,8 +139,8 @@ FPyObjectTracker *FPyObjectTracker::Get()
             }
             for (auto d : globalTracker->delegates)
             {
-                if (d->valid)
-                    LOG("TRK post-PIE delegate: %p (engineObj %p), mc:%s, pyDel:%s", d, d->engineObj, *d->mcDelName, *d->pyDelMethodName);
+                //if (d->valid)
+                //    LOG("TRK post-PIE delegate: %p (engineObj %p), mc:%s, pyDel:%s", d, d->engineObj, *d->mcDelName, *d->pyDelMethodName);
             }
         });
 #endif
