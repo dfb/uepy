@@ -103,3 +103,7 @@ class EVisibilityPropagation(Enum):
 
 class EStretchDirection: Both, DownOnly, UpOnly = range(3)
 class EStretch: NONE, Fill, ScaleToFit, ScaleToFitX, ScaleToFitY, ScaleToFill, ScaleBySafeZone, UserSpecified = range(8)
+
+class EInputEvent(Enum): IE_Pressed, IE_Released, IE_Repeat, IE_DoubleClick, IE_Axis, IE_MAX = range(6)
+
+

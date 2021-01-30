@@ -204,6 +204,7 @@ class AActor_PGLUE(metaclass=PyGlueMetaclass):
     def SetActorTickEnabled(self, e): self.engineObj.SetActorTickEnabled(e)
     def SetActorTickInterval(self, i): self.engineObj.SetActorTickInterval(i)
     def GetActorTickInterval(self): return self.engineObj.GetActorTickInterval()
+    def SetReplicateMovement(self, b): self.engineObj.SetReplicateMovement(b)
     def Destroy(self): return self.engineObj.Destroy()
     def BindOnEndPlay(self, cb): self.engineObj.BindOnEndPlay(cb)
     def UnbindOnEndPlay(self, cb): self.engineObj.UnbindOnEndPlay(cb)
@@ -216,6 +217,10 @@ class AActor_PGLUE(metaclass=PyGlueMetaclass):
     def configStr(self):
         return self.engineObj.configStr
 CPROPS(AActor_PGLUE, 'Tags', 'useNewTool', 'useNewRotationStuff', 'useNewStretching')
+
+class APawn_PGLUE(AActor_PGLUE):
+    def IsLocallyControlled(self): return self.engineObj.IsLocallyControlled()
+    def SetupPlayerInputComponent(self, comp): self.engineObj.SuperSetupPlayerInputComponent(comp)
 
 class UEPYAssistantActor(AActor_PGLUE):
     '''Spawn one of these into a level to have it watch for source code changes and automatically reload modified code.

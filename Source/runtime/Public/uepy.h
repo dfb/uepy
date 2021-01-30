@@ -18,6 +18,7 @@
 #include "IUEPYGlueMixin.h"
 #include "Blueprint/WidgetLayoutLibrary.h"
 #include "Blueprint/WidgetTree.h"
+#include "Camera/CameraComponent.h"
 #include "Components/Border.h"
 #include "Components/BorderSlot.h"
 #include "Components/BoxComponent.h"
@@ -48,6 +49,7 @@
 #include "Components/SphereComponent.h"
 #include "Components/SpotLightComponent.h"
 #include "Components/TextBlock.h"
+#include "Components/TextRenderComponent.h"
 #include "Components/VerticalBox.h"
 #include "Components/VerticalBoxSlot.h"
 #include "Components/Widget.h"
@@ -186,7 +188,10 @@ public:
     UFUNCTION() void AActor_OnEndPlay(AActor *actor, EEndPlayReason::Type reason) { if (valid) callback(actor, (int)reason); }
 
     // UMediaPlayer
-    UFUNCTION() void UMediaPlayer_OnMediaOpenFailed(FString failedURL) { std::string s = TCHAR_TO_UTF8(*failedURL); callback(s); }
+    UFUNCTION() void UMediaPlayer_OnMediaOpenFailed(FString failedURL) { std::string s = TCHAR_TO_UTF8(*failedURL); if (valid) callback(s); }
+
+    // UInputComponent
+    UFUNCTION() void UInputComponent_OnAxis(float value) { if (valid) callback(value); }
 };
 
 // a singleton that taps into the engine's garbage collection system to keep some engine objects alive as long as they are
@@ -281,6 +286,7 @@ namespace pybind11 {
     UTYPE_HOOK(UBorderSlot);
     UTYPE_HOOK(UBoxComponent);
     UTYPE_HOOK(UButton);
+    UTYPE_HOOK(UCameraComponent);
     UTYPE_HOOK(UCanvasPanel);
     UTYPE_HOOK(UCanvasPanelSlot);
     UTYPE_HOOK(UCanvasRenderTarget2D);
@@ -299,6 +305,7 @@ namespace pybind11 {
     UTYPE_HOOK(UHorizontalBox);
     UTYPE_HOOK(UHorizontalBoxSlot);
     UTYPE_HOOK(UImage);
+    UTYPE_HOOK(UInputComponent);
     UTYPE_HOOK(UInstancedStaticMeshComponent);
     UTYPE_HOOK(UInterface);
     UTYPE_HOOK(ULightComponent);
@@ -341,6 +348,7 @@ namespace pybind11 {
     UTYPE_HOOK(UTextBlock);
     UTYPE_HOOK(UTexture);
     UTYPE_HOOK(UTexture2D);
+    UTYPE_HOOK(UTextRenderComponent);
     UTYPE_HOOK(UTextureRenderTarget);
     UTYPE_HOOK(UTextureRenderTarget2D);
     UTYPE_HOOK(UUserWidget);

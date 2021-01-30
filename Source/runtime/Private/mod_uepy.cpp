@@ -482,6 +482,24 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
                     self.ComponentTags.Emplace(pytag.cast<std::string>().c_str());
             })
         ;
+
+    py::class_<UInputComponent, UObject, UnrealTracker<UInputComponent>>(m, "UInputComponent")
+        .def_static("StaticClass", []() { return UInputComponent::StaticClass(); })
+        .def_static("Cast", [](UObject *obj) { return Cast<UInputComponent>(obj); }, py::return_value_policy::reference)
+        .def("BindAction", [](UInputComponent& self, std::string actionName, int keyEvent, py::object callback)
+        {
+            UBasePythonDelegate *delegate = FPyObjectTracker::Get()->CreateDelegate(&self, "Ignore", "On", callback);
+            FInputActionBinding binding(FSTR(actionName), (EInputEvent)keyEvent);
+            binding.ActionDelegate.BindDelegate(delegate, &UBasePythonDelegate::On);
+            self.AddActionBinding(binding);
+        })
+        .def("BindAxis", [](UInputComponent& self, std::string axisName, py::object callback)
+        {
+            UBasePythonDelegate *delegate = FPyObjectTracker::Get()->CreateDelegate(&self, "Ignore", "UInputComponent_OnAxis", callback);
+            FInputAxisBinding binding(FSTR(axisName));
+            binding.AxisDelegate.BindDelegate(delegate, &UBasePythonDelegate::UInputComponent_OnAxis);
+            self.AxisBindings.Emplace(MoveTemp(binding));
+        })
         ;
 
     py::class_<USceneComponent, UActorComponent, UnrealTracker<USceneComponent>>(m, "USceneComponent")
@@ -497,6 +515,14 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("SetRelativeTransform", [](USceneComponent& self, FTransform& t) { self.SetRelativeTransform(t); })
         .def("ResetRelativeTransform", [](USceneComponent& self) { self.ResetRelativeTransform(); })
         .def("AttachToComponent", [](USceneComponent& self, USceneComponent *parent) { return self.AttachToComponent(parent, FAttachmentTransformRules::KeepRelativeTransform); }) // TODO: AttachmentRules, socket
+        .def("SetupAttachment", [](USceneComponent& self, USceneComponent *parent, std::string socketName)
+        {
+            if (socketName.length())
+                self.SetupAttachment(parent, FSTR(socketName));
+            else
+                self.SetupAttachment(parent);
+        }, py::arg("parent"), py::arg("socketName")="")
+
         .def("DetachFromComponent", [](USceneComponent& self) { self.DetachFromComponent(FDetachmentTransformRules::KeepWorldTransform); })
         .def("SetRelativeLocationAndRotation", [](USceneComponent& self, FVector& loc, FRotator& rot) { self.SetRelativeLocationAndRotation(loc, rot); })
         .def("SetRelativeTransform", [](USceneComponent& self, FTransform& t) { self.SetRelativeTransform(t); })
@@ -573,6 +599,12 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def_static("StaticClass", []() { return UParticleSystemComponent::StaticClass(); })
         .def_static("Cast", [](UObject *obj) { return Cast<UParticleSystemComponent>(obj); }, py::return_value_policy::reference)
         .def("SetTemplate", [](UParticleSystemComponent& self, UParticleSystem* sys) { self.SetTemplate(sys); })
+        ;
+
+    py::class_<UTextRenderComponent, UPrimitiveComponent, UnrealTracker<UTextRenderComponent>>(m, "UTextRenderComponent")
+        .def_static("StaticClass", []() { return UTextRenderComponent::StaticClass(); })
+        .def_static("Cast", [](UObject *obj) { return Cast<UTextRenderComponent>(obj); }, py::return_value_policy::reference)
+        .def("SetText", [](UTextRenderComponent& self, std::string s) { self.SetText(FSTR(s)); })
         ;
 
     py::class_<UShapeComponent, UPrimitiveComponent, UnrealTracker<UShapeComponent>>(m, "UShapeComponent")
@@ -912,6 +944,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("SetActorTickEnabled", [](AActor& self, bool enabled) { self.SetActorTickEnabled(enabled); })
         .def("SetActorTickInterval", [](AActor& self, float interval) { self.SetActorTickInterval(interval); })
         .def("GetActorTickInterval", [](AActor& self) { return self.GetActorTickInterval(); })
+        .def("SetReplicateMovement", [](AActor& self, bool b) { self.SetReplicateMovement(b); })
         .def("IsHidden", [](AActor& self) { return self.IsHidden(); })
         .def("SetActorHiddenInGame", [](AActor& self, bool b) { self.SetActorHiddenInGame(b); })
         .def("HasAuthority", [](AActor& self) { return self.HasAuthority(); })
@@ -1294,6 +1327,11 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def_readwrite("FOVAngle", &USceneCaptureComponent2D::FOVAngle)
         .def_readwrite("TextureTarget", &USceneCaptureComponent2D::TextureTarget, py::return_value_policy::reference)
         .def("CaptureScene", [](USceneCaptureComponent2D& self) { self.CaptureScene(); })
+        ;
+
+    py::class_<UCameraComponent, USceneComponent, UnrealTracker<UCameraComponent>>(m, "UCameraComponent")
+        .def_static("StaticClass", []() { return UCameraComponent::StaticClass(); })
+        .def_static("Cast", [](UObject *obj) { return Cast<UCameraComponent>(obj); }, py::return_value_policy::reference)
         ;
 
     py::class_<FSlateAtlasData>(m, "FSlateAtlasData")
