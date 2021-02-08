@@ -1,5 +1,6 @@
 // sets up the main 'uepy' builtin module
 #include "uepy.h"
+#include "uepy_netrep.h"
 #include "common.h"
 #include "Kismet/GameplayStatics.h"
 #include "Kismet/ImportanceSamplingLibrary.h"
@@ -1347,6 +1348,55 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def_static("Cast", [](UObject *obj) { return Cast<UPaperSprite>(obj); }, py::return_value_policy::reference)
         .def("GetBakedTexture", [](UPaperSprite& self) { return self.GetBakedTexture(); }, py::return_value_policy::reference)
         .def("GetSlateAtlasData", [](UPaperSprite& self) { return self.GetSlateAtlasData(); })
+        ;
+
+    // net rep stuff
+    m.def("LLNRCall", [](int where, AActor *recipient, std::string signature, py::object pyPayload, bool reliable, float maxCallsPerSec)
+    {
+        TArray<uint8> payload; // holds the outgoing data
+        FString sigExtra = "";
+
+        // the payload can be an args tuple or a buffer object
+        if (py::isinstance<py::tuple>(pyPayload))
+        {   // caller has passed us an args tuple, so we need to marshall it to a binary blob
+            TupleToBlob(recipient->GetWorld(), pyPayload.cast<py::tuple>(), payload, sigExtra);
+        }
+        else if (py::isinstance<py::buffer>(pyPayload))
+        {   // caller took care of necessary marshalling and is just giving us a binary blob to send
+            py::buffer buffer = pyPayload.cast<py::buffer>();
+            py::buffer_info info = buffer.request();
+            if (info.format != py::format_descriptor<uint8>::format() || info.ndim != 1)
+            {
+                LERROR("NRCall not given a flat uint8 buffer in call to %s", FSTR(signature));
+                return;
+            }
+            payload.AddUninitialized(info.size);
+            memcpy(payload.GetData(), info.ptr, info.size);
+        }
+        else
+        {
+            LERROR("NRCall received neither args nor a buffer object in call to %s", FSTR(signature));
+        }
+
+        // The convention for signatures is that "<name>" is a plain signature used for cases where the caller and callee
+        // take care of all marshalling of data and at this level we just pass along blobs of binary data. Signatures of the
+        // form "<name>|<type>:<valueData>[,<type>:<valueData>,...]" are for cases where we auto-detect data formats and handle
+        // marshalling so the caller/callee don't have to. Each new combination of data types for a given method results in
+        // another signature being defined and carried over the wire, though in theory any given program will have a finite and
+        // relatively small set of them, so we end up getting the benefits of automagic marshalling for a relatively small cost.
+        FString finalSig = FSTR(signature);
+        if (sigExtra.Len())
+            finalSig += "|" + sigExtra;
+
+        NRCall((ENRWhere)where, recipient, finalSig, payload, reliable, maxCallsPerSec);
+    }, py::arg("where"), py::arg("recipient"), py::arg("signature"), py::arg("payload"), py::arg("reliable")=true, py::arg("maxCallsPerSec")=-1.0f);
+
+    py::class_<FNRPropHolder>(m, "FNRPropHolder")
+        .def(py::init<>())
+        .def("AddProperty", [](FNRPropHolder& self, std::string& name, py::object& defaultValue) { return self.AddProperty(FSTR(name), defaultValue); })
+        .def("GetPropertyID", [](FNRPropHolder& self, std::string& name) { return self.GetPropertyID(FSTR(name)); })
+        .def("__getitem__", [](FNRPropHolder& self, std::string& name) { return self.GetValue(FSTR(name)); })
+        .def("__getattr__", [](FNRPropHolder& self, std::string& name) { return self.GetValue(FSTR(name)); })
         ;
 }
 
