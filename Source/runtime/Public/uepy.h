@@ -100,7 +100,7 @@ namespace py = pybind11;
     for (py::handle item : _items)\
         items.Emplace(item.cast<listType>());\
     self.listName = items;\
-})
+}, py::return_value_policy::reference)
 
 #define STR_PROP(propName, className)\
 .def_property(#propName, [](className& self) { std::string s = TCHAR_TO_UTF8(*self.propName); return s; }, [](className& self, std::string& v) { self.propName = FSTR(v); })

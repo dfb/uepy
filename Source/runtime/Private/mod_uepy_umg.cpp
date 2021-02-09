@@ -71,7 +71,7 @@ void _LoadModuleUMG(py::module& uepy)
     py::object glueclasses = uepy.attr("glueclasses");
 
     // e.g. "WidgetBlueprintGeneratedClass'/Game/Blueprints/Foo" --> UUserWidget UClass for that BP
-    m.def("GetUserWidgetClassFromReference", [](std::string refPath) { return LoadClass<UUserWidget>(NULL, UTF8_TO_TCHAR(refPath.c_str())); });
+    m.def("GetUserWidgetClassFromReference", [](std::string refPath) { return LoadClass<UUserWidget>(NULL, UTF8_TO_TCHAR(refPath.c_str())); }, py::return_value_policy::reference);
 
     m.def("CreateWidget", [](UObject* owner, py::object& _widgetClass, py::object name) -> UWidget*
     {
@@ -172,25 +172,25 @@ void _LoadModuleUMG(py::module& uepy)
     py::class_<UPanelWidget, UWidget, UnrealTracker<UPanelWidget>>(m, "UPanelWidget")
         .def_static("StaticClass", []() { return UPanelWidget::StaticClass(); })
         .def_static("Cast", [](UObject *obj) { return Cast<UPanelWidget>(obj); }, py::return_value_policy::reference)
-        .def("AddChild", [](UPanelWidget& self, UWidget *child) { return self.AddChild(child); })
+        .def("AddChild", [](UPanelWidget& self, UWidget *child) { return self.AddChild(child); }, py::return_value_policy::reference)
         ;
 
     py::class_<UVerticalBox, UPanelWidget, UnrealTracker<UVerticalBox>>(m, "UVerticalBox")
         .def_static("StaticClass", []() { return UVerticalBox::StaticClass(); })
         .def_static("Cast", [](UObject *w) { return Cast<UVerticalBox>(w); }, py::return_value_policy::reference)
-        .def("AddChild", [](UVerticalBox& self, UWidget *child) { return self.AddChild(child); })
+        .def("AddChild", [](UVerticalBox& self, UWidget *child) { return self.AddChild(child); }, py::return_value_policy::reference)
         ;
 
     py::class_<UHorizontalBox, UPanelWidget, UnrealTracker<UHorizontalBox>>(m, "UHorizontalBox")
         .def_static("StaticClass", []() { return UHorizontalBox::StaticClass(); })
         .def_static("Cast", [](UObject *w) { return Cast<UHorizontalBox>(w); }, py::return_value_policy::reference)
-        .def("AddChild", [](UHorizontalBox& self, UWidget *child) { return self.AddChild(child); })
+        .def("AddChild", [](UHorizontalBox& self, UWidget *child) { return self.AddChild(child); }, py::return_value_policy::reference)
         ;
 
     py::class_<UGridPanel, UPanelWidget, UnrealTracker<UGridPanel>>(m, "UGridPanel")
         .def_static("StaticClass", []() { return UGridPanel::StaticClass(); })
         .def_static("Cast", [](UObject *w) { return Cast<UGridPanel>(w); }, py::return_value_policy::reference)
-        .def("AddChildToGrid", [](UGridPanel& self, UWidget* content, int row, int col) { return self.AddChildToGrid(content, row, col); })
+        .def("AddChildToGrid", [](UGridPanel& self, UWidget* content, int row, int col) { return self.AddChildToGrid(content, row, col); }, py::return_value_policy::reference)
         .def("SetColumnFill", [](UGridPanel& self, int index, float coefficient) { self.SetColumnFill(index, coefficient); })
         .def("SetRowFill", [](UGridPanel& self, int index, float coefficient) { self.SetRowFill(index, coefficient); })
         ;
@@ -270,7 +270,6 @@ void _LoadModuleUMG(py::module& uepy)
         .def_static("StaticClass", []() { return UTextBlock::StaticClass(); })
         .def_static("Cast", [](UObject *obj) { return Cast<UTextBlock>(obj); }, py::return_value_policy::reference)
         .def("SetText", [](UTextBlock& self, std::string newText) { self.SetText(FText::FromString(newText.c_str())); })
-        .def_static("Cast", [](UObject *obj) { return Cast<UTextBlock>(obj); }, py::return_value_policy::reference)
         .def("SetFontSize", [](UTextBlock& self, int newSize)
         {
             FSlateFontInfo& sfi = self.Font;
@@ -282,7 +281,7 @@ void _LoadModuleUMG(py::module& uepy)
     py::class_<UContentWidget, UPanelWidget, UnrealTracker<UContentWidget>>(m, "UContentWidget")
         .def_static("StaticClass", []() { return UContentWidget::StaticClass(); })
         .def_static("Cast", [](UObject *slot) { return Cast<UContentWidget>(slot); }, py::return_value_policy::reference)
-        .def("SetContent", [](UContentWidget& self, UWidget *obj) { return self.SetContent(obj); })
+        .def("SetContent", [](UContentWidget& self, UWidget *obj) { return self.SetContent(obj); }, py::return_value_policy::reference)
         ;
 
     py::class_<UScaleBox, UContentWidget, UnrealTracker<UScaleBox>>(m, "UScaleBox")
@@ -302,7 +301,7 @@ void _LoadModuleUMG(py::module& uepy)
     py::class_<UOverlay, UPanelWidget, UnrealTracker<UOverlay>>(m, "UOverlay")
         .def_static("StaticClass", []() { return UOverlay::StaticClass(); })
         .def_static("Cast", [](UObject *slot) { return Cast<UOverlay>(slot); }, py::return_value_policy::reference)
-        .def("AddChildToOverlay", [](UOverlay& self, UWidget *child) { return self.AddChildToOverlay(child); })
+        .def("AddChildToOverlay", [](UOverlay& self, UWidget *child) { return self.AddChildToOverlay(child); }, py::return_value_policy::reference)
         ;
 
     py::class_<UButton, UContentWidget, UnrealTracker<UButton>>(m, "UButton")
@@ -321,7 +320,7 @@ void _LoadModuleUMG(py::module& uepy)
         .def("RefreshOptions", [](UComboBoxString& self) { self.RefreshOptions(); })
         .def("SetSelectedOption", [](UComboBoxString& self, std::string o) { self.SetSelectedOption(o.c_str()); })
         .def("SetSelectedIndex", [](UComboBoxString& self, int i) { self.SetSelectedIndex(i); })
-        .def("GetSelectedOption", [](UComboBoxString& self) { return *self.GetSelectedOption(); })
+        .def("GetSelectedOption", [](UComboBoxString& self) { return PYSTR(self.GetSelectedOption()); })
         .def("GetSelectedIndex", [](UComboBoxString& self) { return self.GetSelectedIndex(); })
         .def("SetFontSize", [](UComboBoxString& self, int newSize)
         {

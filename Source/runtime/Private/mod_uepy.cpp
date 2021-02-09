@@ -368,7 +368,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
 
     py::class_<UObject, UnrealTracker<UObject>>(m, "UObject")
         .def_static("StaticClass", []() { return UObject::StaticClass(); })
-        .def("GetClass", [](UObject& self) { return self.GetClass(); })
+        .def("GetClass", [](UObject& self) { return self.GetClass(); }, py::return_value_policy::reference)
         .def("GetName", [](UObject& self) { return PYSTR(self.GetName()); })
         .def("GetPathName", [](UObject& self) { return PYSTR(self.GetPathName()); })
         .def("ConditionalBeginDestroy", [](UObject* self) { if (self->IsValidLowLevel()) self->ConditionalBeginDestroy(); })
@@ -394,7 +394,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
 
         // methods for accessing stuff via the UE4 reflection system (e.g. to interact with Blueprints, UPROPERTYs, etc)
         .def("Set", [](UObject* self, std::string k, py::object& value) { SetObjectUProperty(self, k, value); })
-        .def("Get", [](UObject* self, std::string k) { return GetObjectUProperty(self, k); })
+        .def("Get", [](UObject* self, std::string k) { return GetObjectUProperty(self, k); }, py::return_value_policy::reference)
         .def("Call", [](UObject* self, std::string funcName, py::args& args){ return CallObjectUFunction(self, funcName, args); }, py::return_value_policy::reference)
         .def("Bind", [](UObject* self, std::string eventName, py::object callback) { BindDelegateCallback(self, eventName, callback); })
         .def("Unbind", [](UObject* self, std::string eventName, py::object callback) { UnbindDelegateCallback(self, eventName, callback); })
@@ -465,6 +465,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def_static("Cast", [](UObject *obj) { return Cast<UActorComponent>(obj); }, py::return_value_policy::reference)
         .def("ComponentHasTag", [](UActorComponent& self, std::string& tag) { return self.ComponentHasTag(FSTR(tag)); })
         .def("SetActive", [](UActorComponent& self, bool a) { self.SetActive(a); })
+        .def("SetIsReplicated", [](UActorComponent& self, bool b) { self.SetIsReplicated(b); })
         .def("IsRegistered", [](UActorComponent& self) { return self.IsRegistered(); })
         .def("RegisterComponent", [](UActorComponent& self) { self.RegisterComponent(); })
         .def("UnregisterComponent", [](UActorComponent& self) { self.UnregisterComponent(); })
@@ -863,7 +864,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         ;
 
     py::class_<UKismetMaterialLibrary, UObject, UnrealTracker<UKismetMaterialLibrary>>(m, "UKismetMaterialLibrary")
-        .def_static("CreateDynamicMaterialInstance", [](UObject *worldCtx, UMaterialInterface *parent) { return UKismetMaterialLibrary::CreateDynamicMaterialInstance(worldCtx, parent); })
+        .def_static("CreateDynamicMaterialInstance", [](UObject *worldCtx, UMaterialInterface *parent) { return UKismetMaterialLibrary::CreateDynamicMaterialInstance(worldCtx, parent); }, py::return_value_policy::reference)
         .def_static("GetVectorParameterValue", [](UObject* worldCtx, UMaterialParameterCollection* coll, std::string name) { return UKismetMaterialLibrary::GetVectorParameterValue(worldCtx, coll, FSTR(name)); })
         ;
 
@@ -1031,7 +1032,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
 
     m.def("UpdateTextureBGRA", [](UTexture2D *tex, const char *bgra, int width, int height) -> void
     {
-        return UpdateTextureBGRA(tex, (uint8 *)bgra, width, height);
+        UpdateTextureBGRA(tex, (uint8 *)bgra, width, height);
     });
 
     m.def("RegisterPythonSubclass", [](py::str fqClassName, UClass *engineParentClass, py::object& pyClass, py::list& interfaceClasses) -> UClass*
@@ -1347,7 +1348,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def_static("StaticClass", []() { return UPaperSprite::StaticClass(); })
         .def_static("Cast", [](UObject *obj) { return Cast<UPaperSprite>(obj); }, py::return_value_policy::reference)
         .def("GetBakedTexture", [](UPaperSprite& self) { return self.GetBakedTexture(); }, py::return_value_policy::reference)
-        .def("GetSlateAtlasData", [](UPaperSprite& self) { return self.GetSlateAtlasData(); })
+        .def("GetSlateAtlasData", [](UPaperSprite& self) { return self.GetSlateAtlasData(); }, py::return_value_policy::reference)
         ;
 
     // net rep stuff
