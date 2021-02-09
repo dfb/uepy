@@ -106,4 +106,5 @@ class EStretch: NONE, Fill, ScaleToFit, ScaleToFitX, ScaleToFitY, ScaleToFill, S
 
 class EInputEvent(Enum): IE_Pressed, IE_Released, IE_Repeat, IE_DoubleClick, IE_Axis, IE_MAX = range(6)
 
+class ENRWhere(Enum): Nowhere, Local, Host, Owner, NonOwners, All = [0,1,2,4,8,12]
 

@@ -1,5 +1,6 @@
 #include "INRPlayerControllerMixin.h"
 #include "INRActorMixin.h"
+#include "uepy.h"
 #include "Engine/PackageMapClient.h"
 #include "Engine/NetConnection.h"
 #include "common.h"

@@ -76,6 +76,9 @@ Eventually I hope to make this less manual, but for now:
 - every code that exposes a C++ class should probably expose a Cast method
 - every glue class must implement StaticClass!
 - it's ok for PGLUE classes to subclass other PGLUE classes
+- if you mix reliable and non-reliable net msgs, include a counter/timestamp because there is no ordering preserved for unreliable messages, so even if you send a bunch of unreliable and end with a reliable, you could end up receiving the reliable followed by an unreliable, so app code needs to sort out which ones to toss vs keep
+- using NetRep automatically resolves some of the batching/ordering issues with UE4 replication since reliable msgs are processed in order on a single channel (versus lots of actor channels)
+- if you're using NetRep, keep in mind that replicating your actors' transforms is on you now
 
 # Why?
 
@@ -83,4 +86,13 @@ Eventually I hope to make this less manual, but for now:
 - UE4 provides Blueprints, but they don't scale well (spaghetti BPs are a nightmare) and they are in binary (can't diff, can't merge, etc.)
 - [UnrealEnginePython](https://github.com/20tab/UnrealEnginePython) was pretty good, but it's been abandoned.
 - We get some nice goodies like support for third-party actors, being able to develop against a packaged build
+
+# Replication TODOs
+
+- Add support for replicated variables of custom structs & other types; add something like NRRegisterMarsalledType(typecode, marshaller, unmarshaller)
+- Automatic message splitting for large messages
+- Message compression - do some tests to find some min threshold and if msg is above, say, 64 bytes, try compressing it. If compressed version is smaller, send that version and set the isCompressed bit. Note that UE4 has LZ4 libs already built in.
+- app-defined signatures for internal use (e.g. UI replication) - expose a get-signature-for-str API
+- when throttling, we need to keep the most recent tossed msg and then send it if no newer msg comes in after we drop below the rate limit
+
 

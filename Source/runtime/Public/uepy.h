@@ -4,18 +4,9 @@
 
 #include "CoreMinimal.h"
 #include "Modules/ModuleManager.h"
-
-#pragma warning(push)
-#pragma warning (disable : 4686 4191 340)
-#pragma push_macro("check")
-#undef check
-#include <pybind11/pybind11.h>
-#include <pybind11/embed.h>
-#include <pybind11/operators.h>
-#pragma pop_macro("check")
-#pragma warning(pop)
-
+#include "incpybind.h"
 #include "IUEPYGlueMixin.h"
+#include "INRActorMixin.h"
 #include "Blueprint/WidgetLayoutLibrary.h"
 #include "Blueprint/WidgetTree.h"
 #include "Camera/CameraComponent.h"
@@ -73,8 +64,6 @@
 #include <functional>
 
 #include "uepy.generated.h"
-
-namespace py = pybind11;
 
 // pybind11 lets python exceptions bubble up to be C++ exceptions, which is rarely what we want, so
 // instead do try { ... } catchpy
@@ -367,7 +356,7 @@ struct UEPY_API FUEPyDelegates
     static FPythonEvent1 LaunchInit; // called during initial engine startup
 };
 
-// Generic glue class for cases where you just want to subclass AActor in Python directly
+// Generic glue classes for cases where you just want to subclass certain engine classes in Python directly
 UCLASS()
 class UEPY_API AActor_CGLUE : public AActor, public IUEPYGlueMixin
 {
@@ -384,6 +373,30 @@ protected:
     virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
     virtual void Tick(float dt) override;
+};
+
+UCLASS()
+class UEPY_API APawn_CGLUE : public APawn, public IUEPYGlueMixin, public INRActorMixin
+{
+    GENERATED_BODY()
+
+    APawn_CGLUE();
+
+public:
+    void SuperBeginPlay();
+    void SuperEndPlay(EEndPlayReason::Type reason);
+    void SuperTick(float dt);
+    void SuperSetupPlayerInputComponent(UInputComponent* comp);
+
+protected:
+    virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+    virtual void Tick(float dt) override;
+	virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
+    virtual void OnReplicated() override;
+    virtual void OnNRCall(FString signature, TArray<uint8>& payload) override;
+    virtual void OnNRCall(FString signature, py::object args) override;
+    virtual void OnNRUpdate(TArray<FString>& modifiedPropertyNames);
 };
 
 // helper class for any API that accepts as an argument a UClass parameter. Allows the caller to pass in

@@ -1,4 +1,5 @@
 #include "INRActorMixin.h"
+#include "uepy.h"
 #include "Engine/NetDriver.h"
 #include "common.h"
 #include "INRPlayerControllerMixin.h"
@@ -225,7 +226,7 @@ void INRActorMixin::_CallOnReplicated()
 
 // called from subclass BeginPlay methods. TODO: it'd be nice to not need this, especially since
 // it seems like something really easy to forget, but see the note for RegisterProps.
-void INRActorMixin::NoteBeginPlay()
+void INRActorMixin::NRNoteBeginPlay()
 {
     beginPlayCalled = true;
     UNetDriver *driver = Cast<AActor>(this)->GetWorld()->GetNetDriver();
@@ -251,7 +252,7 @@ void INRActorMixin::NoteBeginPlay()
 // NRChannel is opened, it calls all INRActorMixin actors' GenChannelReplicationPayload method to get their current
 // state and sends it to the client with the isInitialState flag set just like it is in RegisterProps, and then after
 // the data has arrived, OnReplicated is called on each client.
-void INRActorMixin::RegisterProps()
+void INRActorMixin::NRRegisterProps()
 {
     UWorld* world = Cast<AActor>(this)->GetWorld();
     spawnTS = world->GetRealTimeSeconds();

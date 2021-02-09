@@ -196,9 +196,8 @@ class AActor_PGLUE(metaclass=PyGlueMetaclass):
     def SetRootComponent(self, s): self.engineObj.SetRootComponent(s)
     def GetComponentsByClass(self, klass): return self.engineObj.GetComponentsByClass(klass)
     def BeginPlay(self): self.engineObj.SuperBeginPlay()
-    def EndPlay(self, reason): pass
-    def Tick(self, dt): self.engineObj.SuperTick(dt) # # TODO: ditto
-    def SuperEndPlay(self, reason): self.engineObj.SuperEndPlay(reason)
+    def EndPlay(self, reason): self.engineObj.SuperEndPlay(reason)
+    def Tick(self, dt): self.engineObj.SuperTick(dt)
     def HasAuthority(self): return self.engineObj.HasAuthority()
     def IsActorTickEnabled(self): return self.engineObj.IsActorTickEnabled()
     def SetActorTickEnabled(self, e): self.engineObj.SetActorTickEnabled(e)
@@ -213,12 +212,34 @@ class AActor_PGLUE(metaclass=PyGlueMetaclass):
     def Call(self, funcName, *args): return self.engineObj.Call(funcName, *args)
     def UpdateTickSettings(self, canEverTick, startWithTickEnabled): self.engineObj.UpdateTickSettings(canEverTick, startWithTickEnabled)
 
+    # netrep stuffs
+    def OnNRCall(self, signature, payload): pass
+    def NRCall(self, where, funcName, *args, reliable=True, maxCallsPerSec=-1): LLNRCall(where, self.engineObj, funcName, args, reliable, maxCallsPerSec)
+    def NRUpdate(self, *, where=enums.ENRWhere.All, reliable=True, maxCallsPerSec=-1, **kwargs): self.engineObj.NRUpdate(where, kwargs, reliable, maxCallsPerSec)
+    def OnNRUpdate(self, modifiedPropNames):
+        # by default, look for any OnRep_<propName> methods that have been defined and call them
+        for name in modifiedPropNames:
+            handler = getattr(self, 'OnRep_' + name, None)
+            if handler:
+                try:
+                    handler()
+                except:
+                    logTB()
+
     @property
     def configStr(self):
         return self.engineObj.configStr
-CPROPS(AActor_PGLUE, 'Tags', 'useNewTool', 'useNewRotationStuff', 'useNewStretching')
+CPROPS(AActor_PGLUE, 'Tags', 'nr')
 
 class APawn_PGLUE(AActor_PGLUE):
+    def __init__(self):
+        super().__init__()
+        # Register any replicated properties
+        # TODO: move this into AActor_PGLUE once it won't conflict with Modus py actors
+        for name, defaultValue in getattr(self, 'repProps', {}).items():
+            self.nr.AddProperty(name, defaultValue)
+        self.engineObj.NRRegisterProps()
+
     def IsLocallyControlled(self): return self.engineObj.IsLocallyControlled()
     def SetupPlayerInputComponent(self, comp): self.engineObj.SuperSetupPlayerInputComponent(comp)
 

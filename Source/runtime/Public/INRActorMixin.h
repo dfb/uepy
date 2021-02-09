@@ -2,7 +2,7 @@
 // an interface that is implemented by any actors that want to have replicated properties
 
 #pragma once
-#include "uepy.h"
+#include "incpybind.h"
 #include "NRChannel.h"
 #include "INRActorMixin.generated.h"
 
@@ -51,10 +51,10 @@ protected:
 
 public:
     // subclasses *must* call this from their BeginPlay (but not do much else in it - see OnReplicated)
-	void NoteBeginPlay();
+	void NRNoteBeginPlay();
 
     // Called from Python to inform this object of its replicated properties
-    void RegisterProps();
+    void NRRegisterProps();
 
     // called to deliver a netrep message to this actor
     virtual void OnNRCall(FString signature, TArray<uint8>& payload) {};

@@ -1189,6 +1189,18 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("IsLocallyControlled", [](APawn& self) { return self.IsLocallyControlled(); })
         ;
 
+    py::class_<APawn_CGLUE, APawn, UnrealTracker<APawn_CGLUE>>(glueclasses, "APawn_CGLUE")
+        .def_static("StaticClass", []() { return APawn_CGLUE::StaticClass(); }) // TODO: I think this can go away once we have the C++ APIs take PyClassOrUClass
+        .def_static("Cast", [](UObject *obj) { return Cast<APawn_CGLUE>(obj); }, py::return_value_policy::reference)
+        .def("SuperBeginPlay", [](APawn_CGLUE& self) { self.SuperBeginPlay(); })
+        .def("SuperEndPlay", [](APawn_CGLUE& self, int reason) { self.SuperEndPlay((EEndPlayReason::Type)reason); })
+        .def("SuperTick", [](APawn_CGLUE& self, float dt) { self.SuperTick(dt); })
+        .def("SuperSetupPlayerInputComponent", [](APawn_CGLUE& self, UInputComponent* comp) { self.SuperSetupPlayerInputComponent(comp); })
+        .def("NRUpdate", [](APawn_CGLUE& self, int where, py::dict& kwargs, bool reliable, float maxCallsPerSec) { self.NRUpdate((ENRWhere)where, false, kwargs, reliable, maxCallsPerSec); })
+        .def("NRRegisterProps", [](APawn_CGLUE& self) { self.NRRegisterProps(); })
+        .def_property_readonly("nr", [](APawn_CGLUE& self) { return &self.repProps; }, py::return_value_policy::reference)
+        ;
+
     py::class_<USoundClass, UObject, UnrealTracker<USoundClass>>(m, "USoundClass")
         .def_static("StaticClass", []() { return USoundClass::StaticClass(); })
         .def_static("Cast", [](UObject *obj) { return Cast<USoundClass>(obj); }, py::return_value_policy::reference)

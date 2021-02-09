@@ -313,7 +313,7 @@ void FPyObjectTracker::AddReferencedObjects(FReferenceCollector& InCollector)
         InCollector.AddReferencedObject(delegate);
 }
 
-// AActor_CGLUE
+// CGLUE implementations. TODO: so much of this should be auto-generated!
 AActor_CGLUE::AActor_CGLUE() { PrimaryActorTick.bCanEverTick = true; PrimaryActorTick.bStartWithTickEnabled = false; }
 void AActor_CGLUE::BeginPlay() { try { pyInst.attr("BeginPlay")(); } catchpy; }
 void AActor_CGLUE::EndPlay(const EEndPlayReason::Type reason) { try { pyInst.attr("EndPlay")((int)reason); } catchpy; }
@@ -321,6 +321,21 @@ void AActor_CGLUE::Tick(float dt) { try { pyInst.attr("Tick")(dt); } catchpy; }
 void AActor_CGLUE::SuperBeginPlay() { Super::BeginPlay(); }
 void AActor_CGLUE::SuperEndPlay(EEndPlayReason::Type reason) { Super::EndPlay(reason); }
 void AActor_CGLUE::SuperTick(float dt) { Super::Tick(dt); }
+
+APawn_CGLUE::APawn_CGLUE() { PrimaryActorTick.bCanEverTick = true; PrimaryActorTick.bStartWithTickEnabled = false; }
+void APawn_CGLUE::BeginPlay() { Super::BeginPlay(); NRNoteBeginPlay(); } // note we do NOT call into Python here
+void APawn_CGLUE::EndPlay(const EEndPlayReason::Type reason) { try { pyInst.attr("EndPlay")((int)reason); } catchpy; }
+void APawn_CGLUE::Tick(float dt) { try { pyInst.attr("Tick")(dt); } catchpy; }
+void APawn_CGLUE::SuperBeginPlay() { Super::BeginPlay(); }
+void APawn_CGLUE::SuperEndPlay(EEndPlayReason::Type reason) { Super::EndPlay(reason); }
+void APawn_CGLUE::SuperTick(float dt) { Super::Tick(dt); }
+void APawn_CGLUE::OnReplicated() { try { pyInst.attr("OnReplicated")(); } catchpy; }
+void APawn_CGLUE::OnNRCall(FString signature, py::object args) { try { pyInst.attr("OnNRCall")(PYSTR(signature), args, false); } catchpy; }
+void APawn_CGLUE::OnNRCall(FString signature, TArray<uint8>& payload) { try { pyInst.attr("OnNRCall")(PYSTR(signature), py::memoryview::from_memory(payload.GetData(), payload.Num(), true), true); } catchpy; }
+void APawn_CGLUE::OnNRUpdate(TArray<FString>& modifiedPropertyNames) { try { py::list names; for (auto n : modifiedPropertyNames) names.append(PYSTR(n)); pyInst.attr("OnNRUpdate")(names); } catchpy; }
+void APawn_CGLUE::SuperSetupPlayerInputComponent(UInputComponent* comp) { Super::SetupPlayerInputComponent(comp); }
+void APawn_CGLUE::SetupPlayerInputComponent(UInputComponent* comp) { try { pyInst.attr("SetupPlayerInputComponent")(comp); } catchpy; }
+
 
 UClass *PyObjectToUClass(py::object& klassThing)
 {   
