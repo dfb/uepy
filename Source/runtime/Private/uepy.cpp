@@ -162,6 +162,7 @@ void FPyObjectTracker::Track(UObject *o)
     //LOG("TRK Track %s, %p", *o->GetName(), o);
     FPyObjectTracker::Slot& slot = objectMap.FindOrAdd(o);
     slot.refs++;
+    slot.objIndex = o->GetUniqueID();
 #if WITH_EDITOR
     slot.objName = o->GetName();
 #endif
@@ -170,7 +171,7 @@ void FPyObjectTracker::Track(UObject *o)
 void FPyObjectTracker::Untrack(UObject *o)
 {
     if (pyFinalized) return; // we're shutting down
-    if (!o || !o->IsValidLowLevel())
+    if (!o)
     {
 #if WITH_EDITOR
         //LERROR("Told to untrack invalid object");
@@ -196,6 +197,7 @@ UBasePythonDelegate *UBasePythonDelegate::Create(UObject *engineObj, FString _mc
     UBasePythonDelegate* delegate = NewObject<UBasePythonDelegate>();
     delegate->valid = true;
     delegate->engineObj = engineObj;
+    delegate->engineObjIndex = engineObj->GetUniqueID();
     delegate->mcDelName = _mcDelName;
     delegate->pyDelMethodName = _pyDelMethodName;
 
@@ -289,11 +291,43 @@ void FPyObjectTracker::Purge()
             it.RemoveCurrent();
     }
 
+    for (auto it = objectMap.CreateIterator(); it ; ++it)
+    {
+        UObject *obj = it->Key;
+        FPyObjectTracker::Slot& slot = it->Value;
+        if (obj->GetUniqueID() != slot.objIndex)
+        {
+            LERROR("TRK: objectMap says object %s had objIndex %u but the object says it is %u", *obj->GetName(), slot.objIndex, obj->GetUniqueID());
+        }
+
+        FUObjectItem *cur = GUObjectArray.IndexToObject(slot.objIndex);
+        if (!cur)
+        {
+            LERROR("TRK: Object %s no longer found in GUObjectArray (index %u)", *obj->GetName(), slot.objIndex);
+        }
+        else if (cur->Object && cur->Object != obj)
+        {
+            LERROR("TRK: Another object is in this object's (%s) slot", *obj->GetName());
+        }
+
+    }
+
     for (auto it = delegates.CreateIterator(); it ; ++it)
     {
         UBasePythonDelegate* delegate = *it;
-        if (!delegate->valid || !delegate->IsValidLowLevel() || !delegate->engineObj || !delegate->engineObj->IsValidLowLevel() ||
+        bool stillValid = delegate->valid && delegate->IsValidLowLevel() && !!delegate->engineObj && !!delegate->callbackOwner && Py_REFCNT(delegate->callbackOwner.ptr()) > 1;
+
+        // we can't call IsValidLowLevel on delegate->engineObj because it's not a real (tracked) ref, so it's never safe to call APIs on that object
+        // Instead, we ask the engine for the object with the known index - if it's invalid, pending kill, or a different object, we should remove this delegate
+        FUObjectItem *cur = GUObjectArray.IndexToObject(delegate->engineObjIndex);
+        if (!cur || !cur->Object || cur->IsPendingKill() || cur->Object != delegate->engineObj)
+            stillValid = false;
+
+        if (!delegate->valid || !delegate->IsValidLowLevel() || !delegate->engineObj ||
+            //!delegate->engineObj->IsValidLowLevel() || <-- we don't save a real ref to engineObj, so it's never safe to call any APIs on it!
             !delegate->callbackOwner || Py_REFCNT(delegate->callbackOwner.ptr()) <= 1)
+
+        if (!stillValid)
         {
             delegate->valid = false;
             it.RemoveCurrent();

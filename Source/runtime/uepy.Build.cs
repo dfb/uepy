@@ -6,6 +6,7 @@ public class uepy : ModuleRules
 {
     public uepy(ReadOnlyTargetRules Target) : base(Target)
     {
+        //OptimizeCode = CodeOptimization.Never;
         PCHUsage = ModuleRules.PCHUsageMode.UseExplicitOrSharedPCHs;
         bUseRTTI = true;
         bEnableExceptions = true; // needed for clipper.cpp

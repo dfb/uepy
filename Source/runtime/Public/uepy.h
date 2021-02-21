@@ -60,6 +60,7 @@
 #include "MediaTexture.h"
 #include "Paper2D/Classes/PaperSprite.h"
 #include "Particles/ParticleSystem.h"
+#include "PhysicalMaterials/PhysicalMaterial.h"
 #include "Runtime/CoreUObject/Public/UObject/GCObject.h"
 #include <functional>
 
@@ -151,6 +152,7 @@ public:
 
     // these members are kept for debugging and so we can later unbind
     UObject *engineObj; // N.B. this is a pointer to a UObject just so we can test to compare addresses, but we don't maintain a ref to it
+    uint32 engineObjIndex; // UObject.InternalIndex, so we can early detect corruption or auto-unbind
     FString mcDelName; // the name of the multicast delegate
     FString pyDelMethodName; // the name of one of our On* methods
 
@@ -192,6 +194,7 @@ class UEPY_API FPyObjectTracker : public FGCObject
         // (such as calling a Cast() function from Python), we can end up with multiple Python instances for the same UObject, so we have to do reference
         // counting here
         int refs=0;
+        uint32 objIndex=0; // UObject.InternalIndex, so we can early detect corruption
 #if WITH_EDITOR
         FString objName; // for debugging - save it at the time of tracking so we can display it even if the obj gets force-GC'd by the engine out from under us
 #endif
@@ -253,102 +256,20 @@ public:
 // them to the root set during that time - pybind's default holder is just unique_ptr, so we just wrap it to get the same effect.
 PYBIND11_DECLARE_HOLDER_TYPE(T, UnrealTracker<T>, true);
 
-#define UTYPE_HOOK(uclass) \
-    template<> struct polymorphic_type_hook<uclass> { \
-        static const void *get(const UObject *src, const std::type_info*& type) { \
-            if (src && src->StaticClass() == uclass::StaticClass()) { \
-                type = &typeid(uclass); \
-                return static_cast<const uclass*>(src); \
-            } \
-            return src; \
-        } \
-    }
-
 namespace pybind11 {
-    // TODO: figure out if there's some way to avoid this, and also figure out if the order matters
-    UTYPE_HOOK(AActor);
-    UTYPE_HOOK(APlayerController);
-    UTYPE_HOOK(UActorComponent);
-    UTYPE_HOOK(UAudioComponent);
-    UTYPE_HOOK(UBlueprintGeneratedClass);
-    UTYPE_HOOK(UBorder);
-    UTYPE_HOOK(UBorderSlot);
-    UTYPE_HOOK(UBoxComponent);
-    UTYPE_HOOK(UButton);
-    UTYPE_HOOK(UCameraComponent);
-    UTYPE_HOOK(UCanvasPanel);
-    UTYPE_HOOK(UCanvasPanelSlot);
-    UTYPE_HOOK(UCanvasRenderTarget2D);
-    UTYPE_HOOK(UCheckBox);
-    UTYPE_HOOK(UClass);
-    UTYPE_HOOK(UComboBoxString);
-    UTYPE_HOOK(UContentWidget);
-    UTYPE_HOOK(UCurveBase);
-    UTYPE_HOOK(UCurveFloat);
-    UTYPE_HOOK(UCurveVector);
-    UTYPE_HOOK(UDecalComponent);
-    UTYPE_HOOK(UEditableTextBox);
-    UTYPE_HOOK(UFileMediaSource);
-    UTYPE_HOOK(UGridPanel);
-    UTYPE_HOOK(UGridSlot);
-    UTYPE_HOOK(UHorizontalBox);
-    UTYPE_HOOK(UHorizontalBoxSlot);
-    UTYPE_HOOK(UImage);
-    UTYPE_HOOK(UInputComponent);
-    UTYPE_HOOK(UInstancedStaticMeshComponent);
-    UTYPE_HOOK(UInterface);
-    UTYPE_HOOK(ULightComponent);
-    UTYPE_HOOK(ULightComponentBase);
-    UTYPE_HOOK(ULocalLightComponent);
-    UTYPE_HOOK(UMaterial);
-    UTYPE_HOOK(UMaterialInstance);
-    UTYPE_HOOK(UMaterialInstanceConstant);
-    UTYPE_HOOK(UMaterialInstanceDynamic);
-    UTYPE_HOOK(UMaterialInterface);
-    UTYPE_HOOK(UMaterialParameterCollection);
-    UTYPE_HOOK(UMediaPlayer);
-    UTYPE_HOOK(UMediaSoundComponent);
-    UTYPE_HOOK(UMediaTexture);
-    UTYPE_HOOK(UMeshComponent);
-    UTYPE_HOOK(UNamedSlot);
-    UTYPE_HOOK(UObject);
-    UTYPE_HOOK(UOverlay);
-    UTYPE_HOOK(UOverlaySlot);
-    UTYPE_HOOK(UPanelSlot);
-    UTYPE_HOOK(UPanelWidget);
-    UTYPE_HOOK(UPaperSprite);
-    UTYPE_HOOK(UParticleSystem);
-    UTYPE_HOOK(UParticleSystemComponent);
-    UTYPE_HOOK(UPointLightComponent);
-    UTYPE_HOOK(UPrimitiveComponent);
-    UTYPE_HOOK(UScaleBox);
-    UTYPE_HOOK(UScaleBoxSlot);
-    UTYPE_HOOK(USceneComponent);
-    UTYPE_HOOK(USceneCaptureComponent);
-    UTYPE_HOOK(USceneCaptureComponent2D);
-    UTYPE_HOOK(USizeBox);
-    UTYPE_HOOK(USizeBoxSlot);
-    UTYPE_HOOK(USoundClass);
-    UTYPE_HOOK(USpacer);
-    UTYPE_HOOK(USphereComponent);
-    UTYPE_HOOK(USpotLightComponent);
-    UTYPE_HOOK(UStaticMesh);
-    UTYPE_HOOK(UStaticMeshComponent);
-    UTYPE_HOOK(UTextBlock);
-    UTYPE_HOOK(UTexture);
-    UTYPE_HOOK(UTexture2D);
-    UTYPE_HOOK(UTextRenderComponent);
-    UTYPE_HOOK(UTextureRenderTarget);
-    UTYPE_HOOK(UTextureRenderTarget2D);
-    UTYPE_HOOK(UUserWidget);
-    UTYPE_HOOK(UVerticalBox);
-    UTYPE_HOOK(UVerticalBoxSlot);
-    UTYPE_HOOK(UVisual);
-    UTYPE_HOOK(UWidget);
-    UTYPE_HOOK(UWorld);
-    UTYPE_HOOK(UWrapBox);
-    UTYPE_HOOK(UWrapBoxSlot);
-} // namespace pybind11
+    template <typename itype>
+    struct polymorphic_type_hook<itype, detail::enable_if_t<std::is_base_of<UObject, itype>::value>>
+    {
+        static const void *get(const itype *src, const std::type_info*& type)
+        {
+            if (!src)
+                type = nullptr;
+            else
+                type = &typeid(src->StaticClass());
+            return src;
+        }
+    };
+}
 
 struct UEPY_API FUEPyDelegates
 {

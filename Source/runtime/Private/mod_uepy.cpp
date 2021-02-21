@@ -367,7 +367,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         ;
 
     py::class_<UObject, UnrealTracker<UObject>>(m, "UObject")
-        .def_static("StaticClass", []() { return UObject::StaticClass(); })
+        .def_static("StaticClass", []() { return UObject::StaticClass(); }, py::return_value_policy::reference)
         .def("GetClass", [](UObject& self) { return self.GetClass(); }, py::return_value_policy::reference)
         .def("GetName", [](UObject& self) { return PYSTR(self.GetName()); })
         .def("GetPathName", [](UObject& self) { return PYSTR(self.GetPathName()); })
@@ -412,17 +412,17 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         ;
 
     py::class_<UBlueprintGeneratedClass, UClass, UnrealTracker<UBlueprintGeneratedClass>>(m, "UBlueprintGeneratedClass")
-        .def_static("StaticClass", []() { return UBlueprintGeneratedClass::StaticClass(); })
+        .def_static("StaticClass", []() { return UBlueprintGeneratedClass::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *obj) { return Cast<UBlueprintGeneratedClass>(obj); }, py::return_value_policy::reference)
         ;
 
     py::class_<UInterface, UObject, UnrealTracker<UInterface>>(m, "UInterface")
-        .def_static("StaticClass", []() { return UInterface::StaticClass(); })
+        .def_static("StaticClass", []() { return UInterface::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *obj) { return Cast<UInterface>(obj); }, py::return_value_policy::reference)
         ;
 
     py::class_<UCurveBase, UObject, UnrealTracker<UCurveBase>>(m, "UCurveBase")
-        .def_static("StaticClass", []() { return UCurveBase::StaticClass(); })
+        .def_static("StaticClass", []() { return UCurveBase::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *obj) { return Cast<UCurveBase>(obj); }, py::return_value_policy::reference)
         .def("CreateCurveFromCSVString", [](UCurveBase& self, std::string s) { self.CreateCurveFromCSVString(FSTR(s)); })
         .def("ResetCurve", [](UCurveBase& self) { self.ResetCurve(); })
@@ -441,19 +441,19 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         ;
 
     py::class_<UCurveFloat, UCurveBase, UnrealTracker<UCurveFloat>>(m, "UCurveFloat")
-        .def_static("StaticClass", []() { return UCurveFloat::StaticClass(); })
+        .def_static("StaticClass", []() { return UCurveFloat::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *obj) { return Cast<UCurveFloat>(obj); }, py::return_value_policy::reference)
         .def("GetFloatValue", [](UCurveFloat& self, float f) { return self.GetFloatValue(f); })
         ;
 
     py::class_<UCurveVector, UCurveBase, UnrealTracker<UCurveVector>>(m, "UCurveVector")
-        .def_static("StaticClass", []() { return UCurveVector::StaticClass(); })
+        .def_static("StaticClass", []() { return UCurveVector::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *obj) { return Cast<UCurveVector>(obj); }, py::return_value_policy::reference)
         .def("GetVectorValue", [](UCurveVector& self, float f) { return self.GetVectorValue(f); })
         ;
 
     py::class_<UStaticMesh, UObject, UnrealTracker<UStaticMesh>>(m, "UStaticMesh")
-        .def_static("StaticClass", []() { return UStaticMesh::StaticClass(); })
+        .def_static("StaticClass", []() { return UStaticMesh::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *obj) { return Cast<UStaticMesh>(obj); }, py::return_value_policy::reference)
         .def("GetBounds", [](UStaticMesh& self) { return self.GetBounds(); })
         .def("GetBoundingBox", [](UStaticMesh& self) { return self.GetBoundingBox(); })
@@ -461,7 +461,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         ;
 
     py::class_<UActorComponent, UObject, UnrealTracker<UActorComponent>>(m, "UActorComponent")
-        .def_static("StaticClass", []() { return UActorComponent::StaticClass(); })
+        .def_static("StaticClass", []() { return UActorComponent::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *obj) { return Cast<UActorComponent>(obj); }, py::return_value_policy::reference)
         .def("ComponentHasTag", [](UActorComponent& self, std::string& tag) { return self.ComponentHasTag(FSTR(tag)); })
         .def("SetActive", [](UActorComponent& self, bool a) { self.SetActive(a); })
@@ -486,7 +486,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         ;
 
     py::class_<UInputComponent, UObject, UnrealTracker<UInputComponent>>(m, "UInputComponent")
-        .def_static("StaticClass", []() { return UInputComponent::StaticClass(); })
+        .def_static("StaticClass", []() { return UInputComponent::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *obj) { return Cast<UInputComponent>(obj); }, py::return_value_policy::reference)
         .def("BindAction", [](UInputComponent& self, std::string actionName, int keyEvent, py::object callback)
         {
@@ -505,7 +505,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         ;
 
     py::class_<USceneComponent, UActorComponent, UnrealTracker<USceneComponent>>(m, "USceneComponent")
-        .def_static("StaticClass", []() { return USceneComponent::StaticClass(); })
+        .def_static("StaticClass", []() { return USceneComponent::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *obj) { return Cast<USceneComponent>(obj); }, py::return_value_policy::reference)
         .def("GetRelativeLocation", [](USceneComponent& self) { return self.GetRelativeLocation(); })
         .def("SetRelativeLocation", [](USceneComponent& self, FVector v) { self.SetRelativeLocation(v); })
@@ -565,7 +565,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         ;
 
     py::class_<UDecalComponent, USceneComponent, UnrealTracker<UDecalComponent>>(m, "UDecalComponent")
-        .def_static("StaticClass", []() { return UDecalComponent::StaticClass(); })
+        .def_static("StaticClass", []() { return UDecalComponent::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *obj) { return Cast<UDecalComponent>(obj); }, py::return_value_policy::reference)
         .def_readwrite("DecalSize", &UDecalComponent::DecalSize)
         .def("SetFadeIn", [](UDecalComponent& self, float startDelay, float dur) { self.SetFadeIn(startDelay, dur); })
@@ -575,7 +575,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         ;
 
     py::class_<UPrimitiveComponent, USceneComponent, UnrealTracker<UPrimitiveComponent>>(m, "UPrimitiveComponent")
-        .def_static("StaticClass", []() { return UPrimitiveComponent::StaticClass(); })
+        .def_static("StaticClass", []() { return UPrimitiveComponent::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *obj) { return Cast<UPrimitiveComponent>(obj); }, py::return_value_policy::reference)
         .def("SetCollisionEnabled", [](UPrimitiveComponent& self, int c) { self.SetCollisionEnabled((ECollisionEnabled::Type)c); })
         .def("SetCollisionObjectType", [](UPrimitiveComponent& self, int c) { self.SetCollisionObjectType((ECollisionChannel)c); })
@@ -589,7 +589,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         ;
 
     py::class_<UFXSystemComponent, UPrimitiveComponent, UnrealTracker<UFXSystemComponent>>(m, "UFXSystemComponent")
-        .def_static("StaticClass", []() { return UFXSystemComponent::StaticClass(); })
+        .def_static("StaticClass", []() { return UFXSystemComponent::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *obj) { return Cast<UFXSystemComponent>(obj); }, py::return_value_policy::reference)
         .def("SetFloatParameter", [](UFXSystemComponent& self, std::string name, float v) { self.SetFloatParameter(FSTR(name), v); })
         .def("SetVectorParameter", [](UFXSystemComponent& self, std::string name, FVector& v) { self.SetVectorParameter(FSTR(name), v); })
@@ -598,43 +598,43 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         ;
 
     py::class_<UParticleSystemComponent, UFXSystemComponent, UnrealTracker<UParticleSystemComponent>>(m, "UParticleSystemComponent")
-        .def_static("StaticClass", []() { return UParticleSystemComponent::StaticClass(); })
+        .def_static("StaticClass", []() { return UParticleSystemComponent::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *obj) { return Cast<UParticleSystemComponent>(obj); }, py::return_value_policy::reference)
         .def("SetTemplate", [](UParticleSystemComponent& self, UParticleSystem* sys) { self.SetTemplate(sys); })
         ;
 
     py::class_<UTextRenderComponent, UPrimitiveComponent, UnrealTracker<UTextRenderComponent>>(m, "UTextRenderComponent")
-        .def_static("StaticClass", []() { return UTextRenderComponent::StaticClass(); })
+        .def_static("StaticClass", []() { return UTextRenderComponent::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *obj) { return Cast<UTextRenderComponent>(obj); }, py::return_value_policy::reference)
         .def("SetText", [](UTextRenderComponent& self, std::string s) { self.SetText(FSTR(s)); })
         ;
 
     py::class_<UShapeComponent, UPrimitiveComponent, UnrealTracker<UShapeComponent>>(m, "UShapeComponent")
-        .def_static("StaticClass", []() { return UShapeComponent::StaticClass(); })
+        .def_static("StaticClass", []() { return UShapeComponent::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *obj) { return Cast<UShapeComponent>(obj); }, py::return_value_policy::reference)
         ;
 
     py::class_<USphereComponent, UShapeComponent, UnrealTracker<USphereComponent>>(m, "USphereComponent")
-        .def_static("StaticClass", []() { return USphereComponent::StaticClass(); })
+        .def_static("StaticClass", []() { return USphereComponent::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *obj) { return Cast<USphereComponent>(obj); }, py::return_value_policy::reference)
         .def("SetSphereRadius", [](USphereComponent& self, float r) { self.SetSphereRadius(r); })
         ;
 
     py::class_<UBoxComponent, UShapeComponent, UnrealTracker<UBoxComponent>>(m, "UBoxComponent")
-        .def_static("StaticClass", []() { return UBoxComponent::StaticClass(); })
+        .def_static("StaticClass", []() { return UBoxComponent::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *obj) { return Cast<UBoxComponent>(obj); }, py::return_value_policy::reference)
         .def("SetBoxExtent", [](UBoxComponent& self, FVector& e) { self.SetBoxExtent(e); })
         .def("GetUnscaledBoxExtent", [](UBoxComponent& self) { return self.GetUnscaledBoxExtent(); }) // this is the same as boxComp.BoxExtent
         ;
 
     py::class_<UMeshComponent, UPrimitiveComponent, UnrealTracker<UMeshComponent>>(m, "UMeshComponent")
-        .def_static("StaticClass", []() { return UMeshComponent::StaticClass(); })
+        .def_static("StaticClass", []() { return UMeshComponent::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *obj) { return Cast<UMeshComponent>(obj); }, py::return_value_policy::reference)
         .def("SetMaterial", [](UMeshComponent& self, int index, UMaterialInterface* mat) { self.SetMaterial(index, mat); })
         ;
 
     py::class_<UStaticMeshComponent, UMeshComponent, UnrealTracker<UStaticMeshComponent>>(m, "UStaticMeshComponent")
-        .def_static("StaticClass", []() { return UStaticMeshComponent::StaticClass(); })
+        .def_static("StaticClass", []() { return UStaticMeshComponent::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *obj) { return Cast<UStaticMeshComponent>(obj); }, py::return_value_policy::reference)
         .def("GetStaticMesh", [](UStaticMeshComponent& self) { return self.GetStaticMesh(); }, py::return_value_policy::reference)
         .def("SetStaticMesh", [](UStaticMeshComponent& self, UStaticMesh *newMesh) -> bool { return self.SetStaticMesh(newMesh); })
@@ -643,7 +643,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         ;
 
     py::class_<UInstancedStaticMeshComponent, UStaticMeshComponent, UnrealTracker<UInstancedStaticMeshComponent>>(m, "UInstancedStaticMeshComponent")
-        .def_static("StaticClass", []() { return UInstancedStaticMeshComponent::StaticClass(); })
+        .def_static("StaticClass", []() { return UInstancedStaticMeshComponent::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *obj) { return Cast<UInstancedStaticMeshComponent>(obj); }, py::return_value_policy::reference)
         .def("AddInstance", [](UInstancedStaticMeshComponent& self, FTransform& t) { return self.AddInstance(t); })
         .def("RemoveInstance", [](UInstancedStaticMeshComponent& self, int index) { return self.RemoveInstance(index); })
@@ -653,7 +653,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         ;
 
     py::class_<UWorld, UObject, UnrealTracker<UWorld>>(m, "UWorld")
-        .def_static("StaticClass", []() { return UWorld::StaticClass(); })
+        .def_static("StaticClass", []() { return UWorld::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *obj) { return Cast<UWorld>(obj); }, py::return_value_policy::reference)
         .def_property_readonly("WorldType", [](UWorld& self) { return (int)self.WorldType; })
         .def("GetAllActors", [](UWorld* self)
@@ -726,7 +726,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
             ret.append(hitResult);
             ret.append(hit);
             return ret;
-        }, py::arg("worldCtx"), py::arg("start"), py::arg("end"), py::arg("channel"), py::arg("isComplex"), py::arg("_ignore"), py::arg("type"), py::arg("ignoreSelf"), py::arg("traceColor")=FLinearColor::Red, py::arg("hitColor")=FLinearColor::Green, py::arg("drawTime")=5.0f)
+        }, py::return_value_policy::reference, py::arg("worldCtx"), py::arg("start"), py::arg("end"), py::arg("channel"), py::arg("isComplex"), py::arg("_ignore"), py::arg("type"), py::arg("ignoreSelf"), py::arg("traceColor")=FLinearColor::Red, py::arg("hitColor")=FLinearColor::Green, py::arg("drawTime")=5.0f)
         ;
 
     py::class_<UImportanceSamplingLibrary, UObject, UnrealTracker<UImportanceSamplingLibrary>>(m, "UImportanceSamplingLibrary")
@@ -818,28 +818,29 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         ;
 
     py::class_<UMaterialInterface, UObject, UnrealTracker<UMaterialInterface>>(m, "UMaterialInterface")
-        .def_static("StaticClass", []() { return UMaterialInterface::StaticClass(); })
+        .def_static("StaticClass", []() { return UMaterialInterface::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *obj) { return Cast<UMaterialInterface>(obj); }, py::return_value_policy::reference)
         ;
 
     py::class_<UMaterial, UMaterialInterface, UnrealTracker<UMaterial>>(m, "UMaterial")
-        .def_static("StaticClass", []() { return UMaterial::StaticClass(); })
+        .def_static("StaticClass", []() { return UMaterial::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *obj) { return Cast<UMaterial>(obj); }, py::return_value_policy::reference)
         ;
 
     py::class_<UMaterialInstance, UMaterialInterface, UnrealTracker<UMaterialInstance>>(m, "UMaterialInstance")
-        .def_static("StaticClass", []() { return UMaterialInstance::StaticClass(); })
+        .def_static("StaticClass", []() { return UMaterialInstance::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *obj) { return Cast<UMaterialInstance>(obj); }, py::return_value_policy::reference)
         .def_readwrite("Parent", &UMaterialInstance::Parent, py::return_value_policy::reference)
+        .def_readwrite("PhysMaterial", &UMaterialInstance::PhysMaterial, py::return_value_policy::reference)
         ;
 
     py::class_<UMaterialInstanceConstant, UMaterialInstance, UnrealTracker<UMaterialInstanceConstant>>(m, "UMaterialInstanceConstant")
-        .def_static("StaticClass", []() { return UMaterialInstanceConstant::StaticClass(); })
+        .def_static("StaticClass", []() { return UMaterialInstanceConstant::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *obj) { return Cast<UMaterialInstanceConstant>(obj); }, py::return_value_policy::reference)
         ;
 
     py::class_<UMaterialInstanceDynamic, UMaterialInstance, UnrealTracker<UMaterialInstanceDynamic>>(m, "UMaterialInstanceDynamic")
-        .def_static("StaticClass", []() { return UMaterialInstanceDynamic::StaticClass(); })
+        .def_static("StaticClass", []() { return UMaterialInstanceDynamic::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *obj) { return Cast<UMaterialInstanceDynamic>(obj); }, py::return_value_policy::reference)
         .def("SetTextureParameterValue", [](UMaterialInstanceDynamic& self, std::string name, UTexture* value) -> void { self.SetTextureParameterValue(UTF8_TO_TCHAR(name.c_str()), value); })
         .def("SetScalarParameterValue", [](UMaterialInstanceDynamic& self, std::string name, float v) { self.SetScalarParameterValue(FSTR(name), v); })
@@ -849,17 +850,17 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         ;
 
     py::class_<UMaterialParameterCollection, UObject, UnrealTracker<UMaterialParameterCollection>>(m, "UMaterialParameterCollection")
-        .def_static("StaticClass", []() { return UMaterialParameterCollection::StaticClass(); })
+        .def_static("StaticClass", []() { return UMaterialParameterCollection::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *obj) { return Cast<UMaterialParameterCollection>(obj); }, py::return_value_policy::reference)
         ;
 
     py::class_<UFXSystemAsset, UObject, UnrealTracker<UFXSystemAsset>>(m, "UFXSystemAsset")
-        .def_static("StaticClass", []() { return UFXSystemAsset::StaticClass(); })
+        .def_static("StaticClass", []() { return UFXSystemAsset::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *obj) { return Cast<UFXSystemAsset>(obj); }, py::return_value_policy::reference)
         ;
 
     py::class_<UParticleSystem, UFXSystemAsset, UnrealTracker<UParticleSystem>>(m, "UParticleSystem")
-        .def_static("StaticClass", []() { return UParticleSystem::StaticClass(); })
+        .def_static("StaticClass", []() { return UParticleSystem::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *obj) { return Cast<UParticleSystem>(obj); }, py::return_value_policy::reference)
         ;
 
@@ -869,25 +870,25 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         ;
 
     py::class_<UTexture, UObject, UnrealTracker<UTexture>>(m, "UTexture")
-        .def_static("StaticClass", []() { return UTexture::StaticClass(); })
+        .def_static("StaticClass", []() { return UTexture::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *w) { return Cast<UTexture>(w); }, py::return_value_policy::reference)
         ;
 
     py::class_<UTexture2D, UTexture, UnrealTracker<UTexture2D>>(m, "UTexture2D")
-        .def_static("StaticClass", []() { return UTexture2D::StaticClass(); })
+        .def_static("StaticClass", []() { return UTexture2D::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *w) { return Cast<UTexture2D>(w); }, py::return_value_policy::reference)
         .def("GetSizeX", [](UTexture2D& self) { return self.GetSizeX(); })
         .def("GetSizeY", [](UTexture2D& self) { return self.GetSizeY(); })
         ;
 
     py::class_<UTextureRenderTarget, UTexture, UnrealTracker<UTextureRenderTarget>>(m, "UTextureRenderTarget")
-        .def_static("StaticClass", []() { return UTextureRenderTarget::StaticClass(); })
+        .def_static("StaticClass", []() { return UTextureRenderTarget::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *w) { return Cast<UTextureRenderTarget>(w); }, py::return_value_policy::reference)
         .def_readwrite("TargetGamma", &UTextureRenderTarget::TargetGamma)
         ;
 
     py::class_<UTextureRenderTarget2D, UTextureRenderTarget, UnrealTracker<UTextureRenderTarget2D>>(m, "UTextureRenderTarget2D")
-        .def_static("StaticClass", []() { return UTextureRenderTarget2D::StaticClass(); })
+        .def_static("StaticClass", []() { return UTextureRenderTarget2D::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *w) { return Cast<UTextureRenderTarget2D>(w); }, py::return_value_policy::reference)
         .def_readonly("SizeX", &UTextureRenderTarget2D::SizeX)
         .def_readonly("SizeY", &UTextureRenderTarget2D::SizeY)
@@ -895,7 +896,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         ;
 
     py::class_<UCanvasRenderTarget2D, UTextureRenderTarget2D, UnrealTracker<UCanvasRenderTarget2D>>(m, "UCanvasRenderTarget2D")
-        .def_static("StaticClass", []() { return UCanvasRenderTarget2D::StaticClass(); })
+        .def_static("StaticClass", []() { return UCanvasRenderTarget2D::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *w) { return Cast<UCanvasRenderTarget2D>(w); }, py::return_value_policy::reference)
         .def_static("CreateCanvasRenderTarget2D", [](UObject* worldCtx, py::object& _subclass, int w, int h)
         {
@@ -910,17 +911,17 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         ;
 
     py::class_<UMediaTexture, UTexture, UnrealTracker<UMediaTexture>>(m, "UMediaTexture")
-        .def_static("StaticClass", []() { return UMediaTexture::StaticClass(); })
+        .def_static("StaticClass", []() { return UMediaTexture::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *w) { return Cast<UMediaTexture>(w); }, py::return_value_policy::reference)
         ;
 
     py::class_<UGameInstance, UObject, UnrealTracker<UGameInstance>>(m, "UGameInstance")
-        .def_static("StaticClass", []() { return UGameInstance::StaticClass(); })
+        .def_static("StaticClass", []() { return UGameInstance::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *w) { return Cast<UGameInstance>(w); }, py::return_value_policy::reference)
         ;
 
     py::class_<AActor, UObject, UnrealTracker<AActor>>(m, "AActor")
-        .def_static("StaticClass", []() { return AActor::StaticClass(); })
+        .def_static("StaticClass", []() { return AActor::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *obj) { return Cast<AActor>(obj); }, py::return_value_policy::reference)
         .def("GetWorld", [](AActor& self) { return self.GetWorld(); }, py::return_value_policy::reference)
         .def("GetActorLocation", [](AActor& self) { return self.GetActorLocation(); })
@@ -969,22 +970,22 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         ;
 
     py::class_<AController, AActor, UnrealTracker<AController>>(m, "AController")
-        .def_static("StaticClass", []() { return AController::StaticClass(); })
+        .def_static("StaticClass", []() { return AController::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *obj) { return Cast<AController>(obj); }, py::return_value_policy::reference)
         .def("GetPawn", [](AController& self) { return self.GetPawn(); }, py::return_value_policy::reference)
         ;
 
     py::class_<APlayerController, AController, UnrealTracker<APlayerController>>(m, "APlayerController")
-        .def_static("StaticClass", []() { return APlayerController::StaticClass(); })
+        .def_static("StaticClass", []() { return APlayerController::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *obj) { return Cast<APlayerController>(obj); }, py::return_value_policy::reference)
         ;
 
     py::class_<AGameStateBase, AActor, UnrealTracker<AGameStateBase>>(m, "AGameStateBase")
-        .def_static("StaticClass", []() { return AGameStateBase::StaticClass(); })
+        .def_static("StaticClass", []() { return AGameStateBase::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *obj) { return Cast<AGameStateBase>(obj); }, py::return_value_policy::reference)
         ;
     py::class_<AGameState, AGameStateBase, UnrealTracker<AGameState>>(m, "AGameState")
-        .def_static("StaticClass", []() { return AGameState::StaticClass(); })
+        .def_static("StaticClass", []() { return AGameState::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *obj) { return Cast<AGameState>(obj); }, py::return_value_policy::reference)
         ;
 
@@ -1175,7 +1176,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
     }, py::return_value_policy::reference, py::arg("class"), py::arg("owner"), py::arg("name")="");
 
     py::class_<AActor_CGLUE, AActor, UnrealTracker<AActor_CGLUE>>(glueclasses, "AActor_CGLUE")
-        .def_static("StaticClass", []() { return AActor_CGLUE::StaticClass(); }) // TODO: I think this can go away once we have the C++ APIs take PyClassOrUClass
+        .def_static("StaticClass", []() { return AActor_CGLUE::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *obj) { return Cast<AActor_CGLUE>(obj); }, py::return_value_policy::reference)
         .def("SuperBeginPlay", [](AActor_CGLUE& self) { self.SuperBeginPlay(); })
         .def("SuperEndPlay", [](AActor_CGLUE& self, int reason) { self.SuperEndPlay((EEndPlayReason::Type)reason); })
@@ -1184,13 +1185,13 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         ;
 
     py::class_<APawn, AActor, UnrealTracker<APawn>>(m, "APawn")
-        .def_static("StaticClass", []() { return APawn::StaticClass(); })
+        .def_static("StaticClass", []() { return APawn::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *w) { return Cast<APawn>(w); }, py::return_value_policy::reference)
         .def("IsLocallyControlled", [](APawn& self) { return self.IsLocallyControlled(); })
         ;
 
     py::class_<APawn_CGLUE, APawn, UnrealTracker<APawn_CGLUE>>(glueclasses, "APawn_CGLUE")
-        .def_static("StaticClass", []() { return APawn_CGLUE::StaticClass(); }) // TODO: I think this can go away once we have the C++ APIs take PyClassOrUClass
+        .def_static("StaticClass", []() { return APawn_CGLUE::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *obj) { return Cast<APawn_CGLUE>(obj); }, py::return_value_policy::reference)
         .def("SuperBeginPlay", [](APawn_CGLUE& self) { self.SuperBeginPlay(); })
         .def("SuperEndPlay", [](APawn_CGLUE& self, int reason) { self.SuperEndPlay((EEndPlayReason::Type)reason); })
@@ -1202,12 +1203,12 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         ;
 
     py::class_<USoundClass, UObject, UnrealTracker<USoundClass>>(m, "USoundClass")
-        .def_static("StaticClass", []() { return USoundClass::StaticClass(); })
+        .def_static("StaticClass", []() { return USoundClass::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *obj) { return Cast<USoundClass>(obj); }, py::return_value_policy::reference)
         ;
 
     py::class_<UMediaPlayer, UObject, UnrealTracker<UMediaPlayer>>(m, "UMediaPlayer")
-        .def_static("StaticClass", []() { return UMediaPlayer::StaticClass(); })
+        .def_static("StaticClass", []() { return UMediaPlayer::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *obj) { return Cast<UMediaPlayer>(obj); }, py::return_value_policy::reference)
         .def("OpenSource", [](UMediaPlayer& self, UMediaSource* source) { return self.OpenSource(source); })
         .def("SetRate", [](UMediaPlayer& self, float rate) { return self.SetRate(rate); })
@@ -1220,24 +1221,24 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         ;
 
     py::class_<UMediaSource, UObject, UnrealTracker<UMediaSource>>(m, "UMediaSource")
-        .def_static("StaticClass", []() { return UMediaSource::StaticClass(); })
+        .def_static("StaticClass", []() { return UMediaSource::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *obj) { return Cast<UMediaSource>(obj); }, py::return_value_policy::reference)
         ;
 
     py::class_<UFileMediaSource, UMediaSource, UnrealTracker<UFileMediaSource>>(m, "UFileMediaSource") // TODO: actually it's UFileMediaSource<--UBaseMediaSource<--UMediaSource
-        .def_static("StaticClass", []() { return UFileMediaSource::StaticClass(); })
+        .def_static("StaticClass", []() { return UFileMediaSource::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *obj) { return Cast<UFileMediaSource>(obj); }, py::return_value_policy::reference)
         .def("SetFilePath", [](UFileMediaSource& self, py::str path) { std::string p = path; self.SetFilePath(p.c_str()); })
         ;
 
     py::class_<UAudioComponent, USceneComponent, UnrealTracker<UAudioComponent>>(m, "UAudioComponent")
-        .def_static("StaticClass", []() { return UAudioComponent::StaticClass(); })
+        .def_static("StaticClass", []() { return UAudioComponent::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *obj) { return Cast<UAudioComponent>(obj); }, py::return_value_policy::reference)
         .def_readwrite("VolumeMultiplier", &UAudioComponent::VolumeMultiplier)
         ;
 
     py::class_<USynthComponent, USceneComponent, UnrealTracker<USynthComponent>>(m, "USynthComponent")
-        .def_static("StaticClass", []() { return USynthComponent::StaticClass(); })
+        .def_static("StaticClass", []() { return USynthComponent::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *obj) { return Cast<USynthComponent>(obj); }, py::return_value_policy::reference)
         .def_readwrite("SoundClass", &USynthComponent::SoundClass, py::return_value_policy::reference)
         .def_property("bIsUISound", [](USynthComponent& self) { return self.bIsUISound; }, [](USynthComponent& self, bool b) { self.bIsUISound = b; }) // for some reason I couldn't bind this prop directly. Maybe because it's a uint8?
@@ -1245,7 +1246,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         ;
 
     py::class_<UMediaSoundComponent, USynthComponent, UnrealTracker<UMediaSoundComponent>>(m, "UMediaSoundComponent")
-        .def_static("StaticClass", []() { return UMediaSoundComponent::StaticClass(); })
+        .def_static("StaticClass", []() { return UMediaSoundComponent::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *obj) { return Cast<UMediaSoundComponent>(obj); }, py::return_value_policy::reference)
         .def("SetMediaPlayer", [](UMediaSoundComponent& self, UMediaPlayer* player) { self.SetMediaPlayer(player); })
         .def("SetVolumeMultiplier", [](UMediaSoundComponent& self, float m) { self.SetVolumeMultiplier(m); })
@@ -1253,7 +1254,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         ;
 
     py::class_<ULightComponentBase, USceneComponent, UnrealTracker<ULightComponentBase>>(m, "ULightComponentBase")
-        .def_static("StaticClass", []() { return ULightComponentBase::StaticClass(); })
+        .def_static("StaticClass", []() { return ULightComponentBase::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *obj) { return Cast<ULightComponentBase>(obj); }, py::return_value_policy::reference)
         .def_readwrite("Intensity", &ULightComponentBase::Intensity)
         .def("SetCastStaticShadows", [](ULightComponentBase& self, bool b) { self.CastStaticShadows = b; })
@@ -1271,7 +1272,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         ;
 
     py::class_<ULightComponent, ULightComponentBase, UnrealTracker<ULightComponent>>(m, "ULightComponent")
-        .def_static("StaticClass", []() { return ULightComponent::StaticClass(); })
+        .def_static("StaticClass", []() { return ULightComponent::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *obj) { return Cast<ULightComponent>(obj); }, py::return_value_policy::reference)
         .def_property("bUseTemperature", [](ULightComponent& self) { return (bool)self.bUseTemperature; }, [](ULightComponent& self, bool b) { self.bUseTemperature=(int32)b; })
         .def("GetBoundingBox", [](ULightComponent& self) { return self.GetBoundingBox(); })
@@ -1303,7 +1304,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         ;
 
     py::class_<ULocalLightComponent, ULightComponent, UnrealTracker<ULocalLightComponent>>(m, "ULocalLightComponent")
-        .def_static("StaticClass", []() { return ULocalLightComponent::StaticClass(); })
+        .def_static("StaticClass", []() { return ULocalLightComponent::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *obj) { return Cast<ULocalLightComponent>(obj); }, py::return_value_policy::reference)
         .def("SetAttenuationRadius", [](ULocalLightComponent& self, float r) { self.SetAttenuationRadius(r); })
         .def_readonly("AttenuationRadius", &ULocalLightComponent::AttenuationRadius)
@@ -1311,7 +1312,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         ;
 
     py::class_<UPointLightComponent, ULocalLightComponent, UnrealTracker<UPointLightComponent>>(m, "UPointLightComponent")
-        .def_static("StaticClass", []() { return UPointLightComponent::StaticClass(); })
+        .def_static("StaticClass", []() { return UPointLightComponent::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *obj) { return Cast<UPointLightComponent>(obj); }, py::return_value_policy::reference)
         .def("SetLightFalloffExponent", [](UPointLightComponent& self, float f) { self.SetLightFalloffExponent(f); })
         .def("SetSourceRadius", [](UPointLightComponent& self, float f) { self.SetSourceRadius(f); })
@@ -1321,14 +1322,14 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         ;
 
     py::class_<USpotLightComponent, UPointLightComponent, UnrealTracker<USpotLightComponent>>(m, "USpotLightComponent")
-        .def_static("StaticClass", []() { return USpotLightComponent::StaticClass(); })
+        .def_static("StaticClass", []() { return USpotLightComponent::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *obj) { return Cast<USpotLightComponent>(obj); }, py::return_value_policy::reference)
         .def("SetInnerConeAngle", [](USpotLightComponent& self, float f) { self.SetInnerConeAngle(f); })
         .def("SetOuterConeAngle", [](USpotLightComponent& self, float f) { self.SetOuterConeAngle(f); })
         ;
 
     py::class_<USceneCaptureComponent, USceneComponent, UnrealTracker<USceneCaptureComponent>>(m, "USceneCaptureComponent")
-        .def_static("StaticClass", []() { return USceneCaptureComponent::StaticClass(); })
+        .def_static("StaticClass", []() { return USceneCaptureComponent::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *obj) { return Cast<USceneCaptureComponent>(obj); }, py::return_value_policy::reference)
         .def_property("bCaptureEveryFrame", [](USceneCaptureComponent& self) { return self.bCaptureEveryFrame; }, [](USceneCaptureComponent& self, bool b) { self.bCaptureEveryFrame = b; })
         ENUM_PROP(CaptureSource, ESceneCaptureSource, USceneCaptureComponent)
@@ -1336,7 +1337,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         ;
 
     py::class_<USceneCaptureComponent2D, USceneCaptureComponent, UnrealTracker<USceneCaptureComponent2D>>(m, "USceneCaptureComponent2D")
-        .def_static("StaticClass", []() { return USceneCaptureComponent2D::StaticClass(); })
+        .def_static("StaticClass", []() { return USceneCaptureComponent2D::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *obj) { return Cast<USceneCaptureComponent2D>(obj); }, py::return_value_policy::reference)
         .def_readwrite("FOVAngle", &USceneCaptureComponent2D::FOVAngle)
         .def_readwrite("TextureTarget", &USceneCaptureComponent2D::TextureTarget, py::return_value_policy::reference)
@@ -1344,7 +1345,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         ;
 
     py::class_<UCameraComponent, USceneComponent, UnrealTracker<UCameraComponent>>(m, "UCameraComponent")
-        .def_static("StaticClass", []() { return UCameraComponent::StaticClass(); })
+        .def_static("StaticClass", []() { return UCameraComponent::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *obj) { return Cast<UCameraComponent>(obj); }, py::return_value_policy::reference)
         ;
 
@@ -1357,10 +1358,15 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         ;
 
     py::class_<UPaperSprite, UObject, UnrealTracker<UPaperSprite>>(m, "UPaperSprite")
-        .def_static("StaticClass", []() { return UPaperSprite::StaticClass(); })
+        .def_static("StaticClass", []() { return UPaperSprite::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *obj) { return Cast<UPaperSprite>(obj); }, py::return_value_policy::reference)
         .def("GetBakedTexture", [](UPaperSprite& self) { return self.GetBakedTexture(); }, py::return_value_policy::reference)
         .def("GetSlateAtlasData", [](UPaperSprite& self) { return self.GetSlateAtlasData(); }, py::return_value_policy::reference)
+        ;
+
+    py::class_<UPhysicalMaterial, UObject, UnrealTracker<UPhysicalMaterial>>(m, "UPhysicalMaterial")
+        .def_static("StaticClass", []() { return UPhysicalMaterial::StaticClass(); }, py::return_value_policy::reference)
+        .def_static("Cast", [](UObject *obj) { return Cast<UPhysicalMaterial>(obj); }, py::return_value_policy::reference)
         ;
 
     // net rep stuff
