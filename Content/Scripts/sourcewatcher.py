@@ -27,13 +27,27 @@ def logTB():
 class ImportFinder(ast.NodeVisitor):
     def __init__(self):
         super().__init__()
+        self.funcDepth = 0 # used to track if we're inside a function definition or not
         self.moduleNames = set()
 
+    def visit_FunctionDef(self, node):
+        self.funcDepth += 1
+        try:
+            self.generic_visit(node)
+        finally:
+            self.funcDepth -= 1
+
     def visit_Import(self, node):
+        if self.funcDepth > 0:
+            # Ignore inner imports as those often create cycles that are too hard to handle properly
+            return
         for alias in node.names:
             self.moduleNames.add(alias.name)
 
     def visit_ImportFrom(self, node):
+        if self.funcDepth > 0:
+            # Ignore inner imports as those often create cycles that are too hard to handle properly
+            return
         # Multiple cases here:
         # from module import submodule
         # from module import someVar
@@ -64,7 +78,7 @@ class ModuleInfoTracker:
             self.name = name
             self.iisr = isInSourceRoots
             self.savedState = None # returned from module's OnModuleBeforeReload
-            self.imports = set() # ModuleInfo instances for modules this module directly imports
+            self.imports = [] # ModuleInfo instances for modules this module directly imports
             self.importedBy = set() # ModuleInfo instances for modules that directly import this module
             f = self.filename = filename
             self.isAppSource = f and not f.endswith('.pyd') and isInSourceRoots # True if this module comes from a .py file and that file lives in one of the source roots
@@ -160,28 +174,34 @@ class ModuleInfoTracker:
                     if not otherModule:
                         continue
                     otherMI = self.InfoFor(otherModule)
-                    mi.imports.add(otherMI)
+                    mi.imports.append(otherMI)
                     otherMI.importedBy.add(mi)
         return mi
 
-    def MarkReloadModules(self):
+    def MarkReloadModules(self, skipMarking=None):
         '''Sets .needsReload=T|F on any module based on whether or not each has changed or if any of
-        its dependencies have changed. Returns the list of names of modules that need to be reloaded.'''
+        its dependencies have changed. Returns the list of names of modules that need to be reloaded. if
+        skipMarking is not None, it is a list of module names that can still be scanned but that should not
+        be marked as needing a reload.'''
         rootMIs = [x for x in self.modules.values() if x.IsRoot()]
         reloadNames = []
+        scannedNames = []
         for mi in rootMIs:
-            reloadNames.extend(self._MarkReloadTree(mi))
+            reloadNames.extend(self._MarkReloadTree(mi, skipMarking or [], scannedNames))
         return reloadNames # Note: this list may contain duplicates, even though we won't reload a module multiple times in one go
 
-    def _MarkReloadTree(self, mi):
+    def _MarkReloadTree(self, mi, skipMarking, scannedNames):
+        if mi.name not in scannedNames:
+            scannedNames.append(mi.name)
         reloadNames = []
         needsReload = False
         for otherMI in mi.imports:
-            reloadNames.extend(self._MarkReloadTree(otherMI))
-            if otherMI.needsReload:
+            if otherMI.name not in scannedNames:
+                reloadNames.extend(self._MarkReloadTree(otherMI, skipMarking, scannedNames))
+            if getattr(otherMI, 'needsReload', False):
                 needsReload = True
 
-        mi.needsReload = needsReload or mi.HasChanged()
+        mi.needsReload = (needsReload or mi.HasChanged()) and mi.name not in skipMarking
         if mi.needsReload:
             reloadNames.append(mi.name)
         return reloadNames
@@ -191,29 +211,46 @@ class ModuleInfoTracker:
         # Find all root modules - the ones that are not imported by anyone else
         reloaded = []
         rootMIs = [x for x in self.modules.values() if x.IsRoot()]
+        processedMIs = []
         for mi in rootMIs:
-            reloaded.extend(self._ReloadTreeIfNeeded(mi))
+            reloaded.extend(self._ReloadTreeIfNeeded(mi, processedMIs))
         return reloaded
 
-    def _ReloadTreeIfNeeded(self, mi):
+    def _ReloadTreeIfNeeded(self, mi, processedMIs):
         '''Reloads any dependency modules if they have been marked as needing reload, then reloads this module
         if it has been flagged too.'''
+        if mi in processedMIs: # prevent infinite recursion if modules depend on each other (e.g. via delayed / localfunc import)
+            return []
+        processedMIs.append(mi)
+
         reloaded = []
         for otherMI in mi.imports:
-            reloaded.extend(self._ReloadTreeIfNeeded(otherMI))
+            if otherMI not in processedMIs:
+                reloaded.extend(self._ReloadTreeIfNeeded(otherMI, processedMIs))
 
         if mi.ReloadIfNeeded(self):
             reloaded.append(mi.name)
         return reloaded
 
+GLOBAL_NAME = '__global_source_watcher__'
+def GetGlobalInstance():
+    '''Returns the globally shared source watcher instance if it exists, else None'''
+    return __builtins__.get(GLOBAL_NAME)
+
 class SourceWatcher:
     '''Monitors the source files for one or more classes, triggering an ordered reload when something changes'''
-    def __init__(self, devModuleName):
+    def __init__(self, devModuleName='scratchpad', installGlobally=False):
         self.devModuleName = devModuleName # name of a module we'll import; this is the main module the developer uses as their work environment
         self.devModule = None # the actual module itself, once we've successfully imported it
         self.sourceRoots = [] # roots of directory trees that we'll monitor for changes to classes we're watching
         self.nextFirstLoadTry = 0
         self.mit = ModuleInfoTracker()
+
+        # In some scenarios, it's useful to have a global shared source watcher
+        if installGlobally:
+            if GetGlobalInstance():
+                log('WARNING: SourceWatcher told to install itself globally but one already exists (will overwrite it)')
+            __builtins__[GLOBAL_NAME] = self
 
     def Cleanup(self):
         '''If the dev module is loaded, tries to call its before reload hook'''
@@ -223,18 +260,20 @@ class SourceWatcher:
 
     def UpdateSourceRoots(self):
         if self.devModule:
-            self.sourceRoots = getattr(self.devModule, 'MODULE_SOURCE_ROOTS', [])
+            self.sourceRoots = [os.path.abspath(x) for x in getattr(self.devModule, 'MODULE_SOURCE_ROOTS', [])]
             if not self.sourceRoots:
                 log('WARNING: dev module did not provide MODULE_SOURCE_ROOTS')
             self.mit.SetSourceRoots(self.sourceRoots)
 
-    def Check(self):
-        '''Called frequently to see if anything has happened'''
+    def Check(self, skipDevModuleReload=False, forceDevModuleReload=False):
+        '''Called frequently to see if anything has happened. If skipDevModuleReload is True, then it won't get reloaded
+        even if changes have been detected. forceDevModuleReload does the opposite - it forces the dev module to be
+        reloaded even if no changes have been detected. (both of these options are for working with PIE)'''
         try:
             # TODO: make handling of devModule less special-case and reduce duplication below for first load vs reload
             # If we've never successfully loaded the module before, try to do so but don't spin like crazy
             now = time.time()
-            if not self.devModule and now >= self.nextFirstLoadTry:
+            if (not skipDevModuleReload) and (forceDevModuleReload or (not self.devModule and now >= self.nextFirstLoadTry)):
                 # We haven't even imported it yet, at least not successfully
                 try:
                     self.mit.Reset(self.sourceRoots)
@@ -258,7 +297,7 @@ class SourceWatcher:
                     log('ERROR: failed to load dev module', self.devModuleName)
                     return
 
-            reloadNames = self.mit.MarkReloadModules()
+            reloadNames = self.mit.MarkReloadModules([self.devModuleName] if skipDevModuleReload else None)
             if reloadNames:
                 reloadNames = self.mit.ReloadMarkedModules() # reloadNames originally was provisional and could have had duplicates, now has the actual list of what was reordered
                 self.mit.Reset(self.sourceRoots)

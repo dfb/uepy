@@ -29,7 +29,7 @@ ENUM_CLASS_FLAGS(ENRWhere)
 // Note that property replication is built on top of NRCall so it doesn't need a separate message
 enum class ENRWireMessageType : uint8
 {
-    Invalid, SignatureDef, Call,
+    Invalid, Init, SignatureDef, Call,
 };
 
 // Base class for all NetRep messages
@@ -41,6 +41,16 @@ public:
     FNRBaseMessage(ENRWireMessageType t) : type(t) {};
     virtual void Serialize(FArchive& ar) {};
     virtual ~FNRBaseMessage() {};
+};
+
+// A message sent from the host to the client when the connection is first established
+class FNRInitMessage : public FNRBaseMessage
+{
+public:
+    FNRInitMessage() : FNRBaseMessage(ENRWireMessageType::Init) {};
+    ~FNRInitMessage() {};
+    int channelID; // a unique ID for this channel that is the same, for a given channel, on host and the client
+    virtual void Serialize(FArchive& ar) override;
 };
 
 // A message that defines a new mapping between a function name and its parameter data types and a channel- and direction-specific ID
@@ -67,6 +77,7 @@ public:
     uint16 signatureID;
     TArray<uint8> payload; // the message itself, can be an opaque blob of bytes or parameters that have been marshalled.
     virtual void Serialize(FArchive& ar) override;
+    int deliveryAttempts = 0; // on the receiving side, how many times we tried to find a recipient so far
 };
 
 typedef TArray<TSharedPtr<FNRBaseMessage>> FNRMessageList;
@@ -83,6 +94,8 @@ class UEPY_API UNRChannel : public UChannel
     TMap<uint64,float> callTimes; // for cheesy throttling; sigID -> last timestamp of when a messaage was sent with this signature
 
 public:
+    int channelID=-1; // unique ID for this channel, same on client and host (tried to use UNetConnection ID, but it doesn't get replicated)
+
     virtual void Init(UNetConnection* InConnection, int32 InChIndex, EChannelCreateFlags CreateFlags) override;
     virtual void ReceivedBunch(FInBunch& Bunch) override;
     virtual int64 Close(EChannelCloseReason Reason);

@@ -40,13 +40,11 @@ public:
 
     virtual void GetText(FString& TargetString, const FTextLayout& SourceTextLayout) override {};
 
-    void AddMessage(const TCHAR* msg, const ELogVerbosity::Type verbosity, const FName& category, TSharedPtr<SMultiLineEditableTextBox> messagesBox)
+    void AddMessage(FString& msg, const ELogVerbosity::Type verbosity, const FName& category, TSharedPtr<SMultiLineEditableTextBox> messagesBox)
 
     {
         if (verbosity == ELogVerbosity::SetColor)
             return;
-		if (!wcscmp(msg, L"") || !wcscmp(msg, L"\n"))
-			return;
 
 		FName style;
 		if (category == NAME_Cmd)
@@ -163,9 +161,22 @@ void SPythonConsole::OnTextCommitted(const FText& text, ETextCommit::Type type)
     }
 }
 
-void SPythonConsole::Serialize(const TCHAR* msg, ELogVerbosity::Type verbosity, const class FName& category)
+void SPythonConsole::Serialize(const TCHAR* _msg, ELogVerbosity::Type verbosity, const class FName& category)
 {
-    marshaller->AddMessage(msg, verbosity, category, messagesBox);
+    // split apart multi-line messages
+    TArray<FTextRange> ranges;
+    FString msg = _msg;
+    FTextRange::CalculateLineRangesFromString(msg, ranges);
+    for (auto r : ranges)
+    {
+        if (!r.IsEmpty())
+        {
+            FString line = msg.Mid(r.BeginIndex, r.Len());
+            line = line.ConvertTabsToSpaces(4);
+            marshaller->AddMessage(line, verbosity, category, messagesBox);
+
+        }
+    }
 }
 
 END_SLATE_FUNCTION_BUILD_OPTIMIZATION

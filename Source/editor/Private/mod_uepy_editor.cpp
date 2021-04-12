@@ -6,6 +6,7 @@
 #include "WorkspaceMenuStructure.h"
 #include "WorkspaceMenuStructureModule.h"
 #include "Framework/Docking/TabManager.h"
+#include "SPythonConsole.h"
 
 // called on pre engine init
 void _LoadModuleEditor(py::module& uepy)
@@ -49,5 +50,8 @@ void _LoadModuleEditor(py::module& uepy)
 
     m.def("DeselectAllActors", []() { GEditor->SelectNone(true, true, false); });
     m.def("SelectActor", [](AActor *actor) { GEditor->SelectActor(actor, true, true); });
+
+    UEPY_EXPOSE_CLASS(UPythonConsole, UWidget, m)
+        ;
 }
 

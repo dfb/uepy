@@ -7,63 +7,10 @@
 #include "incpybind.h"
 #include "IUEPYGlueMixin.h"
 #include "INRActorMixin.h"
-#include "Blueprint/WidgetLayoutLibrary.h"
-#include "Blueprint/WidgetTree.h"
-#include "Camera/CameraComponent.h"
-#include "Components/Border.h"
-#include "Components/BorderSlot.h"
-#include "Components/BoxComponent.h"
-#include "Components/Button.h"
-#include "Components/CanvasPanel.h"
-#include "Components/CanvasPanelSlot.h"
-#include "Components/CheckBox.h"
-#include "Components/ComboBoxString.h"
-#include "Components/ContentWidget.h"
-#include "Components/DecalComponent.h"
-#include "Components/EditableTextBox.h"
-#include "Components/GridPanel.h"
-#include "Components/GridSlot.h"
-#include "Components/HorizontalBox.h"
-#include "Components/HorizontalBoxSlot.h"
-#include "Components/Image.h"
-#include "Components/NamedSlot.h"
-#include "Components/Overlay.h"
-#include "Components/OverlaySlot.h"
-#include "Components/PanelWidget.h"
-#include "Particles/ParticleSystemComponent.h"
-#include "Components/ScaleBox.h"
-#include "Components/ScaleBoxSlot.h"
-#include "Components/SceneCaptureComponent2D.h"
-#include "Components/SizeBox.h"
-#include "Components/SizeBoxSlot.h"
-#include "Components/Spacer.h"
-#include "Components/SphereComponent.h"
-#include "Components/SpotLightComponent.h"
-#include "Components/TextBlock.h"
-#include "Components/TextRenderComponent.h"
-#include "Components/VerticalBox.h"
-#include "Components/VerticalBoxSlot.h"
-#include "Components/Widget.h"
-#include "Components/WrapBox.h"
-#include "Components/WrapBoxSlot.h"
-#include "Curves/CurveFloat.h"
-#include "Curves/CurveVector.h"
-#include "Engine/CanvasRenderTarget2D.h"
-#include "Engine/TextureRenderTarget2D.h"
-#include "FileMediaSource.h"
-#include "GameFramework/PlayerController.h"
-#include "Materials/MaterialInstanceConstant.h"
-#include "Materials/MaterialInstanceDynamic.h"
-#include "Materials/MaterialParameterCollection.h"
-#include "MediaPlayer.h"
-#include "MediaSoundComponent.h"
-#include "MediaTexture.h"
-#include "Paper2D/Classes/PaperSprite.h"
-#include "Particles/ParticleSystem.h"
-#include "PhysicalMaterials/PhysicalMaterial.h"
+#include "INRPlayerControllerMixin.h"
 #include "Runtime/CoreUObject/Public/UObject/GCObject.h"
 #include <functional>
-
+#include "Components/BoxComponent.h"
 #include "uepy.generated.h"
 
 // pybind11 lets python exceptions bubble up to be C++ exceptions, which is rarely what we want, so
@@ -100,6 +47,11 @@
 
 #define ENUM_PROP(propName, propType, className)\
 .def_property(#propName, [](className& self) { return (int)self.propName; }, [](className& self, int v) { self.propName = (propType)v; })
+
+#define UEPY_EXPOSE_CLASS(className, parentClassName, inModule)\
+    py::class_<className, parentClassName, UnrealTracker<className>>(inModule, #className)\
+        .def_static("StaticClass", []() { return className::StaticClass(); }, py::return_value_policy::reference)\
+        .def_static("Cast", [](UObject *w) { return Cast<className>(w); }, py::return_value_policy::reference)
 
 // used for cases where we have a simple, fixed-size struct and we want to support x,y,z = v unpacking/iteration
 template<class T>
@@ -279,7 +231,7 @@ struct UEPY_API FUEPyDelegates
 
 // Generic glue classes for cases where you just want to subclass certain engine classes in Python directly
 UCLASS()
-class UEPY_API AActor_CGLUE : public AActor, public IUEPYGlueMixin
+class UEPY_API AActor_CGLUE : public AActor, public IUEPYGlueMixin, public INRActorMixin
 {
     GENERATED_BODY()
 
@@ -288,12 +240,18 @@ class UEPY_API AActor_CGLUE : public AActor, public IUEPYGlueMixin
 public:
     void SuperBeginPlay();
     void SuperEndPlay(EEndPlayReason::Type reason);
+    void SuperPostInitializeComponents() { Super::PostInitializeComponents(); }
     void SuperTick(float dt);
 
 protected:
     virtual void BeginPlay() override;
-	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+    virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
     virtual void Tick(float dt) override;
+    virtual void OnReplicated() override;
+    virtual void OnNRCall(FString signature, TArray<uint8>& payload) override;
+    virtual void OnNRCall(FString signature, py::object args) override;
+    virtual void OnNRUpdate(TArray<FString>& modifiedPropertyNames);
+    virtual void PostInitializeComponents() override;
 };
 
 UCLASS()
@@ -306,18 +264,52 @@ class UEPY_API APawn_CGLUE : public APawn, public IUEPYGlueMixin, public INRActo
 public:
     void SuperBeginPlay();
     void SuperEndPlay(EEndPlayReason::Type reason);
+    void SuperPostInitializeComponents() { Super::PostInitializeComponents(); }
     void SuperTick(float dt);
     void SuperSetupPlayerInputComponent(UInputComponent* comp);
 
 protected:
     virtual void BeginPlay() override;
-	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+    virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
     virtual void Tick(float dt) override;
-	virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
+    virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
     virtual void OnReplicated() override;
     virtual void OnNRCall(FString signature, TArray<uint8>& payload) override;
     virtual void OnNRCall(FString signature, py::object args) override;
     virtual void OnNRUpdate(TArray<FString>& modifiedPropertyNames);
+    virtual void PostInitializeComponents() override;
+};
+
+UCLASS()
+class UEPY_API USceneComponent_CGLUE : public USceneComponent, public IUEPYGlueMixin
+{
+    GENERATED_BODY()
+
+    USceneComponent_CGLUE();
+
+public:
+    void SuperBeginPlay() { Super::BeginPlay(); }
+    void SuperEndPlay(EEndPlayReason::Type reason) { Super::EndPlay(reason); }
+    void SuperOnRegister() { Super::OnRegister(); }
+    virtual void BeginPlay() override;
+    virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+    virtual void OnRegister() override;
+};
+
+UCLASS()
+class UEPY_API UBoxComponent_CGLUE : public UBoxComponent, public IUEPYGlueMixin
+{
+    GENERATED_BODY()
+
+    UBoxComponent_CGLUE();
+
+public:
+    void SuperBeginPlay() { Super::BeginPlay(); }
+    void SuperEndPlay(EEndPlayReason::Type reason) { Super::EndPlay(reason); }
+    void SuperOnRegister() { Super::OnRegister(); }
+    virtual void BeginPlay() override;
+    virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+    virtual void OnRegister() override;
 };
 
 // helper class for any API that accepts as an argument a UClass parameter. Allows the caller to pass in

@@ -181,20 +181,75 @@ def BPPROPS(cls, *propNames):
             setattr(cls, name, property(_get, _set))
         setup(_name) # create a closure so we don't lose the name
 
+# Special cases for NetRep props - if you need to have a replicated variable that is a UObject* but
+# that also has a null default value, use one of these for the default value instead of None.
+# If the values are changed, be sure to change them in C++ too.
+EmptyUObject = '__empty_uobject__'
+EmptyPyUObject = '__empty_pyuobject__' # like EmptyUObject, but for cases where it's been subclassed in Python (i.e. has a pyInst)
+EmptyUClass = '__empty_uclass__'
+SPECIAL_REP_PROPS = (EmptyUObject, EmptyPyUObject, EmptyUClass)
+
 class AActor_PGLUE(metaclass=PyGlueMetaclass):
     '''Glue class for AActor'''
+    repProps = Bag(
+        loc = FVector(0,0,0),
+        rot = FRotator(0,0,0),
+    )
+
+    def __init__(self):
+        super().__init__()
+        self.isHost = GetWorld().IsServer()
+        self._NRRegisterProps() # set up replication
+
+    def _NRGetInitOverrides(self):
+        '''Hacky method subclasses can implement in the (hopefully rare) case of (a) the default value for one or more properties
+        need to be overriden on a per-instance basis and (b) the values must be changed prior to initial replication. In that scenario,
+        a subclass implements this method and returns a dict of rep prop names (must be from class.repProps) and new initial values to
+        use (must be the same type or coercible to the same type of the default).'''
+        return {}
+
+    def _NRRegisterProps(self):
+        '''Called by __init__ to figure out all replicated properties for this object by starting at the root class and merging
+        in properties to get the final set, then registering them. Replicated properties are by default stored in a 'repProps'
+        class variable that is a mapping from variable name to default value. Saves the collected properties to self.repPropDefs
+        in case subclasses need them.'''
+        if not self.GetIsReplicated() or self.engineObj.IsDefaultObject():
+            return
+
+        props = Bag()
+        for klass in self.__class__.__mro__[::-1]: # reverse order so we start at the top of the MRO list
+            props.update(**getattr(klass, 'repProps', {}))
+        self.repPropDefs = props
+
+        for name, defaultValue in sorted(props.items()):
+            self.nr.AddProperty(name, defaultValue, defaultValue in SPECIAL_REP_PROPS)
+        for name, value in self._NRGetInitOverrides().items():
+            self.nr.InitSetProperty(name, value)
+        self.engineObj.NRRegisterProps()
+
+    def OnRep_loc(self): self.SetActorLocation(self.nr.loc)
+    def OnRep_rot(self): self.SetActorRotation(self.nr.rot)
+    def PostInitializeComponents(self): self.engineObj.SuperPostInitializeComponents()
+    def GetName(self): return self.engineObj.GetName()
+    def GetIsReplicated(self): return self.engineObj.GetIsReplicated()
+    def SetReplicates(self, b): self.engineObj.SetReplicates(b)
+    def HasLocalNetOwner(self): return self.engineObj.HasLocalNetOwner()
     def GetWorld(self): return self.engineObj.GetWorld()
     def GetOwner(self): return self.engineObj.GetOwner()
+    def SetOwner(self, o): self.engineObj.SetOwner(o)
     def GetTransform(self): return self.engineObj.GetTransform()
     def SetActorLocation(self, v): self.engineObj.SetActorLocation(v) # this works because engineObj is a pointer to a real instance, and we will also write wrapper code to expose these APIs anyway
     def GetActorLocation(self): return self.engineObj.GetActorLocation()
     def GetActorRotation(self): return self.engineObj.GetActorRotation()
     def GetActorTransform(self): return self.engineObj.GetActorTransform()
     def SetActorRotation(self, r): self.engineObj.SetActorRotation(r)
+    def GetActorScale3D(self): return self.engineObj.GetActorScale3D()
+    def SetActorScale3D(self, s): self.engineObj.SetActorScale3D(s)
     def CreateUStaticMeshComponent(self, name): return self.engineObj.CreateUStaticMeshComponent(name)
     def GetRootComponent(self): return self.engineObj.GetRootComponent()
     def SetRootComponent(self, s): self.engineObj.SetRootComponent(s)
     def GetComponentsByClass(self, klass): return self.engineObj.GetComponentsByClass(klass)
+    def IsValid(self): return self.engineObj.IsValid()
     def BeginPlay(self): self.engineObj.SuperBeginPlay()
     def EndPlay(self, reason): self.engineObj.SuperEndPlay(reason)
     def Tick(self, dt): self.engineObj.SuperTick(dt)
@@ -203,6 +258,7 @@ class AActor_PGLUE(metaclass=PyGlueMetaclass):
     def SetActorTickEnabled(self, e): self.engineObj.SetActorTickEnabled(e)
     def SetActorTickInterval(self, i): self.engineObj.SetActorTickInterval(i)
     def GetActorTickInterval(self): return self.engineObj.GetActorTickInterval()
+    def SetActorHiddenInGame(self, h): self.engineObj.SetActorHiddenInGame(h)
     def SetReplicateMovement(self, b): self.engineObj.SetReplicateMovement(b)
     def Destroy(self): return self.engineObj.Destroy()
     def BindOnEndPlay(self, cb): self.engineObj.BindOnEndPlay(cb)
@@ -211,9 +267,39 @@ class AActor_PGLUE(metaclass=PyGlueMetaclass):
     def Get(self, k): return self.engineObj.Get(k)
     def Call(self, funcName, *args): return self.engineObj.Call(funcName, *args)
     def UpdateTickSettings(self, canEverTick, startWithTickEnabled): self.engineObj.UpdateTickSettings(canEverTick, startWithTickEnabled)
+    def OnReplicated(self): pass
+
+    def GetFilteredComponents(self, ofClass=UPrimitiveComponent, onlyVisible=True, ignore=None):
+        '''Returns a list of all of this actor's visible mesh component (including descendants) that are instances of the
+        given component class (or one of its descendents). If ignore is provided, it should be a list of components to omit. If onlyVisible
+        is True, excludes any hidden components.'''
+        ret = []
+        root = self.GetRootComponent()
+        if not root:
+            return ret
+
+        ignore = ignore or []
+        ignore = [ofClass.Cast(x) for x in ignore] # this is so the check against the casted value works
+        ignore = [x for x in ignore if x]
+        for comp in root.GetChildrenComponents(True):
+            if onlyVisible and not comp.IsVisible():
+                continue
+            comp = ofClass.Cast(comp)
+            if not comp:
+                continue
+            if comp in ignore:
+                continue
+            ret.append(comp)
+        return ret
 
     # netrep stuffs
-    def OnNRCall(self, signature, payload): pass
+    def OnNRCall(self, signature, payload, isBinaryBlob):
+        func = getattr(self, signature, None)
+        if func is None:
+            log('ERROR: failed to find NRCall handler for', signature)
+        else:
+            func(*payload)
+
     def NRCall(self, where, funcName, *args, reliable=True, maxCallsPerSec=-1): LLNRCall(where, self.engineObj, funcName, args, reliable, maxCallsPerSec)
     def NRUpdate(self, *, where=enums.ENRWhere.All, reliable=True, maxCallsPerSec=-1, **kwargs): self.engineObj.NRUpdate(where, kwargs, reliable, maxCallsPerSec)
     def OnNRUpdate(self, modifiedPropNames):
@@ -229,45 +315,105 @@ class AActor_PGLUE(metaclass=PyGlueMetaclass):
     @property
     def configStr(self):
         return self.engineObj.configStr
-CPROPS(AActor_PGLUE, 'Tags', 'nr')
+CPROPS(AActor_PGLUE, 'bReplicates', 'Tags', 'nr')
 
 class APawn_PGLUE(AActor_PGLUE):
-    def __init__(self):
-        super().__init__()
-        # Register any replicated properties
-        # TODO: move this into AActor_PGLUE once it won't conflict with Modus py actors
-        for name, defaultValue in getattr(self, 'repProps', {}).items():
-            self.nr.AddProperty(name, defaultValue)
-        self.engineObj.NRRegisterProps()
-
     def IsLocallyControlled(self): return self.engineObj.IsLocallyControlled()
     def SetupPlayerInputComponent(self, comp): self.engineObj.SuperSetupPlayerInputComponent(comp)
+    def GetPlayerState(self): return self.engineObj.GetPlayerState()
+
+class USceneComponent_PGLUE(metaclass=PyGlueMetaclass):
+    @classmethod
+    def Cast(cls, obj): return cls.engineClass.Cast(obj)
+    def IsValid(self): return self.engineObj.IsValid()
+
+    def BeginPlay(self): self.engineObj.SuperBeginPlay()
+    def EndPlay(self, reason): self.engineObj.SuperEndPlay(reason)
+    def OnRegister(self): self.engineObj.SuperOnRegister()
+    def ComponentHasTag(self, tag): return self.engineObj.ComponentHasTag(tag)
+    def GetOwner(self): return self.engineObj.GetOwner()
+    def GetName(self): return self.engineObj.GetName()
+    def SetIsReplicated(self, r): self.engineObj.SetIsReplicated(r)
+    def SetActive(self, a): self.engineObj.SetActive(a)
+    def IsRegistered(self): return self.engineObj.IsRegistered()
+    def RegisterComponent(self): self.engineObj.RegisterComponent()
+    def UnregisterComponent(self): self.engineObj.UnregisterComponent()
+    def DestroyComponent(self): self.engineObj.DestroyComponent()
+    def GetRelativeLocation(self): return self.engineObj.GetRelativeLocation()
+    def SetRelativeLocation(self, x): self.engineObj.SetRelativeLocation(x)
+    def GetRelativeRotation(self): return self.engineObj.GetRelativeRotation()
+    def SetRelativeRotation(self, x): self.engineObj.SetRelativeRotation(x)
+    def GetRelativeScale3D(self): return self.engineObj.GetRelativeScale3D()
+    def SetRelativeScale3D(self, x): self.engineObj.SetRelativeScale3D(x)
+    def GetRelativeTransform(self): return self.engineObj.GetRelativeTransform()
+    def SetRelativeTransform(self, x): self.engineObj.SetRelativeTransform(x)
+    def SetRelativeLocationAndRotation(self, loc, rot): self.engineObj.SetRelativeLocationAndRotation(loc, rot)
+    def ResetRelativeTransform(self): return self.engineObj.ResetRelativeTransform()
+    def AttachToComponent(self, parent, socket=''): return self.engineObj.AttachToComponent(parent, socket)
+    def SetupAttachment(self, parent, socket=''): return self.engineObj.SetupAttachment(parent, socket)
+    def DetachFromComponent(self): return self.engineObj.DetachFromComponent()
+    def SetVisibility(self, vis, propagate=True): self.engineObj.SetVisibility(vis, propagate)
+    def IsVisible(self): return self.engineObj.IsVisible()
+    def GetHiddenInGame(self): return self.engineObj.GetHiddenInGame()
+    def SetHiddenInGame(self, h, propagate=True): self.engineObj.SetHiddenInGame(h, propagate)
+    def GetForwardVector(self): return self.engineObj.GetForwardVector()
+    def GetRightVector(self): return self.engineObj.GetRightVector()
+    def GetUpVector(self): return self.engineObj.GetUpVector()
+    def GetComponentLocation(self): return self.engineObj.GetComponentLocation()
+    def GetComponentRotation(self): return self.engineObj.GetComponentRotation()
+    def GetComponentQuat(self): return self.engineObj.GetComponentQuat()
+    def GetComponentScale(self): return self.engineObj.GetComponentScale()
+    def GetComponentToWorld(self): return self.engineObj.GetComponentToWorld()
+    def GetAttachParent(self): return self.engineObj.GetAttachedParent()
+    def GetChildrenComponents(self, includeAllDescendents): return self.engineObj.GetChildrenComponents(includeAllDescendents)
+    def SetWorldLocation(self, x): self.engineObj.SetWorldLocation(x)
+    def SetWorldRotation(self, x): self.engineObj.SetWorldRotation(x)
+    def GetSocketTransform(self, name): return self.engineObj.GetSocketTransform(name)
+    def GetSocketLocation(self, name): return self.engineObj.GetSocketLocation(name)
+    def GetSocketRotation(self, name): return self.engineObj.GetSocketRotation(name)
+    def CalcBounds(self, locToWorld): return self.engineObj.CalcBounds(locToWorld)
+    def SetMobility(self, m): self.engineObj.SetMobility(m)
+CPROPS(USceneComponent_PGLUE, 'ComponentTags')
+
+class UBoxComponent_PGLUE(USceneComponent_PGLUE):
+    def SetCollisionEnabled(self, e): self.engineObj.SetCollisionEnabled(e) # this is actually from UPrimitiveComponent
+    def BeginPlay(self): self.engineObj.SuperBeginPlay()
+    def EndPlay(self, reason): self.engineObj.SuperEndPlay(reason)
+    def OnRegister(self): self.engineObj.SuperOnRegister()
+    def SetBoxExtent(self, e): self.engineObj.SetBoxExtent(e)
+    def GetUnscaledBoxExtent(self): return self.engineObj.GetUnscaledBoxExtent()
 
 class UEPYAssistantActor(AActor_PGLUE):
-    '''Spawn one of these into a level to have it watch for source code changes and automatically reload modified code.
-    Attempts to load the module specified in self.mainModuleName; override the default value prior to BeginPlay.'''
+    '''Spawn one of these into a level to have it watch for source code changes and automatically reload modified code.'''
     def __init__(self):
+        self.SetReplicates(False)
+        super().__init__()
         self.SetActorTickEnabled(True)
-        self.mainModuleName = 'scratchpad'
         self.lastCheck = 0
+        self.watcher = None
+        self.forceDevModuleReload = True
 
     def BeginPlay(self):
-        self.start = time.time()
-        self.watcher = None
         super().BeginPlay()
+        self.start = time.time()
 
     def Tick(self, dt):
         now = time.time()
         if self.watcher is None:
+            import sourcewatcher as S
             if now-self.start > 1:
-                log('Starting source watcher for', self.mainModuleName)
-                import sourcewatcher as S
-                reload(S)
-                S.log = log
-                S.logTB = logTB
-                self.watcher = S.SourceWatcher(self.mainModuleName)
+                # Try to grab a global sourcewatcher that already exists
+                self.watcher = S.GetGlobalInstance()
+                if self.watcher is None:
+                    log('Starting new source watcher')
+                    S.log = log
+                    S.logTB = logTB
+                    self.watcher = S.SourceWatcher()
+                else:
+                    log('Reusing global source watcher')
         elif now-self.lastCheck > 0.25:
-            self.watcher.Check()
+            self.watcher.Check(forceDevModuleReload=self.forceDevModuleReload)
+            self.forceDevModuleReload = False # we just want to force scratchpad to reload on start
             self.lastCheck = time.time()
 
 def AddHelper():

@@ -43,6 +43,7 @@ public class uepy : ModuleRules
                 "Core",
                 "CoreUObject",
                 "Engine",
+                "HeadMountedDisplay",
                 "InputCore",
                 "MediaAssets",
                 "Projects",

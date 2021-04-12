@@ -49,17 +49,38 @@ Eventually I hope to make this less manual, but for now:
 
 - In your UE4 project, create a Plugins directory
 - Clone uepy into it (afterwards, yourprj/Plugins/uepy/uepy.uplugin should exist, among other things)
-- Inside Plugins/uepy, create a 'python' directory to hold whatever 64-bit version of Python you intend to use (I've tried 3.6.7 and 3.8.5). The final layout needs to be like:
-    - Plugins/uepy/python/include # containing stuff like `eval.h` and `import.h`
-    - Plugins/uepy/python/libs # containing stuff like `python3.lib`
-    - Plugins/uepy/python # containing stuff like `_ctypes.pyd` and `select.pyd`
+- If you don't want to use the included version of Python:
+    - Inside Plugins/uepy, create a 'python' directory to hold whatever 64-bit version of Python you intend to use (I've tried 3.6.7 and 3.8.5). The final layout needs to be like:
+        - Plugins/uepy/python/include # containing stuff like `eval.h` and `import.h`
+        - Plugins/uepy/python/libs # containing stuff like `python3.lib`
+        - Plugins/uepy/python # containing stuff like `_ctypes.pyd` and `select.pyd`
 
-    There are probably much better ways to set this up, but this is what I did:
-    - download the Windows x64 embeddable zip file and unzip it into Plugins/uepy/python
-    - use e.g. the web installer from python.org to install the same version of Python. During the installation process, set a custom install location to some temp directory, uncheck all the options to register programs, modify your path, etc., but do check the option to download debugging symbols
-    - after installation, move the libs and include folders to Plugins/uepy/python and then erase that temporary installation
-- Inside Plugins/uepy, clone pybind11 so that you end up with e.g. `Plugins/uepy/pybind11/include/pybind11/eval.h`
-- In uepy/Source/editor/uepyEditor.Build.cs and uepy/Source/runtime/uepy.Build.cs, modify the pythonXX.lib filename (in the PublicAdditionalLibraries line) as needed (i.e. depending on the version of Python you're using).
+        There are probably much better ways to set this up, but this is what I did:
+        - download the Windows x64 embeddable zip file and unzip it into Plugins/uepy/python
+        - use e.g. the web installer from python.org to install the same version of Python. During the installation process, set a custom install location to some temp directory, uncheck all the options to register programs, modify your path, etc., but do check the option to download debugging symbols
+        - after installation, move the libs and include folders to Plugins/uepy/python and then erase that temporary installation
+    - In uepy/Source/editor/uepyEditor.Build.cs and uepy/Source/runtime/uepy.Build.cs, modify the pythonXX.lib filename (in the PublicAdditionalLibraries line) as needed (i.e. depending on the version of Python you're using).
+- If you don't want to use the included version of pybind11:
+    - Inside Plugins/uepy, clone pybind11 so that you end up with e.g. `Plugins/uepy/pybind11/include/pybind11/eval.h`
+- Add 'uepy' to your uproject file under Modules, AdditionalDependencies
+- Modify yourprj/Source/yourprj's Build.cs file to include bUseRTTI=true in the constructor.
+- Regenerate your .sln file
+- Create a yourprj/Content/Scripts folder and inside it a 'main.py' file (can be empty) or something like:
+    from uepy import *
+    log('Hello from uepy!')
+- If your project needs to expose functions and classes from C++ to Python:
+    - Create pyglue.h/pyglue.cpp files (well, name them whatever you want):
+        #include "uepy.h"
+        void FinishPythonInit(py::module& uepy); // in the .cpp file, implement this function
+    - In your project's main .h file, declare a class that implements IModuleInterface:
+        class FMyGameModule : public IModuleInterface
+        {
+        public:
+            virtual void StartupModule() override;
+        };
+    - In the corresponding .cpp file, change the IMPLEMENT_PRIMARY_GAME_MODULE line to use FMyGameModule instead of the defeault one, and implement the StartupModule
+        function, having it call your FinishPythonInit function:
+        void FMyGameModule::StartupModule() { FUEPyDelegates::LaunchInit.AddStatic(&FinishPythonInit); }
 
 # other stuff to document
 
@@ -73,6 +94,7 @@ Eventually I hope to make this less manual, but for now:
 - editor_spawner example
 - so far I've been using VS2017 Community Edition. I hope to move to VS2019 soon (when I move to UE4.25 probably).
 - add bUseRTTI = true; to build.cs
+- add 'MediaAssets' build.cs's PublicDependencyModuleNames
 - every code that exposes a C++ class should probably expose a Cast method
 - every glue class must implement StaticClass!
 - it's ok for PGLUE classes to subclass other PGLUE classes

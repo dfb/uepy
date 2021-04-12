@@ -2,6 +2,9 @@
 
 #pragma once
 #include "uepy.h"
+#include "Blueprint/WidgetLayoutLibrary.h"
+#include "Blueprint/WidgetTree.h"
+#include "Components/VerticalBox.h"
 #include "mod_uepy_umg.generated.h"
 
 // base UMG widget from which others can derive
@@ -14,7 +17,7 @@ public:
     UClass* /*TSubclassOf<UWidget>*/ rootWidgetClass = UVerticalBox::StaticClass();
     virtual TSharedRef<SWidget> RebuildWidget() override;
     virtual void NativePreConstruct() override;
-	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
+    virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
 
     // Hack: UUserWidget::Initialize is convinced that py-based configurators implement INamedSlotInterface, and the default
     // implementation of GetSlotNames accesses WidgetTree while it is still NULL. This prevents that.
@@ -25,5 +28,4 @@ public:
 };
 
 void _LoadModuleUMG(py::module& uepy);
-
 

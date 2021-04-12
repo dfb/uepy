@@ -1,5 +1,40 @@
 #include "mod_uepy_umg.h"
 #include "common.h"
+#include "Blueprint/WidgetLayoutLibrary.h"
+#include "Blueprint/WidgetTree.h"
+#include "Components/Border.h"
+#include "Components/BorderSlot.h"
+#include "Components/Button.h"
+#include "Components/CanvasPanel.h"
+#include "Components/CanvasPanel.h"
+#include "Components/CanvasPanelSlot.h"
+#include "Components/CanvasPanelSlot.h"
+#include "Components/CheckBox.h"
+#include "Components/ComboBoxString.h"
+#include "Components/ContentWidget.h"
+#include "Components/EditableTextBox.h"
+#include "Components/GridPanel.h"
+#include "Components/GridSlot.h"
+#include "Components/HorizontalBox.h"
+#include "Components/HorizontalBoxSlot.h"
+#include "Components/Image.h"
+#include "Components/NamedSlot.h"
+#include "Components/Overlay.h"
+#include "Components/OverlaySlot.h"
+#include "Components/PanelWidget.h"
+#include "Components/ScaleBox.h"
+#include "Components/ScaleBoxSlot.h"
+#include "Components/SizeBox.h"
+#include "Components/SizeBoxSlot.h"
+#include "Components/Spacer.h"
+#include "Components/TextBlock.h"
+#include "Components/VerticalBox.h"
+#include "Components/VerticalBoxSlot.h"
+#include "Components/Widget.h"
+#include "Components/WrapBox.h"
+#include "Components/WrapBoxSlot.h"
+#include "Paper2D/Classes/PaperSprite.h"
+#include "PaperSprite.h"
 
 /*
 GRRR: should we subclass slate? subclass UWidget? UUserWidget? UUserWidget is commonly suggested, but it's geared towards
@@ -100,6 +135,16 @@ void _LoadModuleUMG(py::module& uepy)
 
         return NewObject<UWidget>(owner, widgetClass, n, RF_Transactional);
     }, py::return_value_policy::reference, py::arg("owner"), py::arg("_widgetClass"), py::arg("name")=py::none());
+
+    py::class_<FAnchors>(m, "FAnchors")
+        .def(py::init<FAnchors>())
+        .def(py::init<>())
+        .def(py::init<float>())
+        .def(py::init<float,float>())
+        .def(py::init<float,float,float,float>())
+        .def_readwrite("Minimum", &FAnchors::Minimum)
+        .def_readwrite("Maximum", &FAnchors::Maximum)
+        ;
 
     py::class_<FSlateColor>(m, "FSlateColor")
         .def(py::init<FSlateColor>())

@@ -11,8 +11,16 @@
 struct FNRPropHolder
 {
     // adds (defines) a new property, inferring the property data type from the given default value. Returns false on
-    // error, e.g. if the value is not of a supported type.
-    bool AddProperty(FString name, py::object& defaultValue);
+    // error, e.g. if the value is not of a supported type. If isSpecial is true, the default value is the name of
+    // one of the special cases (e.g. a UObject* with a null default).
+    bool AddProperty(FString name, py::object& defaultValue, bool isSpecial);
+
+    // Sets a property's initial value, overriding the default value. Intended to be called in an instance's constructor
+    // (i.e. well before OnReplicated) for the rare cases where a replicated property's initial value needs to be
+    // customized on a per-instance basis even earlier than initial replication (so, if you think you need this, think
+    // about it some more first). Returns false on error (e.g. an unknown property name or the property type doesn't
+    // match that of the default).
+    bool InitSetProperty(FString name, py::object& value);
 
     // returns the current value of the given property
     py::object GetValue(FString name);
@@ -25,6 +33,7 @@ struct FNRPropHolder
     TArray<FString> names; // names of each property, by index.
     TArray<py::object> values; // current values for each property, by index
     TArray<py::object> defaults; // default value for each property, by index
+    TArray<bool> initOverrides; // properties that had InitSetProperty called on them, by index
     TArray<FString> typeCodes; // the marshalling type code for each property, by index
 };
 
@@ -46,7 +55,7 @@ protected:
     void GenChannelReplicationPayload(UNetDriver* driver, FString& signature, TArray<uint8>& payload);
     bool beginPlayCalled = false; // true once the BeginPlay method has been called
     bool initialStateReplicated = false; // on clients, true once the initial info for replicated variables has been received and processed
-    bool onReplicatedCalled = false; // mostly for debugging to ensure we never call it twice
+    bool onReplicatedCalled = false; // mostly for debugging to ensure we never call it twice, also for preventing Tick until replication is done
     float spawnTS = 0; // when this actor was spawned
 
 public:

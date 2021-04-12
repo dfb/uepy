@@ -1,30 +1,100 @@
 #include "INRActorMixin.h"
 #include "uepy.h"
-#include "Engine/NetDriver.h"
 #include "common.h"
 #include "INRPlayerControllerMixin.h"
 #include "Engine/PackageMapClient.h"
+
+extern py::object GetPyClassFromName(FString& name); // defined in mod_uepy.cpp for now - TODO: clean this up
+
+// In single player mode, we don't have a UNetDriver, so we don't have a FNetGuidCache for mapping between objects
+// and network GUIDs, which means NRCalls with parameters that are UObject* don't work, even if we're just sending
+// the message locally.
+// TODO: we just sorta let the dummy cache grow without bounds - it shouldn't ever get /too/ big but still...
+static TMap<FNetworkGUID,TWeakObjectPtr<UObject>>* g2o = nullptr;
+static TMap<TWeakObjectPtr<UObject>,FNetworkGUID>* o2g = nullptr;
+void _EnsureFakeGUIDCache()
+{
+    if (!g2o) g2o = new TMap<FNetworkGUID,TWeakObjectPtr<UObject>>();
+    if (!o2g) o2g = new TMap<TWeakObjectPtr<UObject>,FNetworkGUID>();
+}
+
+UObject* NRGetObjectFromNetGUID(UNetDriver *driver, FNetworkGUID& g)
+{
+    if (driver)
+        return driver->GuidCache->GetObjectFromNetGUID(g, false); // TODO: not sure what bIgnoreMustBeMapped is for
+
+    _EnsureFakeGUIDCache();
+    TWeakObjectPtr<UObject>* oPtr = g2o->Find(g);
+    if (!oPtr)
+        return nullptr;
+    UObject* obj = oPtr->Get();
+    if (!obj || !obj->IsValidLowLevel())
+        return nullptr;
+    return obj;
+}
+
+FNetworkGUID NRGetOrAssignNetGUID(UNetDriver* driver, UObject* obj)
+{
+    if (driver)
+        return driver->GuidCache->GetOrAssignNetGUID(obj);
+    if (!obj || !obj->IsValidLowLevel())
+        return FNetworkGUID();
+
+    _EnsureFakeGUIDCache();
+	TWeakObjectPtr<UObject> oPtr = MakeWeakObjectPtr(obj);
+    FNetworkGUID* gPtr = o2g->Find(oPtr);
+    if (gPtr)
+        return *gPtr;
+
+    // create a new guid and add to both maps
+    FNetworkGUID g(o2g->Num()+1);
+    g2o->Emplace(g, oPtr);
+    o2g->Emplace(oPtr, g);
+    return g;
+}
 
 // type codes: short strings (often single char) that are used to send data type information across the wire.
 // At some point we may allow application-level code to register additional types. Each type code needs to be
 // handled in TypeCodeFor, CoerceValue, MarshalPyObject, and UnmarshalPyObject.
 
-FString TypeCodeFor(py::object& value)
+FString TypeCodeFor(py::object& value, bool isSpecial=false)
 {
     // TODO: needs support for dynamically registered (custom) types
+
+    if (isSpecial)
+    {   // see uepy/__init__.py's SPECIAL_REP_PROPS for these
+        std::string _s = value.cast<std::string>();
+        FString s = FSTR(_s);
+        if (s == TEXT("__empty_uclass__")) return TEXT("C");
+        if (s == TEXT("__empty_uobject__")) return TEXT("O");
+        if (s == TEXT("__empty_pyuobject__")) return TEXT("P");
+        LERROR("Unhandled special case: %s", *s);
+        return TEXT("");
+    }
+    else if (py::hasattr(value, "engineObj"))
+    {   // special case - if it's an engine object that has been subclasssed in Python, we pass it across
+        // the wire the same way as with UObject pointers, but use a different type code so that the receiving
+        // end knows to grab the pyInst before returning the object to the client.
+        return TEXT("P");
+    }
+    else if (py::isinstance<UObject*>(value))
+        return TEXT("O");
 
     // Note: if you add a type code here, be sure it is unique!
     if (py::isinstance<py::float_>(value)) return TEXT("F");
     if (py::isinstance<py::int_>(value)) return TEXT("I");
     if (py::isinstance<py::bool_>(value)) return TEXT("B");
+    if (py::isinstance<py::bytes>(value)) return TEXT("by");
     if (py::isinstance<py::str>(value)) return TEXT("S");
     if (py::isinstance<FVector>(value)) return TEXT("V");
     if (py::isinstance<FVector2D>(value)) return TEXT("V2");
     if (py::isinstance<FRotator>(value)) return TEXT("R");
+    if (py::isinstance<FQuat>(value)) return TEXT("Q");
     if (py::isinstance<FLinearColor>(value)) return TEXT("LC");
-    if (py::isinstance<UObject*>(value)) return TEXT("O");
     if (py::isinstance<FTransform>(value)) return TEXT("T");
-    return TEXT("");
+    if (PyObjectToUClass(value)) return TEXT("C");
+
+    return TEXT(""); // unsupported type
 }
 
 // Given a registered type code, coerces a Python object to a Python object
@@ -40,12 +110,14 @@ bool CoerceValue(FString& typeCode, py::object& inValue, py::object& outValue)
         if (typeCode == TEXT("F")) outValue = py::cast<py::float_>(inValue);
         else if (typeCode == TEXT("I")) outValue = py::cast<py::int_>(inValue);
         else if (typeCode == TEXT("B")) outValue = py::cast<py::bool_>(inValue);
+        else if (typeCode == TEXT("by")) outValue = py::cast<py::bytes>(inValue);
         else if (typeCode == TEXT("S")) outValue = py::cast<py::str>(inValue);
 
         // all others here
         else if ((typeCode == TEXT("V") && !py::isinstance<FVector>(inValue)) ||
                  (typeCode == TEXT("V2") && !py::isinstance<FVector2D>(inValue)) ||
                  (typeCode == TEXT("R") && !py::isinstance<FRotator>(inValue)) ||
+                 (typeCode == TEXT("Q") && !py::isinstance<FQuat>(inValue)) ||
                  (typeCode == TEXT("LC") && !py::isinstance<FLinearColor>(inValue)) ||
                  (typeCode == TEXT("O") && !py::isinstance<UObject*>(inValue)) ||
                  (typeCode == TEXT("T") && !py::isinstance<FTransform>(inValue)))
@@ -68,7 +140,7 @@ bool CoerceValue(FString& typeCode, py::object& inValue, py::object& outValue)
 const uint16 END_OF_PROPS = 65535; // not allowed to have this many properties (note that this includes dynamically-allocated properties, e.g. for UI replication)
 
 // adds a new entry to the list of replicated props
-bool FNRPropHolder::AddProperty(FString name, py::object& defaultValue)
+bool FNRPropHolder::AddProperty(FString name, py::object& defaultValue, bool isSpecial)
 {
     // reject if it's a known ID
     uint16* idPtr = namesToIDs.Find(name);
@@ -78,7 +150,7 @@ bool FNRPropHolder::AddProperty(FString name, py::object& defaultValue)
         return false;
     }
 
-    FString typeCode = TypeCodeFor(defaultValue);
+    FString typeCode = TypeCodeFor(defaultValue, isSpecial);
     if (typeCode == "")
     {
         LERROR("Unsupported property type for %s", *name);
@@ -91,11 +163,41 @@ bool FNRPropHolder::AddProperty(FString name, py::object& defaultValue)
         LERROR("Too many replicated properties, are you crazy?");
         return false;
     }
+
+    // for now at least, all the special cases are where the default value is null/None so there's no way to infer
+    // the type, so the default value is the name of the special case, which TypeCodeFor has already handled, so now
+    // we can safely set it to the true default of None.
+    if (isSpecial)
+        defaultValue = py::none();
+
     namesToIDs.Add(name, nextPropID);
     names.Emplace(name);
     values.Emplace(defaultValue); // TODO: should we make a copy of this object?
     defaults.Emplace(defaultValue);
+    initOverrides.Emplace(false);
     typeCodes.Emplace(typeCode);
+    return true;
+}
+
+bool FNRPropHolder::InitSetProperty(FString name, py::object& value)
+{
+    int propID = GetPropertyID(name);
+    if (propID == -1)
+    {
+        LERROR("Prop holder has no property %s", *name);
+        return false;
+    }
+
+    FString typeCode = typeCodes[propID];
+    py::object finalValue;
+    if (!CoerceValue(typeCode, value, finalValue))
+    {
+        LERROR("Property value for %s is of the wrong type", *name);
+        return false;
+    }
+
+    values[propID] = finalValue;
+    initOverrides[propID] = true;
     return true;
 }
 
@@ -136,6 +238,17 @@ bool MarshalPyObject(UNetDriver *driver, FString& typeCode, py::object& obj, FAr
         bool b = obj.cast<bool>();
         ar << b;
     }
+    else if (typeCode == TEXT("by"))
+    {   // not sure if there's a better way to do this...
+        py::bytes pybytes = obj.cast<py::bytes>();
+        char *buff;
+        ssize_t buffLen;
+        PYBIND11_BYTES_AS_STRING_AND_SIZE(pybytes.ptr(), &buff, &buffLen);
+        TArray<uint8> bytes;
+        bytes.AddUninitialized(buffLen);
+        memcpy(bytes.GetData(), buff, buffLen);
+        ar << bytes;
+    }
     else if (typeCode == TEXT("S"))
     {
         FString s = FSTR(obj.cast<std::string>());
@@ -145,7 +258,12 @@ bool MarshalPyObject(UNetDriver *driver, FString& typeCode, py::object& obj, FAr
     {
         FRotator r = obj.cast<FRotator>();
         ar << r;
-   }
+    }
+    else if (typeCode == TEXT("Q"))
+    {
+        FQuat q = obj.cast<FQuat>();
+        ar << q;
+    }
     else if (typeCode == TEXT("V"))
     {
         FVector v = obj.cast<FVector>();
@@ -166,17 +284,36 @@ bool MarshalPyObject(UNetDriver *driver, FString& typeCode, py::object& obj, FAr
         FTransform t = obj.cast<FTransform>();
         ar << t;
     }
-    else if (typeCode == TEXT("O"))
+    else if (typeCode == TEXT("C"))
+    {   // we marshall classes as strings because they aren't replicated per se (both sides already know about them)
+        FString className = "";
+        UClass *engineClass = PyObjectToUClass(obj);
+        if (engineClass)
+            className = engineClass->GetName();
+        ar << className;
+    }
+    else if (typeCode == TEXT("O") || typeCode == TEXT("P"))
     {
-        if (!driver)
+        if (obj.is_none())
         {
-            LERROR("No net driver available to marshall UObject");
-            return false;
+            FNetworkGUID nil(0);
+            ar << nil;
         }
         else
         {
-            UObject* engineObj = obj.cast<UObject*>();
-            FNetworkGUID objID = driver->GuidCache->GetOrAssignNetGUID(engineObj);
+            py::object actualObj = obj;
+            if (typeCode == TEXT("P"))
+            {
+                try {
+                    actualObj = obj.attr("engineObj");
+                } catch (std::exception e)
+                {
+                    LERROR("Cannot marshal object with typeCode P because it has no engineObj: %s", UTF8_TO_TCHAR(e.what()));
+                    return false;
+                }
+            }
+            UObject* engineObj = actualObj.cast<UObject*>();
+            FNetworkGUID objID = NRGetOrAssignNetGUID(driver, engineObj);
             ar << objID;
         }
     }
@@ -231,7 +368,7 @@ void INRActorMixin::NRNoteBeginPlay()
     beginPlayCalled = true;
     UNetDriver *driver = Cast<AActor>(this)->GetWorld()->GetNetDriver();
     bool isHost = (driver && driver->GetNetMode() != ENetMode::NM_Client);
-    if (isHost)
+    if (isHost || !driver) // if there's no driver, we're in single player mode
     {   // on the host, everything is by definition up to date, so we can immediately
         // proceed to call OnReplicated.
         initialStateReplicated = true;
@@ -243,10 +380,10 @@ void INRActorMixin::NRNoteBeginPlay()
 
 // Called once an object is done calling AddProperty. When called from the host, triggers a notification
 // to all clients so that they can detect when initial replication is complete. For actors spawned once all
-// clients have joined, this initial call seems somewhat goofy since each client will already have all of the
-// initial state (because at this point in time, all replicated properties have their default values, which the
-// clients have as well), so it's tempting to just skip the initial notification and the OnReplicated event, and
-// just use the normal BeginPlay. But for cases where a client joins sometime after the start of play, we don't want
+// clients have joined, this initial call sends only properties with overwritten defaults (properties for which
+// InitSetProperty has been called) because all copies of the actors will already have the correct initial values
+// for all other properties (all other properties will just be at their default values, which all copies of the
+// object know about). For cases where a client joins sometime after the start of play, however, we don't want
 // the replicated actor to really "start" until it has received its state at that point in time, otherwise the client
 // could have strange behavior until (and while) properties are replicated. In the scenario of a late joiner, when the
 // NRChannel is opened, it calls all INRActorMixin actors' GenChannelReplicationPayload method to get their current
@@ -255,16 +392,48 @@ void INRActorMixin::NRNoteBeginPlay()
 void INRActorMixin::NRRegisterProps()
 {
     UWorld* world = Cast<AActor>(this)->GetWorld();
+    if (!world)
+    {
+        LERROR("No world - was this called on the CDO?");
+        return;
+    }
+
     spawnTS = world->GetRealTimeSeconds();
 
     // trigger an NRUpdate call to everywhere for the initial spawn replication. But, since all copies of the actor
-    // will have the same defaults, just send an empty message.
+    // will have the same defaults, just send any properties that have had their default value overwritten.
     UNetDriver *driver = Cast<AActor>(this)->GetWorld()->GetNetDriver();
     bool isHost = (driver && driver->GetNetMode() != ENetMode::NM_Client);
+    ENRWhere flags = ENRWhere::Nowhere;
     if (isHost)
+        flags = ENRWhere::Owner | ENRWhere::NonOwners; // everywhere
+    else if (!driver)
+        flags = ENRWhere::Local; // we're in single player mode
+
+    // ugly hack: if the game state implements INRActorMixin, it will be spawned prior to an player controllers
+    // existing, so the NRUpdate call will fail.
+    if (!world->GetFirstPlayerController())
     {
-        py::dict empty;
-        NRUpdate(ENRWhere::Owner|ENRWhere::NonOwners, true, empty); // owner|nonowners == "everywhere"
+        flags = ENRWhere::Nowhere;
+        initialStateReplicated = true;
+        if (beginPlayCalled)
+        {
+            LOG("WARNING: %s ugly hack calling OnReplicated", *Cast<AActor>(this)->GetName());
+            _CallOnReplicated();
+        }
+    }
+
+    if (flags != ENRWhere::Nowhere)
+    {
+        py::dict props;
+        for (uint16 propID=0; propID < (uint16)repProps.names.Num(); propID++)
+        {
+            if (!repProps.initOverrides[propID])
+                continue;
+            std::string key = PYSTR(repProps.names[propID]);
+            props[key.c_str()] = repProps.values[propID];
+        }
+        NRUpdate(flags, true, props);
     }
 }
 
@@ -301,9 +470,15 @@ void INRActorMixin::GenChannelReplicationPayload(UNetDriver* driver, FString& si
 // include Local and Host flags, though maybe there's some weird special case where it makes sense for them to not be set.
 void INRActorMixin::NRUpdate(ENRWhere where, bool isInitialState, py::dict& kwargs, bool reliable, float maxCallsPerSec)
 {
+    // Sometimes it's convenient to have an Actor class that has INRActorMixin in its class hierarchy even though it's
+    // not replicated
+    AActor *self = Cast<AActor>(this);
+    if (!self->GetIsReplicated())
+        where = ENRWhere::Local;
+
     // TODO: should we skip properties who are being updated but the value isn't changing?
 
-    UNetDriver *driver = Cast<AActor>(this)->GetWorld()->GetNetDriver();
+    UNetDriver *driver = self->GetWorld()->GetNetDriver();
     TArray<uint8> payload;
     FMemoryWriter writer(payload);
     uint8 iis = (uint8)isInitialState;
@@ -369,6 +544,12 @@ bool UnmarshalPyObject(UNetDriver *driver, FString& typeCode, FArchive& ar, py::
         ar << b;
         obj = py::cast(b);
     }
+    else if (typeCode == TEXT("by"))
+    {
+        TArray<uint8> bytes;
+        ar << bytes;
+        obj = py::bytes((char*)bytes.GetData(), bytes.Num());
+    }
     else if (typeCode == TEXT("S"))
     {
         FString s;
@@ -380,6 +561,12 @@ bool UnmarshalPyObject(UNetDriver *driver, FString& typeCode, FArchive& ar, py::
         FRotator r;
         ar << r;
         obj = py::cast(r);
+    }
+    else if (typeCode == TEXT("Q"))
+    {
+        FQuat q;
+        ar << q;
+        obj = py::cast(q);
     }
     else if (typeCode == TEXT("V"))
     {
@@ -405,25 +592,56 @@ bool UnmarshalPyObject(UNetDriver *driver, FString& typeCode, FArchive& ar, py::
         ar << t;
         obj = py::cast(t);
     }
-    else if (typeCode == TEXT("O"))
-    {
-        if (!driver)
+    else if (typeCode == TEXT("C"))
+    {   // class objects are marshaled as strings (their full class name). Upon reception, we try to find a Python
+        // subclass of that name before falling back to an engine class of that name
+        FString className;
+        ar << className;
+        obj = GetPyClassFromName(className);
+        if (obj.is_none())
         {
-            LERROR("No net driver available to unmarshall UObject");
+            UClass *engineClass = FindObject<UClass>(ANY_PACKAGE, *className);
+            if (!engineClass)
+            {
+                LERROR("Failed to unmarshal class %s", *className);
+                return false;
+            }
+            obj = py::cast(engineClass);
+        }
+    }
+    else if (typeCode == TEXT("O") || typeCode == TEXT("P"))
+    {
+        FNetworkGUID g;
+        ar << g;
+        if (g.Value == 0)
+        {   // just passing None/null
+            obj = py::none();
+            return true;
+        }
+
+        UObject *engineObj = NRGetObjectFromNetGUID(driver, g);
+
+        if (!engineObj || !engineObj->IsValidLowLevel())
+        {
+            LERROR("Unmarshalled object not found for netguid %d", g.Value);
             return false;
         }
         else
         {
-            FNetworkGUID g;
-            ar << g;
-            UObject *engineObj = driver->GuidCache->GetObjectFromNetGUID(g, false);
-            if (!engineObj || !engineObj->IsValidLowLevel())
+            if (typeCode == TEXT("P"))
             {
-                LERROR("Unmarshalled object not found for netguid %d", g.Value);
-                return false;
+                IUEPYGlueMixin *p = Cast<IUEPYGlueMixin>(engineObj);
+                if (!p)
+                {
+                    LERROR("Unmarshalled object of type P is not a IEUPYGlueMixin instance");
+                    return false;
+                }
+                obj = p->pyInst;
             }
             else
+            {   // todo: in the case of a UClass, we might want to see if we can get the python subclass, if there is one
                 obj = py::cast(engineObj);
+            }
         }
     }
     else
@@ -445,12 +663,21 @@ void INRActorMixin::OnInternalNRCall(FString signature, TArray<uint8>& payload)
         return;
     }
 
-    // unmarshall the message and update affected properties
+    // unmarshal the message and update affected properties
     UNetDriver *driver = Cast<AActor>(this)->GetWorld()->GetNetDriver();
     FMemoryReader reader(payload);
     uint8 isInitialState;
     reader << isInitialState;
     TArray<FString> modifiedPropNames;
+    /*
+    if (isInitialState)
+    {
+        AActor *self = Cast<AActor>(this);
+        FNetworkGUID g = NRGetOrAssignNetGUID(driver, self);
+        LOG("Received initial state for %s (fng %d)", *self->GetName(), g.Value);
+    }
+    */
+
     while (1)
     {
         uint16 propID;

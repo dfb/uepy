@@ -12,6 +12,11 @@ class EnumMeta(type):
             if type(v) is int:
                 inverse[v] = k
         dct['_inverse'] = inverse
+
+        # Also make each enum accessible as a purely lowercase name to aid in translating user input (or
+        # some other source that may not know the proper capitalization) to enum values
+        for v,k in inverse.items():
+            dct[k.lower()] = v
         return super().__new__(metaclass, name, bases, dct)
 
 class Enum(metaclass=EnumMeta):
@@ -25,6 +30,11 @@ class Enum(metaclass=EnumMeta):
     def Inverse(cls):
         '''Returns a mapping of enum value --> name'''
         return cls._inverse
+
+    @classmethod
+    def Values(cls):
+        '''Returns a list of all of the enum's values'''
+        return list(cls._inverse.keys())
 
 class EForceInit(Enum):
     ForceInit, ForceInitToZero = range(2)
@@ -49,14 +59,11 @@ class EVerticalAlignment(Enum):
     VAlign_Bottom = Bottom = 3
 
 class ECollisionChannel(Enum):
-    ECC_WorldStatic = 0
-    ECC_WorldDynamic = 1
-    ECC_Pawn = 2
-    ECC_Visibility = 3
-    ECC_Camera = 4
-    ECC_PhysicsBody = 5
-    ECC_Vehicle = 6
-    ECC_Destructible = 7
+    ECC_WorldStatic, ECC_WorldDynamic, ECC_Pawn, ECC_Visibility, ECC_Camera, ECC_PhysicsBody, ECC_Vehicle, ECC_Destructible, ECC_EngineTraceChannel1,\
+    ECC_EngineTraceChannel2, ECC_EngineTraceChannel3, ECC_EngineTraceChannel4, ECC_EngineTraceChannel5, ECC_EngineTraceChannel6, ECC_GameTraceChannel1,\
+    ECC_GameTraceChannel2, ECC_GameTraceChannel3, ECC_GameTraceChannel4, ECC_GameTraceChannel5, ECC_GameTraceChannel6, ECC_GameTraceChannel7,\
+    ECC_GameTraceChannel8, ECC_GameTraceChannel9, ECC_GameTraceChannel10, ECC_GameTraceChannel11, ECC_GameTraceChannel12, ECC_GameTraceChannel13,\
+    ECC_GameTraceChannel14, ECC_GameTraceChannel15, ECC_GameTraceChannel16, ECC_GameTraceChannel17, ECC_GameTraceChannel18 = range(32)
 
 class ECollisionEnabled(Enum):
     NoCollision, QueryOnly, PhysicsOnly, QueryAndPhysics = range(4)
@@ -72,6 +79,8 @@ class EEasingFunc(Enum):
 
 class EDrawDebugTrace(Enum):
     NONE, ForOneFrame, ForDuration, Persistent = range(4)
+
+class EHMDTrackingOrigin(Enum): Floor, Eye, Stage = range(3)
 
 class ESlateColorStylingMode(Enum):
     UseColor_Specified, UseColor_Specified_Link, UseColor_Foreground, UseColor_Foreground_Subdued = range(4)
@@ -106,5 +115,20 @@ class EStretch: NONE, Fill, ScaleToFit, ScaleToFitX, ScaleToFitY, ScaleToFill, S
 
 class EInputEvent(Enum): IE_Pressed, IE_Released, IE_Repeat, IE_DoubleClick, IE_Axis, IE_MAX = range(6)
 
-class ENRWhere(Enum): Nowhere, Local, Host, Owner, NonOwners, All = [0,1,2,4,8,12]
+class ENRWhere(Enum): Nowhere, Local, Host, Owner, NonOwners, All = [0,1,2,4,8,15]
 
+class EWidgetSpace(Enum): World, Screen = range(2)
+
+class EWidgetGeometryMode(Enum): Plane, Cylinder = range(2)
+
+class EWidgetInteractionSource(Enum): World, Mouse, CenterScreen, Custom = range(4)
+
+class ESplineCoordinateSpace(Enum): Local, World = range(2)
+
+class ESplinePointType(Enum): Linear, Curve, Constant, CurveClamped, CurveCustomTangent = range(5)
+
+class EComponentMobility(Enum): Static, Stationary, Movable = range(3)
+
+class ERelativeTransformSpace(Enum): RTS_World, RTS_Actor, RTS_Component, RTS_ParentBoneSpace = range(4)
+
+class EOnJoinSessionCompleteResult(Enum): Success, SessionIsFull, SessionDoesNotExist, CouldNotRetrieveAddress, AlreadyInSession, UnknownError = range(6)

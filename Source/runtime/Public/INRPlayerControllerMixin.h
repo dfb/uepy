@@ -3,7 +3,12 @@
 
 #pragma once
 #include "NRChannel.h"
+#include "Engine/NetDriver.h"
 #include "INRPlayerControllerMixin.generated.h"
+
+// in INActorMixin, but needed by multiple things (should prolly find a better home for these declarations though)
+UObject* NRGetObjectFromNetGUID(UNetDriver *driver, FNetworkGUID& g);
+FNetworkGUID NRGetOrAssignNetGUID(UNetDriver* driver, UObject* obj);
 
 UINTERFACE()
 class UEPY_API UNRPlayerControllerMixin : public UInterface
@@ -24,8 +29,9 @@ public:
     void NRCall(ENRWhere where, AActor *recipient, FString signature, TArray<uint8>& payload, bool reliable, float maxCallsPerSec);
 };
 
-// global API, callable by anyone anywhere
+// global APIs, callable by anyone anywhere
 void UEPY_API NRCall(ENRWhere where, AActor *recipient, const FString signature, TArray<uint8>& payload, bool reliable=true, float maxCallsPerSec=-1.0f);
+int NRGetChannelID(UWorld* world); // returns an ID for this machine's connection to the host (or 0 if it is the host)
 
 // Note that there is no global NRUpdate API; this is because NRUpdate is /intended/ to be used by an actor on itself - i.e. there's no technical reason
 // why you couldn't call NRUpdate on some other actor, but it's supposed to be how an actor updates its internal replicated state, something that an agent
