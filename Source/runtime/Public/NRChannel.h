@@ -17,6 +17,7 @@
 enum class ENRWhere : uint8
 {
     Nowhere = 0, Local = 1, Host = 2, Owner = 4, NonOwners = 8,
+    All = 1|2|4|8,
     Internal = 128 // not for application code but for internal use, e.g. replicated props
 };
 ENUM_CLASS_FLAGS(ENRWhere)
@@ -29,7 +30,7 @@ ENUM_CLASS_FLAGS(ENRWhere)
 // Note that property replication is built on top of NRCall so it doesn't need a separate message
 enum class ENRWireMessageType : uint8
 {
-    Invalid, Init, SignatureDef, Call,
+    Init, SignatureDef, Call
 };
 
 // Base class for all NetRep messages
@@ -73,6 +74,7 @@ public:
     FNRCallMessage() : FNRBaseMessage(ENRWireMessageType::Call) {};
     ~FNRCallMessage() {}
     ENRWhere where; // all the places where the function call should happen
+    uint8 mixedSessionID; // if a mixed reliability session (reliable+unreliable msgs) is active, the ID for it, else 0
     FNetworkGUID recipient; // the AActor that will receive the message. Must be marked as replicating in UE4's replication system.
     uint16 signatureID;
     TArray<uint8> payload; // the message itself, can be an opaque blob of bytes or parameters that have been marshalled.
@@ -105,6 +107,6 @@ public:
     UNRChannel(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
 
     // used by the player controller mixin to add a message to the outgoing message queue
-    void AddNRCall(ENRWhere where, AActor *recipient, FString signature, TArray<uint8>& payload, bool reliable, float maxCallsPerSec);
+    void AddNRCall(ENRWhere where, AActor* recipient, FString signature, TArray<uint8>& payload, bool reliable, float maxCallsPerSec);
 };
 

@@ -1,7 +1,7 @@
 from _uepy import *
 
 from importlib import reload
-import sys, shlex, json, time
+import sys, shlex, json, time, weakref
 
 from . import enums
 
@@ -55,6 +55,45 @@ def GetWorld():
         if worlds.get(t) is None:
             worlds[t] = w
     return worlds.get(WT.Game) or worlds.get(WT.PIE) or worlds.get(WT.Editor)
+
+class Event:
+    '''Utility class for firing events locally among objects. Convention is for objects to declare a public event member variable that
+    other objects access directly to add/remove listener callbacks. User Add/Remove to register/unregister a function to be called when
+    the event owner calls event.Fire. The signature of the event is up to the owner and supports args and kwargs. Callbacks are weak
+    referenced and it is not required to Remove a registered callback, but it must be owned by an object (the callback function object
+    must be a method bound to an object).'''
+    def __init__(self):
+        self.callbacks = [] # list of (owner, cb method)
+
+    def Add(self, method):
+        self.callbacks.append(weakref.WeakMethod(method))
+
+    def Remove(self, method):
+        for i, ref in enumerate(self.callbacks):
+            if ref() == method:
+                self.callbacks.pop(i)
+                return
+        log('ERROR: failed to remove', method)
+
+    def Fire(self, *args, **kwargs):
+        '''Called by the owner to emit an event'''
+        for methodRef in self.callbacks[:]:
+            cb = methodRef()
+            if not cb:
+                self.callbacks.remove(methodRef)
+            else:
+                # Special case: if the owner of the callback is a Python wrapper for an engine object, it's possible that the
+                # underlying engine object is no longer valid, but the engine hasn't run GC yet, so the Python object still exists,
+                # so we need to detect that scenario and not call the callback.
+                engineObj = getattr(cb.__self__, 'engineObj', None)
+                if engineObj and not engineObj.IsValid():
+                    self.callbacks.remove(methodRef)
+                    continue
+
+                try:
+                    cb(*args, **kwargs)
+                except:
+                    logTB()
 
 def DestroyAllActorsOfClass(klass):
     for a in UGameplayStatics.GetAllActorsOfClass(GetWorld(), klass):
@@ -197,6 +236,7 @@ class AActor_PGLUE(metaclass=PyGlueMetaclass):
     )
 
     def __init__(self):
+        self.EndingPlay = Event() # fires (self) on EndPlay.
         super().__init__()
         self.isHost = GetWorld().IsServer()
         self._NRRegisterProps() # set up replication
@@ -208,6 +248,14 @@ class AActor_PGLUE(metaclass=PyGlueMetaclass):
         use (must be the same type or coercible to the same type of the default).'''
         return {}
 
+    def _NRGetRepProps(self):
+        '''Returns a Bag of all replicated properties and their default values, recursively including those from parent classes.
+        This method should not have side effects as subclasses may call it for their own needs.'''
+        props = Bag()
+        for klass in self.__class__.__mro__[::-1]: # reverse order so we start at the top of the MRO list
+            props.update(**getattr(klass, 'repProps', {}))
+        return props
+
     def _NRRegisterProps(self):
         '''Called by __init__ to figure out all replicated properties for this object by starting at the root class and merging
         in properties to get the final set, then registering them. Replicated properties are by default stored in a 'repProps'
@@ -216,16 +264,19 @@ class AActor_PGLUE(metaclass=PyGlueMetaclass):
         if not self.GetIsReplicated() or self.engineObj.IsDefaultObject():
             return
 
-        props = Bag()
-        for klass in self.__class__.__mro__[::-1]: # reverse order so we start at the top of the MRO list
-            props.update(**getattr(klass, 'repProps', {}))
-        self.repPropDefs = props
-
+        props = self.repPropDefs = self._NRGetRepProps()
         for name, defaultValue in sorted(props.items()):
-            self.nr.AddProperty(name, defaultValue, defaultValue in SPECIAL_REP_PROPS)
+            defaultValue = self._NRTranslateProp(name, defaultValue)
+            if defaultValue is not None:
+                self.nr.AddProperty(name, defaultValue, defaultValue in SPECIAL_REP_PROPS)
         for name, value in self._NRGetInitOverrides().items():
             self.nr.InitSetProperty(name, value)
         self.engineObj.NRRegisterProps()
+
+    def _NRTranslateProp(self, name, defaultValue):
+        '''Used by _NRRegisterProps to do any processing on a repprop - returning None causes this property to be skipped.
+        Otherwise, return the value to use as the default value.'''
+        return defaultValue
 
     def OnRep_loc(self): self.SetActorLocation(self.nr.loc)
     def OnRep_rot(self): self.SetActorRotation(self.nr.rot)
@@ -251,7 +302,9 @@ class AActor_PGLUE(metaclass=PyGlueMetaclass):
     def GetComponentsByClass(self, klass): return self.engineObj.GetComponentsByClass(klass)
     def IsValid(self): return self.engineObj.IsValid()
     def BeginPlay(self): self.engineObj.SuperBeginPlay()
-    def EndPlay(self, reason): self.engineObj.SuperEndPlay(reason)
+    def EndPlay(self, reason):
+        self.EndingPlay.Fire(self)
+        self.engineObj.SuperEndPlay(reason)
     def Tick(self, dt): self.engineObj.SuperTick(dt)
     def HasAuthority(self): return self.engineObj.HasAuthority()
     def IsActorTickEnabled(self): return self.engineObj.IsActorTickEnabled()
@@ -261,7 +314,7 @@ class AActor_PGLUE(metaclass=PyGlueMetaclass):
     def SetActorHiddenInGame(self, h): self.engineObj.SetActorHiddenInGame(h)
     def SetReplicateMovement(self, b): self.engineObj.SetReplicateMovement(b)
     def Destroy(self): return self.engineObj.Destroy()
-    def BindOnEndPlay(self, cb): self.engineObj.BindOnEndPlay(cb)
+    def BindOnEndPlay(self, cb): self.engineObj.BindOnEndPlay(cb) # NOTE: you may be better off using the EndingPlay Event instance.
     def UnbindOnEndPlay(self, cb): self.engineObj.UnbindOnEndPlay(cb)
     def Set(self, k, v): self.engineObj.Set(k, v)
     def Get(self, k): return self.engineObj.Get(k)
@@ -269,20 +322,27 @@ class AActor_PGLUE(metaclass=PyGlueMetaclass):
     def UpdateTickSettings(self, canEverTick, startWithTickEnabled): self.engineObj.UpdateTickSettings(canEverTick, startWithTickEnabled)
     def OnReplicated(self): pass
 
-    def GetFilteredComponents(self, ofClass=UPrimitiveComponent, onlyVisible=True, ignore=None):
+    def GetFilteredComponents(self, ofClass=UPrimitiveComponent, onlyVisible=True, ignore=None, ignoreTag=None, includeAttachedActors=False):
         '''Returns a list of all of this actor's visible mesh component (including descendants) that are instances of the
         given component class (or one of its descendents). If ignore is provided, it should be a list of components to omit. If onlyVisible
-        is True, excludes any hidden components.'''
+        is True, excludes any hidden components. If includeAttachedActors is True, also return components of attached children actors.
+        If ignoreTag is provided, any components that has that tag will be skipped.'''
         ret = []
         root = self.GetRootComponent()
         if not root:
             return ret
 
+        thisActorAddr = AddressOf(self.engineObj)
         ignore = ignore or []
         ignore = [ofClass.Cast(x) for x in ignore] # this is so the check against the casted value works
         ignore = [x for x in ignore if x]
+        ignoreTag = (ignoreTag or '').lower()
         for comp in root.GetChildrenComponents(True):
+            if thisActorAddr != AddressOf(comp.GetOwner()) and not includeAttachedActors:
+                continue
             if onlyVisible and not comp.IsVisible():
+                continue
+            if ignoreTag and ignoreTag in comp.ComponentTags:
                 continue
             comp = ofClass.Cast(comp)
             if not comp:
@@ -302,6 +362,7 @@ class AActor_PGLUE(metaclass=PyGlueMetaclass):
 
     def NRCall(self, where, funcName, *args, reliable=True, maxCallsPerSec=-1): LLNRCall(where, self.engineObj, funcName, args, reliable, maxCallsPerSec)
     def NRUpdate(self, *, where=enums.ENRWhere.All, reliable=True, maxCallsPerSec=-1, **kwargs): self.engineObj.NRUpdate(where, kwargs, reliable, maxCallsPerSec)
+    def NRStartMixedReliability(self, funcName): self.engineObj.NRStartMixedReliability(funcName)
     def OnNRUpdate(self, modifiedPropNames):
         # by default, look for any OnRep_<propName> methods that have been defined and call them
         for name in modifiedPropNames:
@@ -315,7 +376,7 @@ class AActor_PGLUE(metaclass=PyGlueMetaclass):
     @property
     def configStr(self):
         return self.engineObj.configStr
-CPROPS(AActor_PGLUE, 'bReplicates', 'Tags', 'nr')
+CPROPS(AActor_PGLUE, 'bAlwaysRelevant', 'bReplicates', 'Tags', 'nr')
 
 class APawn_PGLUE(AActor_PGLUE):
     def IsLocallyControlled(self): return self.engineObj.IsLocallyControlled()

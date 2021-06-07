@@ -38,6 +38,7 @@ void FNRCallMessage::Serialize(FArchive& ar)
         ar << msgType; // TODO: also add multipart support and compression
     }
     ar << where;
+    ar << mixedSessionID;
     ar << recipient;
     ar << signatureID;
     ar << payload;
@@ -155,6 +156,7 @@ void UNRChannel::ReceivedBunch(FInBunch& bunch)
         else if (msgType == ENRWireMessageType::Call)
             message = MakeShareable(new FNRCallMessage());
         message->Serialize(bunch);
+        message->reliable = bunch.bReliable; // used in debugging but also in mixed reliablility logic
 
         if (msgType == ENRWireMessageType::Init)
         {   // no need to wait - just process this one right now
@@ -181,6 +183,16 @@ void UNRChannel::ReceivedBunch(FInBunch& bunch)
     }
 }
 
+// helper for extracting just the method name from a signature string
+FString MethodNameFromSignature(FString& sig)
+{
+    int i = sig.Find("|");
+    if (i < 0)
+        return sig;
+    else
+        return sig.Mid(0, i);
+}
+
 void UNRChannel::Tick()
 {
     Super::Tick();
@@ -197,8 +209,9 @@ void UNRChannel::Tick()
                 break;
 
             FOutBunch bunch(this, false);
-            bunch.bReliable = true;
-            messagesToSend[index]->Serialize(bunch);
+            TSharedPtr<FNRBaseMessage> msg = messagesToSend[index];
+            bunch.bReliable = msg->reliable;
+            msg->Serialize(bunch);
             if (!bunch.IsError())
                 SendBunch(&bunch, 1);
         }
@@ -251,6 +264,25 @@ void UNRChannel::Tick()
                         LERROR("Failed to find recipient for netguid for call to %s for recipient %u", *sig, callMsg->recipient.Value);
                     }
                     continue;
+                }
+
+                // Perform some checks related to mixing unreliable and reliable messages
+                if (callMsg->mixedSessionID != 0)
+                {
+                    INRActorMixin* a = Cast<INRActorMixin>(recipient);
+                    if (!a)
+                    {   // should be impossible but...
+                        LERROR("Recipient %s is somehow not an INRActorMixin", *recipient->GetName());
+                        continue;
+                    }
+
+                    FString methodName = MethodNameFromSignature(sig);
+                    uint8 curSessID = a->NRGetMixedReliabilitySessionID(methodName, callMsg->reliable);
+                    if (curSessID != callMsg->mixedSessionID)
+                    {
+                        LOG("Tossing unreliable mixed mode message for %s (%d):%s with session %d (expected %d, reliable: %d)", *recipient->GetName(), callMsg->recipient.Value, *methodName, callMsg->mixedSessionID, curSessID, callMsg->reliable);
+                        continue;
+                    }
                 }
 
                 NRCall(callMsg->where, recipient, sig, callMsg->payload);
@@ -316,6 +348,14 @@ void UNRChannel::AddNRCall(ENRWhere where, AActor *recipient, FString signature,
 	TSharedPtr<FNRCallMessage> message = MakeShareable(new FNRCallMessage());
     message->reliable = reliable;
     message->where = where;
+
+    INRActorMixin* r = Cast<INRActorMixin>(recipient); // TODO: it's silly that we pass AActor* everywhere in NR calls when it is known to be and has to be an INRActorMixin pointer.
+    if (!r)
+    {
+        LERROR("Recipient is not an INRActorMixin? Unpossible! %s", *recipient->GetName());
+        return;
+    }
+    message->mixedSessionID = r->NRGetMixedReliabilitySessionID(MethodNameFromSignature(signature), reliable);
     message->recipient = recipientID;
     message->signatureID = sigID;
     message->payload = payload;

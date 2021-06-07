@@ -192,7 +192,8 @@ bool FNRPropHolder::InitSetProperty(FString name, py::object& value)
     py::object finalValue;
     if (!CoerceValue(typeCode, value, finalValue))
     {
-        LERROR("Property value for %s is of the wrong type", *name);
+        std::string s = py::repr(value);
+        LERROR("Property value %s=%s is of the wrong type", *name, FSTR(s));
         return false;
     }
 
@@ -437,8 +438,9 @@ void INRActorMixin::NRRegisterProps()
     }
 }
 
-// the internal signature we use for any NRUpdate calls
+// signatures for internal calls
 const FString NR_UPDATE_SIG("__nrupdate__");
+const FString NR_MIXED_SIG("__nrmixedrel__");
 
 // Special method called by NRChannel on the host when it needs to replicate current actor state to a player that
 // is joining a session that is already underway. Passes out the signature to use and fills the payload buffer
@@ -520,6 +522,34 @@ void INRActorMixin::NRUpdate(ENRWhere where, bool isInitialState, py::dict& kwar
 
     // NRUpdate reuses the NRCall machinery and sets the Internal flag
     NRCall(where|ENRWhere::Internal, Cast<AActor>(this), NR_UPDATE_SIG, payload, reliable, maxCallsPerSec);
+}
+
+// Signals that the application code is going to have some unreliable message calls followed by a terminating reliable call.
+// A recurring pattern in multiplayer stuff is to replicate some action from a user that involves a lot of updates, such as
+// dragging an object around, and then letting go of it to drop the object somewhere. While the drag is happening, you want
+// most players to get updates that that drag is happening, but those updates can be throttled & unreliable. When the user
+// releases the object at its final location, you want to send a final, reliable message. Since the messages are all sent
+// over UDP, it's possible for one of the intermediate messages to show up after the final message, which results in incorrect
+// placement of the object. The solution is to call NRStartMixedReliability when the user begins the drag operation; we generate a small
+// random ID for the (recipient, method) combination and include it with the messages. The receiving side then rejects any
+// unreliable messages that use an invalid (or out of date) ID as a way to detect and prevent the above scenario.
+void INRActorMixin::NRStartMixedReliability(FString methodName)
+{
+    // NOTE: in theory we could have concurrent mixed mode sessions to the same recipient+method pair, in which case the
+    // map should also take into account the sender or something to make it unique. But, I can't yet think of a good reason
+    // why this would be needed, so I'm not implementing support for it.
+    // Similarly, we currently use the same map for sending and receiving, for the same reason.
+    uint8 sessID = 1+(uint8)FMath::RandHelper(255); // valid IDs are 1..255, with 0=no session in use
+    mixedSessionIDs.Add(methodName, sessID);
+
+    TArray<uint8> payload;
+    FMemoryWriter writer(payload);
+    writer << sessID;
+    writer << methodName;
+
+    AActor *self = Cast<AActor>(this);
+    NRCall(ENRWhere::All|ENRWhere::Internal, self, NR_MIXED_SIG, payload);
+    //LOG("Starting MixedReliability mode for %s.%s with session %d", *self->GetName(), *methodName, sessID);
 }
 
 // Reads a python object of the given type code out of the given archive, storing it in the
@@ -652,17 +682,63 @@ bool UnmarshalPyObject(UNetDriver *driver, FString& typeCode, FArchive& ar, py::
     return true;
 }
 
-// NRUpdate is built on top of NRCall and just has an "is internal" flag set in the message. When variables are being
-// replicated, NRCall delivers it to each client, and then instead of the call being routed to OnNRUpdate, it is routed
-// here instead. If we later need to have additional internal messages, support for them could be added here.
-void INRActorMixin::OnInternalNRCall(FString signature, TArray<uint8>& payload)
+void INRActorMixin::RouteNRCall(bool reliable, bool isInternal, const FString& signature, TArray<uint8>& payload)
 {
-    if (signature != NR_UPDATE_SIG)
-    {
-        LERROR("Unable to handle internal call for %s", *signature);
+    // See if this is a type-annotated signature or a vanilla one
+    TArray<FString> sigParts;
+    signature.ParseIntoArray(sigParts, TEXT("|"));
+    if (sigParts.Num() == 1)
+    {   // just an opaque blob from our perspective, so pass it along
+        if (isInternal) // internal is stuff like variable replication that builds on top of NRCall
+            OnInternalNRCall(signature, payload);
+        else // route it to application-level code
+            OnNRCall(signature, payload);
         return;
     }
 
+    if (isInternal)
+    {
+        LERROR("Type annotated NRCalls not yet supported on internal messages, ignoring call to %s", *signature);
+    }
+
+    // We have type info, so convert the payload into python objects
+    AActor *self = Cast<AActor>(this);
+    UNetDriver *driver = self->GetWorld()->GetNetDriver();
+    py::list args;
+    TArray<FString> typeInfos;
+    sigParts[1].ParseIntoArray(typeInfos, TEXT(","));
+    FMemoryReader reader(payload);
+    for (auto type : typeInfos)
+    {
+        py::object arg;
+        if (!UnmarshalPyObject(driver, type, reader, arg))
+        {
+            LERROR("Unhandled typeInfo %s in call to %s", *type, *signature);
+            return;
+        }
+        args.append(arg);
+    }
+    OnNRCall(sigParts[0], args);
+}
+
+// dispatches internal NRCalls to their respective handler methods
+void INRActorMixin::OnInternalNRCall(FString signature, TArray<uint8>& payload)
+{
+    if (signature == NR_UPDATE_SIG)
+        _OnInternalNRUpdate(payload);
+    else if (signature == NR_MIXED_SIG)
+        _OnInternalNRStartMixedReliability(payload);
+    else
+    {
+        LERROR("Unable to handle internal call for %s", *signature);
+    }
+}
+
+// NRUpdate is built on top of NRCall and just has an "is internal" flag set in the message. When variables are being
+// replicated, NRCall delivers it to each client, and then instead of the call being routed to OnNRCall, it is routed
+// here instead. If we later need to have additional internal messages, support for them could be added here.
+void INRActorMixin::_OnInternalNRUpdate(TArray<uint8>& payload)
+{
     // unmarshal the message and update affected properties
     UNetDriver *driver = Cast<AActor>(this)->GetWorld()->GetNetDriver();
     FMemoryReader reader(payload);
@@ -728,3 +804,30 @@ void INRActorMixin::OnInternalNRCall(FString signature, TArray<uint8>& payload)
     }
 }
 
+// handles the receipt of a message starting a mixed reliability session
+void INRActorMixin::_OnInternalNRStartMixedReliability(TArray<uint8>& payload)
+{
+    FMemoryReader reader(payload);
+    uint8 sessID;
+    FString methodName;
+    reader << sessID;
+    reader << methodName;
+    mixedSessionIDs.Emplace(methodName, sessID);
+    //LOG("Remote started mixed reliability session %d for %s.%s", sessID, *Cast<AActor>(this)->GetName(), *methodName);
+}
+
+uint8 INRActorMixin::NRGetMixedReliabilitySessionID(FString methodName, bool reliable)
+{
+    uint8* sessID = mixedSessionIDs.Find(methodName);
+    if (!sessID)
+        return 0;
+
+    // if the message being sent or received is reliable, it signals the end of the mixed reliability session, so we should
+    // remove the ID for use in future calls.
+    if (reliable)
+    {
+        mixedSessionIDs.Remove(methodName);
+        LOG("Ending mixed reliability session %d for %s.%s", *sessID, *Cast<AActor>(this)->GetName(), *methodName);
+    }
+    return *sessID;
+}

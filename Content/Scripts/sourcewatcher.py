@@ -68,7 +68,12 @@ class ImportFinder(ast.NodeVisitor):
             src = f.read()
 
         f = ImportFinder()
-        f.visit(ast.parse(src))
+        try:
+            f.visit(ast.parse(src))
+        except:
+            logTB()
+            log('ERROR reading', filename)
+            raise
         return list(f.moduleNames)
 
 class ModuleInfoTracker:

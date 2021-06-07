@@ -372,6 +372,7 @@ void AActor_CGLUE::OnNRCall(FString signature, py::object args) { try { pyInst.a
 void AActor_CGLUE::OnNRCall(FString signature, TArray<uint8>& payload) { try { pyInst.attr("OnNRCall")(PYSTR(signature), py::memoryview::from_memory(payload.GetData(), payload.Num(), true), true); } catchpy; }
 void AActor_CGLUE::OnNRUpdate(TArray<FString>& modifiedPropertyNames) { try { py::list names; for (auto n : modifiedPropertyNames) names.append(PYSTR(n)); pyInst.attr("OnNRUpdate")(names); } catchpy; }
 void AActor_CGLUE::PostInitializeComponents() { try { pyInst.attr("PostInitializeComponents")(); } catchpy; }
+void AActor_CGLUE::GatherCurrentMovement() { if (IsReplicatingMovement()) Super::GatherCurrentMovement(); } // by default, the engine still calls GCM even if not replicating movement
 
 APawn_CGLUE::APawn_CGLUE() { PrimaryActorTick.bCanEverTick = true; PrimaryActorTick.bStartWithTickEnabled = false; }
 void APawn_CGLUE::BeginPlay()
@@ -399,6 +400,7 @@ void APawn_CGLUE::OnNRUpdate(TArray<FString>& modifiedPropertyNames) { try { py:
 void APawn_CGLUE::PostInitializeComponents() { try { pyInst.attr("PostInitializeComponents")(); } catchpy; }
 void APawn_CGLUE::SuperSetupPlayerInputComponent(UInputComponent* comp) { Super::SetupPlayerInputComponent(comp); }
 void APawn_CGLUE::SetupPlayerInputComponent(UInputComponent* comp) { try { pyInst.attr("SetupPlayerInputComponent")(comp); } catchpy; }
+void APawn_CGLUE::GatherCurrentMovement() { if (IsReplicatingMovement()) Super::GatherCurrentMovement(); } // by default, the engine still calls GCM even if not replicating movement
 
 USceneComponent_CGLUE::USceneComponent_CGLUE() { PrimaryComponentTick.bCanEverTick = true; PrimaryComponentTick.bStartWithTickEnabled = false; }
 void USceneComponent_CGLUE::BeginPlay() { try { pyInst.attr("BeginPlay")(); } catchpy; }
@@ -706,7 +708,7 @@ py::object CallObjectUFunction(UObject *obj, std::string _funcName, py::tuple& p
         UProperty *prop = *iter;
         if (!prop->HasAnyPropertyFlags(CPF_Parm))
             continue;
-        if (prop->HasAnyPropertyFlags(CPF_OutParm))//ReturnParm))
+        if (prop->HasAnyPropertyFlags(CPF_OutParm))//ReturnParm)) <-- this doesn't quite work: if a function param is e.g. an array of strings, it'll have the OutParm flag. But if we just check for Return, then other function calls fail.
         {
             returnProp = prop;
             continue;

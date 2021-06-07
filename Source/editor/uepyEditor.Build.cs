@@ -38,6 +38,7 @@ public class uepyEditor : ModuleRules
         PrivateDependencyModuleNames.AddRange(
             new string[]
             {
+                "AssetRegistry",
                 "AudioMixer",
                 "Blutility",
                 "CoreUObject",

@@ -51,12 +51,16 @@ class UEPY_API INRActorMixin
 
 protected:
     void _CallOnReplicated();
-    void OnInternalNRCall(FString signature, TArray<uint8>& payload); // this one is for non-application messages (e.g. variable replication)
     void GenChannelReplicationPayload(UNetDriver* driver, FString& signature, TArray<uint8>& payload);
     bool beginPlayCalled = false; // true once the BeginPlay method has been called
     bool initialStateReplicated = false; // on clients, true once the initial info for replicated variables has been received and processed
     bool onReplicatedCalled = false; // mostly for debugging to ensure we never call it twice, also for preventing Tick until replication is done
     float spawnTS = 0; // when this actor was spawned
+    TMap<FString,uint8> mixedSessionIDs; // active session IDs for mixed reliability mode (reliable+unreliable) messaging. methodName->active session ID.
+
+    void OnInternalNRCall(FString signature, TArray<uint8>& payload); // this one is for non-application messages (e.g. variable replication)
+    void _OnInternalNRUpdate(TArray<uint8>& payload);
+    void _OnInternalNRStartMixedReliability(TArray<uint8>& payload);
 
 public:
     // subclasses *must* call this from their BeginPlay (but not do much else in it - see OnReplicated)
@@ -65,9 +69,16 @@ public:
     // Called from Python to inform this object of its replicated properties
     void NRRegisterProps();
 
-    // called to deliver a netrep message to this actor
+    // called to deliver a netrep message to this actor, in turns calls ones of the OnNRCall methods or OnInternalNRCall
+    void RouteNRCall(bool reliable, bool isInternal, const FString& signature, TArray<uint8>& payload);
     virtual void OnNRCall(FString signature, TArray<uint8>& payload) {};
     virtual void OnNRCall(FString signature, py::object args) {};
+
+    // called by application code to indicate it will start a block of unreliable messages to the given method, followed by a final reliable message
+    void NRStartMixedReliability(FString methodName);
+
+    // called by NRChannel to get the current mixed reliability session ID for a call to the given method
+    uint8 NRGetMixedReliabilitySessionID(FString methodName, bool reliable);
 
     // used to trigger an update of replicated props. Even for local-only updates, this method must be used (vs direct modification)
     void NRUpdate(ENRWhere where, bool isInitialState, py::dict& kwargs, bool reliable=true, float maxCallsPerSec=-1.0);

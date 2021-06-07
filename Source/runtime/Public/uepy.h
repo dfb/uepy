@@ -39,6 +39,10 @@
     self.listName = items;\
 }, py::return_value_policy::reference)
 
+// bitprop is because UE4 declares lots of boolean properties like 'uint8 bWhatever : 1;'
+#define BIT_PROP(propName, className)\
+.def_property(#propName, [](className& self) { return (bool)self.propName; }, [](className& self, bool v) { self.propName = v; })
+
 #define STR_PROP(propName, className)\
 .def_property(#propName, [](className& self) { std::string s = TCHAR_TO_UTF8(*self.propName); return s; }, [](className& self, std::string& v) { self.propName = FSTR(v); })
 
@@ -246,6 +250,7 @@ public:
 protected:
     virtual void BeginPlay() override;
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+	virtual void GatherCurrentMovement() override;
     virtual void Tick(float dt) override;
     virtual void OnReplicated() override;
     virtual void OnNRCall(FString signature, TArray<uint8>& payload) override;
@@ -271,6 +276,7 @@ public:
 protected:
     virtual void BeginPlay() override;
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+	virtual void GatherCurrentMovement() override;
     virtual void Tick(float dt) override;
     virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
     virtual void OnReplicated() override;

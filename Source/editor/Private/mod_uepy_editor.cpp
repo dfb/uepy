@@ -7,6 +7,7 @@
 #include "WorkspaceMenuStructureModule.h"
 #include "Framework/Docking/TabManager.h"
 #include "SPythonConsole.h"
+#include "Runtime/AssetRegistry/Public/AssetRegistryModule.h"
 
 // called on pre engine init
 void _LoadModuleEditor(py::module& uepy)
@@ -50,6 +51,35 @@ void _LoadModuleEditor(py::module& uepy)
 
     m.def("DeselectAllActors", []() { GEditor->SelectNone(true, true, false); });
     m.def("SelectActor", [](AActor *actor) { GEditor->SelectActor(actor, true, true); });
+
+    py::class_<FAssetData>(m, "FAssetData")
+        .def_property_readonly("AssetName", [](FAssetData& self) { return PYSTR(self.AssetName.ToString()); })
+        .def_property_readonly("AssetClass", [](FAssetData& self) { return PYSTR(self.AssetClass.ToString()); })
+        .def_property_readonly("ObjectPath", [](FAssetData& self) { return PYSTR(self.ObjectPath.ToString()); })
+        .def_property_readonly("PackageName", [](FAssetData& self) { return PYSTR(self.PackageName.ToString()); })
+        .def_property_readonly("PackagePath", [](FAssetData& self) { return PYSTR(self.PackagePath.ToString()); })
+        .def("IsUAsset", [](FAssetData& self) { return self.IsUAsset(); })
+        .def("IsRedirector", [](FAssetData& self) { return self.IsRedirector(); })
+        .def("GetFullName", [](FAssetData& self) { return self.GetFullName(); })
+        .def("GetAsset", [](FAssetData& self) { return self.GetAsset(); }, py::return_value_policy::reference)
+        ;
+
+    // this is an ugly hack and likely quite slow (it loads *all* assets of a given class name), but
+    // for in-editor scripting, not too bad. We could add filtering or a assets-by-class thing or ...
+    m.def("GetAssetsByClass", [](std::string& path)
+    {
+        TArray<FAssetData> assets;
+        FAssetRegistryModule& AssetRegistryModule = FModuleManager::GetModuleChecked<FAssetRegistryModule>("AssetRegistry");
+        AssetRegistryModule.Get().GetAssetsByClass(FSTR(path), assets, true);
+        py::list ret;
+        for (FAssetData asset : assets)
+        {
+            if (!asset.IsValid())
+                continue;
+            ret.append(asset.GetAsset());
+        }
+        return ret;
+    }, py::return_value_policy::reference);
 
     UEPY_EXPOSE_CLASS(UPythonConsole, UWidget, m)
         ;

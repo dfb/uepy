@@ -73,7 +73,7 @@ void INRPlayerControllerMixin::NRCall(ENRWhere where, AActor *recipient, const F
             }
         }
         if (runLocal)
-            _LocalNRCall(isInternal, recipient, signature, payload);
+            _LocalNRCall(reliable, isInternal, recipient, signature, payload);
     }
     else
     {   // running on a client - possible actions are: error, run local here, tell host to run local, tell host to tell all non-owners to run local
@@ -93,13 +93,13 @@ void INRPlayerControllerMixin::NRCall(ENRWhere where, AActor *recipient, const F
         if (driver && driver->ServerConnection && newFlags != ENRWhere::Nowhere)
             _RemoteNRCall(driver->ServerConnection, newFlags, recipient, signature, payload, reliable, maxCallsPerSec);
         if (runLocal)
-            _LocalNRCall(isInternal, recipient, signature, payload);
+            _LocalNRCall(reliable, isInternal, recipient, signature, payload);
     }
 }
 
 // called by NRCall in cases where one of the destinations of the net call is the current machine
 // (which may be the host or a client)
-void INRPlayerControllerMixin::_LocalNRCall(bool isInternal, AActor *recipient, const FString signature, TArray<uint8>& payload)
+void INRPlayerControllerMixin::_LocalNRCall(bool reliable, bool isInternal, AActor *recipient, const FString signature, TArray<uint8>& payload)
 {
     INRActorMixin *dest = Cast<INRActorMixin>(recipient);
     if (!dest || !VALID(recipient))
@@ -107,42 +107,7 @@ void INRPlayerControllerMixin::_LocalNRCall(bool isInternal, AActor *recipient, 
         LERROR("Invalid destination for %s", *signature);
         return;
     }
-
-    // See if this is a type-annotated signature or a vanilla one
-    TArray<FString> sigParts;
-    signature.ParseIntoArray(sigParts, TEXT("|"));
-    if (sigParts.Num() == 1)
-    {   // just an opaque blob from our perspective, so pass it along
-        TArray<uint8> copy(payload);
-        if (isInternal) // internal is stuff like variable replication that builds on top of NRCall
-            dest->OnInternalNRCall(signature, copy);
-        else // route it to application-level code
-            dest->OnNRCall(signature, copy);
-        return;
-    }
-
-    if (isInternal)
-    {
-        LERROR("Type annotated NRCalls not yet supported on internal messages, ignoring call to %s", *signature);
-    }
-
-    // We have type info, so convert the payload into python objects
-    UNetDriver *driver = recipient->GetWorld()->GetNetDriver();
-    py::list args;
-    TArray<FString> typeInfos;
-    sigParts[1].ParseIntoArray(typeInfos, TEXT(","));
-    FMemoryReader reader(payload);
-    for (auto type : typeInfos)
-    {
-        py::object arg;
-        if (!UnmarshalPyObject(driver, type, reader, arg))
-        {
-            LERROR("Unhandled typeInfo %s in call to %s", *type, *signature);
-            return;
-        }
-        args.append(arg);
-    }
-    dest->OnNRCall(sigParts[0], args);
+    dest->RouteNRCall(reliable, isInternal, signature, payload);
 }
 
 // helper to locate the NRChannel instance for this connection
@@ -203,7 +168,12 @@ void NRCall(ENRWhere where, AActor *recipient, const FString signature, TArray<u
     // Sometimes it's convenient to have an Actor class that has INRActorMixin in its class hierarchy even though it's
     // not replicated
     if (!recipient->GetIsReplicated())
+    {
+        bool isInternal = (where & ENRWhere::Internal) != ENRWhere::Nowhere;
         where = ENRWhere::Local;
+        if (isInternal)
+            where |= ENRWhere::Internal;
+    }
     repPC->NRCall(where, recipient, signature, payload, reliable, maxCallsPerSec);
 }
 

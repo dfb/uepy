@@ -31,6 +31,8 @@
 #include "Components/VerticalBox.h"
 #include "Components/VerticalBoxSlot.h"
 #include "Components/Widget.h"
+#include "Components/WidgetSwitcher.h"
+#include "Components/WidgetSwitcherSlot.h"
 #include "Components/WrapBox.h"
 #include "Components/WrapBoxSlot.h"
 #include "Paper2D/Classes/PaperSprite.h"
@@ -174,6 +176,7 @@ void _LoadModuleUMG(py::module& uepy)
         .def("IsHovered", [](UWidget& self) { return self.IsHovered(); })
         .def("GetRenderOpacity", [](UWidget& self) { return self.GetRenderOpacity(); })
         .def("SetRenderOpacity", [](UWidget& self, float o) { self.SetRenderOpacity(o); })
+        .def("GetParent", [](UWidget& self) { return self.GetParent(); }, py::return_value_policy::reference)
         ;
 
     py::class_<UImage, UWidget, UnrealTracker<UImage>>(m, "UImage")
@@ -194,8 +197,10 @@ void _LoadModuleUMG(py::module& uepy)
     py::class_<UUserWidget, UWidget, UnrealTracker<UUserWidget>>(m, "UUserWidget")
         .def_static("StaticClass", []() { return UUserWidget::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *obj) { return Cast<UUserWidget>(obj); }, py::return_value_policy::reference)
+        .def_readonly("WidgetTree", &UUserWidget::WidgetTree, py::return_value_policy::reference)
         .def("AddToViewport", [](UUserWidget& self, int zOrder) { self.AddToViewport(zOrder); })
         .def("SetDesiredSizeInViewport", [](UUserWidget& self, FVector2D& size) { self.SetDesiredSizeInViewport(size); })
+        .def("SetPadding", [](UUserWidget& self, FMargin& padding) { self.SetPadding(padding); })
         ;
 
     py::class_<UUserWidget_CGLUE, UUserWidget, UnrealTracker<UUserWidget_CGLUE>>(glueclasses, "UUserWidget_CGLUE")
@@ -218,6 +223,8 @@ void _LoadModuleUMG(py::module& uepy)
         .def_static("StaticClass", []() { return UPanelWidget::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *obj) { return Cast<UPanelWidget>(obj); }, py::return_value_policy::reference)
         .def("AddChild", [](UPanelWidget& self, UWidget *child) { return self.AddChild(child); }, py::return_value_policy::reference)
+        .def("GetChildrenCount", [](UPanelWidget& self) { return self.GetChildrenCount(); })
+        .def("GetChildAt", [](UPanelWidget& self, int index) { return self.GetChildAt(index); }, py::return_value_policy::reference)
         ;
 
     py::class_<UVerticalBox, UPanelWidget, UnrealTracker<UVerticalBox>>(m, "UVerticalBox")
@@ -309,6 +316,12 @@ void _LoadModuleUMG(py::module& uepy)
         .def("SetSize", [](UHorizontalBoxSlot& self, FSlateChildSize& size) { self.SetSize(size); })
         .def("SetVerticalAlignment", [](UHorizontalBoxSlot& self, int a) { self.SetVerticalAlignment((EVerticalAlignment)a); })
         .def("SetHorizontalAlignment", [](UHorizontalBoxSlot& self, int a) { self.SetHorizontalAlignment((EHorizontalAlignment)a); })
+        ;
+
+    UEPY_EXPOSE_CLASS(UWidgetSwitcherSlot, UPanelSlot, m)
+        .def("SetPadding", [](UWidgetSwitcherSlot& self, FMargin& m) { self.SetPadding(m); })
+        .def("SetVerticalAlignment", [](UWidgetSwitcherSlot& self, int a) { self.SetVerticalAlignment((EVerticalAlignment)a); })
+        .def("SetHorizontalAlignment", [](UWidgetSwitcherSlot& self, int a) { self.SetHorizontalAlignment((EHorizontalAlignment)a); })
         ;
 
     py::class_<UTextBlock, UWidget, UnrealTracker<UTextBlock>>(m, "UTextBlock") // note: there is an unexposed intermediate type in between this and UWidget
@@ -425,6 +438,13 @@ void _LoadModuleUMG(py::module& uepy)
         .def_readwrite("WrapWidth", &UWrapBox::WrapWidth)
         ;
 
+    UEPY_EXPOSE_CLASS(UWidgetSwitcher, UPanelWidget, m)
+        .def("GetNumWidgets", [](UWidgetSwitcher& self) { return self.GetNumWidgets(); })
+        .def("GetActiveWidgetIndex", [](UWidgetSwitcher& self) { return self.GetActiveWidgetIndex(); })
+        .def("SetActiveWidgetIndex", [](UWidgetSwitcher& self, int i) { self.SetActiveWidgetIndex(i); })
+        .def("GetWidgetAtIndex", [](UWidgetSwitcher& self, int i) { return self.GetWidgetAtIndex(i); }, py::return_value_policy::reference)
+        ;
+
     py::class_<USizeBoxSlot, UPanelSlot, UnrealTracker<USizeBoxSlot>>(m, "USizeBoxSlot")
         .def_static("StaticClass", []() { return USizeBoxSlot::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *obj) { return Cast<USizeBoxSlot>(obj); }, py::return_value_policy::reference)
@@ -478,6 +498,10 @@ void _LoadModuleUMG(py::module& uepy)
     py::class_<UNamedSlot, UContentWidget, UnrealTracker<UNamedSlot>>(m, "UNamedSlot")
         .def_static("StaticClass", []() { return UNamedSlot::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *obj) { return Cast<UNamedSlot>(obj); }, py::return_value_policy::reference)
+        ;
+
+    UEPY_EXPOSE_CLASS(UWidgetTree, UObject, m)
+        .def("FindWidget", [](UWidgetTree& self, std::string& name) { return self.FindWidget(FSTR(name)); }, py::return_value_policy::reference)
         ;
 }
 

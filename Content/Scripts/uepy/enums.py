@@ -132,3 +132,9 @@ class EComponentMobility(Enum): Static, Stationary, Movable = range(3)
 class ERelativeTransformSpace(Enum): RTS_World, RTS_Actor, RTS_Component, RTS_ParentBoneSpace = range(4)
 
 class EOnJoinSessionCompleteResult(Enum): Success, SessionIsFull, SessionDoesNotExist, CouldNotRetrieveAddress, AlreadyInSession, UnknownError = range(6)
+
+# this is a made-up enum since we don't yet expose FAttachmentTransformRules
+class EAttachmentTransformRule(Enum): KeepRelativeTransform, KeepWorldTransform = range(2)
+
+class ESkyLightSourceType(Enum): SLS_CapturedScene, SLS_SpecifiedCubemap = range(2)
+

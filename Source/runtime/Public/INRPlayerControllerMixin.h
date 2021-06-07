@@ -21,7 +21,7 @@ class UEPY_API INRPlayerControllerMixin
     GENERATED_BODY()
 
     // used by net call
-    void _LocalNRCall(bool isInternal, AActor *recipient, const FString signature, TArray<uint8>& payload);
+    void _LocalNRCall(bool reliable, bool isInternal, AActor *recipient, const FString signature, TArray<uint8>& payload);
     void _RemoteNRCall(UNetConnection *conn, ENRWhere where, AActor *recipient, const FString signature, TArray<uint8>& payload, bool reliable, float maxCallsPerSec);
 
 public:
