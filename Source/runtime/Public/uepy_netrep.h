@@ -5,8 +5,5 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
-
 #include "NRChannel.h"
-#include "INRActorMixin.h"
-#include "INRPlayerControllerMixin.h"
 

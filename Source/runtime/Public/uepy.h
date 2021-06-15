@@ -6,8 +6,6 @@
 #include "Modules/ModuleManager.h"
 #include "incpybind.h"
 #include "IUEPYGlueMixin.h"
-#include "INRActorMixin.h"
-#include "INRPlayerControllerMixin.h"
 #include "Runtime/CoreUObject/Public/UObject/GCObject.h"
 #include <functional>
 #include "Components/BoxComponent.h"
@@ -235,7 +233,7 @@ struct UEPY_API FUEPyDelegates
 
 // Generic glue classes for cases where you just want to subclass certain engine classes in Python directly
 UCLASS()
-class UEPY_API AActor_CGLUE : public AActor, public IUEPYGlueMixin, public INRActorMixin
+class UEPY_API AActor_CGLUE : public AActor, public IUEPYGlueMixin
 {
     GENERATED_BODY()
 
@@ -252,15 +250,11 @@ protected:
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	virtual void GatherCurrentMovement() override;
     virtual void Tick(float dt) override;
-    virtual void OnReplicated() override;
-    virtual void OnNRCall(FString signature, TArray<uint8>& payload) override;
-    virtual void OnNRCall(FString signature, py::object args) override;
-    virtual void OnNRUpdate(TArray<FString>& modifiedPropertyNames);
     virtual void PostInitializeComponents() override;
 };
 
 UCLASS()
-class UEPY_API APawn_CGLUE : public APawn, public IUEPYGlueMixin, public INRActorMixin
+class UEPY_API APawn_CGLUE : public APawn, public IUEPYGlueMixin
 {
     GENERATED_BODY()
 
@@ -279,10 +273,6 @@ protected:
 	virtual void GatherCurrentMovement() override;
     virtual void Tick(float dt) override;
     virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
-    virtual void OnReplicated() override;
-    virtual void OnNRCall(FString signature, TArray<uint8>& payload) override;
-    virtual void OnNRCall(FString signature, py::object args) override;
-    virtual void OnNRUpdate(TArray<FString>& modifiedPropertyNames);
     virtual void PostInitializeComponents() override;
 };
 

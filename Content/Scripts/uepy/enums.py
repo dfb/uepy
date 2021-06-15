@@ -115,7 +115,16 @@ class EStretch: NONE, Fill, ScaleToFit, ScaleToFitX, ScaleToFitY, ScaleToFill, S
 
 class EInputEvent(Enum): IE_Pressed, IE_Released, IE_Repeat, IE_DoubleClick, IE_Axis, IE_MAX = range(6)
 
-class ENRWhere(Enum): Nowhere, Local, Host, Owner, NonOwners, All = [0,1,2,4,8,15]
+class ENRSpawnReplicatedBy(Enum): NONE, App, Engine, NR = range(4) # Who is in charge of replicating the act of spawning a particular object
+
+class ENRWhere(Enum):
+    NONE, Local, Host, NotMe = [0,1,2,4]
+    All = Local|Host|NotMe
+    USER = 128 # special flag indicating the lower 7 bits are a user ID
+    def Only(self, userID):
+        '''Helper to create a value that means "send this message only to a specific user"'''
+        assert userID < 128, userID
+        return userID | self.USER
 
 class EWidgetSpace(Enum): World, Screen = range(2)
 

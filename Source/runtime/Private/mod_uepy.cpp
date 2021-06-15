@@ -19,6 +19,8 @@
 #include "Curves/CurveVector.h"
 #include "Engine/CanvasRenderTarget2D.h"
 #include "Engine/GameInstance.h"
+#include "Engine/NetConnection.h"
+#include "Engine/PackageMapClient.h"
 #include "Engine/TextureCube.h"
 #include "Engine/TextureRenderTarget2D.h"
 #include "EngineUtils.h"
@@ -327,6 +329,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def_readwrite("y", &FQuat::Y)
         .def_readwrite("z", &FQuat::Z)
         .def_readwrite("w", &FQuat::W)
+        .def("__iter__", [](FQuat& self) { return PyCheesyIterator<float>({self.X, self.Y, self.Z, self.W}); })
         .def_static("FindBetweenVectors", [](FVector& a, FVector& b) { return FQuat::FindBetweenVectors(a,b); })
         .def("Inverse", [](FQuat& self) { return self.Inverse(); })
         .def("Rotator", [](FQuat& self) { return self.Rotator(); })
@@ -717,6 +720,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("GetNumMaterials", [](UPrimitiveComponent& self) { return self.GetNumMaterials(); })
         .def("SetCollisionEnabled", [](UPrimitiveComponent& self, int c) { self.SetCollisionEnabled((ECollisionEnabled::Type)c); })
         .def("SetCollisionObjectType", [](UPrimitiveComponent& self, int c) { self.SetCollisionObjectType((ECollisionChannel)c); })
+        .def("SetCollisionProfileName", [](UPrimitiveComponent& self, std::string& name, bool updateOverlaps) { self.SetCollisionProfileName(FSTR(name), updateOverlaps); })
         .def("SetCollisionResponseToAllChannels", [](UPrimitiveComponent& self, int r) { self.SetCollisionResponseToAllChannels((ECollisionResponse)r); })
         .def("SetCollisionResponseToChannel", [](UPrimitiveComponent& self, int c, int r) { self.SetCollisionResponseToChannel((ECollisionChannel)c, (ECollisionResponse)r); })
         .def("SetRenderCustomDepth", [](UPrimitiveComponent& self, bool b) { self.SetRenderCustomDepth(b); })
@@ -824,7 +828,6 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("IsClient", [](UWorld& self) { return self.IsClient(); })
         .def("IsServer", [](UWorld& self) { return self.IsServer(); })
         .def("GetParameterCollectionInstance", [](UWorld& self, UMaterialParameterCollection* collection) { return self.GetParameterCollectionInstance(collection); }, py::return_value_policy::reference)
-
         .def("GetAllActors", [](UWorld* self)
         {
             py::list ret;
@@ -837,6 +840,14 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
             return ret;
         }, py::return_value_policy::reference)
         ;
+
+    m.def("GetOrAssignNetGUID", [](UWorld* world, UObject* obj)
+    {
+        UNetDriver* driver = world->GetNetDriver();
+        if (!driver) return -1;
+        int32 value = driver->GuidCache->GetOrAssignNetGUID(obj).Value;
+        return value;
+    });
 
     m.def("GetAllWorlds", []()
     {
@@ -1526,10 +1537,6 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("SuperPostInitializeComponents", [](AActor_CGLUE& self) { self.SuperPostInitializeComponents(); })
         .def("SuperTick", [](AActor_CGLUE& self, float dt) { self.SuperTick(dt); })
         .def("UpdateTickSettings", [](AActor_CGLUE& self, bool canEverTick, bool startWithTickEnabled) { self.PrimaryActorTick.bCanEverTick = canEverTick; self.PrimaryActorTick.bStartWithTickEnabled = startWithTickEnabled; })
-        .def("NRUpdate", [](AActor_CGLUE& self, int where, py::dict& kwargs, bool reliable, float maxCallsPerSec) { self.NRUpdate((ENRWhere)where, false, kwargs, reliable, maxCallsPerSec); })
-        .def("NRStartMixedReliability", [](AActor_CGLUE& self, std::string& methodName) { self.NRStartMixedReliability(FSTR(methodName)); })
-        .def("NRRegisterProps", [](AActor_CGLUE& self) { self.NRRegisterProps(); })
-        .def_property_readonly("nr", [](AActor_CGLUE& self) { return &self.repProps; }, py::return_value_policy::reference)
         ;
 
     py::class_<APawn, AActor, UnrealTracker<APawn>>(m, "APawn")
@@ -1538,6 +1545,24 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def_readwrite("BaseEyeHeight", &APawn::BaseEyeHeight)
         .def("IsLocallyControlled", [](APawn& self) { return self.IsLocallyControlled(); })
         .def("GetPlayerState", [](APawn& self) { return self.GetPlayerState(); })
+        .def("GetUserID", [](APawn& self)
+        {
+            const AActor* owner = self.GetNetOwner();
+            if (owner)
+            {
+                const APlayerController* pc = Cast<APlayerController>(owner);
+                if (pc && pc->NetConnection)
+                {
+                    for (UChannel* chan : pc->NetConnection->OpenChannels)
+                    {
+                        UNRChannel *repChan = Cast<UNRChannel>(chan);
+                        if (VALID(repChan))
+                            return repChan->channelID;
+                    }
+                }
+            }
+            return 0;
+        })
         ;
 
     py::class_<APawn_CGLUE, APawn, UnrealTracker<APawn_CGLUE>>(glueclasses, "APawn_CGLUE")
@@ -1548,10 +1573,6 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("SuperPostInitializeComponents", [](APawn_CGLUE& self) { self.SuperPostInitializeComponents(); })
         .def("SuperTick", [](APawn_CGLUE& self, float dt) { self.SuperTick(dt); })
         .def("SuperSetupPlayerInputComponent", [](APawn_CGLUE& self, UInputComponent* comp) { self.SuperSetupPlayerInputComponent(comp); })
-        .def("NRUpdate", [](APawn_CGLUE& self, int where, py::dict& kwargs, bool reliable, float maxCallsPerSec) { self.NRUpdate((ENRWhere)where, false, kwargs, reliable, maxCallsPerSec); })
-        .def("NRStartMixedReliability", [](APawn_CGLUE& self, std::string& methodName) { self.NRStartMixedReliability(FSTR(methodName)); })
-        .def("NRRegisterProps", [](APawn_CGLUE& self) { self.NRRegisterProps(); })
-        .def_property_readonly("nr", [](APawn_CGLUE& self) { return &self.repProps; }, py::return_value_policy::reference)
         ;
 
     UEPY_EXPOSE_CLASS(USceneComponent_CGLUE, USceneComponent, glueclasses)
@@ -1831,54 +1852,25 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         ;
 
     // net rep stuff
-    m.def("NRGetChannelID", [](UWorld* world) { return NRGetChannelID(world); });
-    m.def("LLNRCall", [](int where, AActor *recipient, std::string signature, py::object pyPayload, bool reliable, float maxCallsPerSec)
-    {
-        TArray<uint8> payload; // holds the outgoing data
-        FString sigExtra = "";
-
-        // the payload can be an args tuple or a buffer object
-        if (py::isinstance<py::tuple>(pyPayload))
-        {   // caller has passed us an args tuple, so we need to marshall it to a binary blob
-            TupleToBlob(recipient->GetWorld(), pyPayload.cast<py::tuple>(), payload, sigExtra);
-        }
-        else if (py::isinstance<py::buffer>(pyPayload))
-        {   // caller took care of necessary marshalling and is just giving us a binary blob to send
+    py::class_<UNRChannel, UObject, UnrealTracker<UNRChannel>>(m, "UNRChannel", py::dynamic_attr())
+        .def_static("StaticClass", []() { return UNRChannel::StaticClass(); }, py::return_value_policy::reference)
+        .def_static("Cast", [](UObject *w) { return Cast<UNRChannel>(w); }, py::return_value_policy::reference)
+        .def_static("SetAppBridge", [](py::object& bridge) { UNRChannel::SetAppBridge(bridge); })
+        .def_readwrite("channelID", &UNRChannel::channelID)
+        .def("AddMessage", [](UNRChannel& self, py::object pyPayload, bool reliable)
+        {
             py::buffer buffer = pyPayload.cast<py::buffer>();
             py::buffer_info info = buffer.request();
             if (info.format != py::format_descriptor<uint8>::format() || info.ndim != 1)
             {
-                LERROR("NRCall not given a flat uint8 buffer in call to %s", FSTR(signature));
+                LERROR("Not given a flat uint8 buffer");
                 return;
             }
+            TArray<uint8> payload;
             payload.AddUninitialized(info.size);
             memcpy(payload.GetData(), info.ptr, info.size);
-        }
-        else
-        {
-            LERROR("NRCall received neither args nor a buffer object in call to %s", FSTR(signature));
-        }
-
-        // The convention for signatures is that "<name>" is a plain signature used for cases where the caller and callee
-        // take care of all marshalling of data and at this level we just pass along blobs of binary data. Signatures of the
-        // form "<name>|<type>:<valueData>[,<type>:<valueData>,...]" are for cases where we auto-detect data formats and handle
-        // marshalling so the caller/callee don't have to. Each new combination of data types for a given method results in
-        // another signature being defined and carried over the wire, though in theory any given program will have a finite and
-        // relatively small set of them, so we end up getting the benefits of automagic marshalling for a relatively small cost.
-        FString finalSig = FSTR(signature);
-        if (sigExtra.Len())
-            finalSig += "|" + sigExtra;
-
-        NRCall((ENRWhere)where, recipient, finalSig, payload, reliable, maxCallsPerSec);
-    }, py::arg("where"), py::arg("recipient"), py::arg("signature"), py::arg("payload"), py::arg("reliable")=true, py::arg("maxCallsPerSec")=-1.0f);
-
-    py::class_<FNRPropHolder>(m, "FNRPropHolder")
-        .def(py::init<>())
-        .def("AddProperty", [](FNRPropHolder& self, std::string& name, py::object& defaultValue, bool isSpecial) { return self.AddProperty(FSTR(name), defaultValue, isSpecial); })
-        .def("InitSetProperty", [](FNRPropHolder& self, std::string& name, py::object& value) { return self.InitSetProperty(FSTR(name), value); })
-        .def("GetPropertyID", [](FNRPropHolder& self, std::string& name) { return self.GetPropertyID(FSTR(name)); })
-        .def("__getitem__", [](FNRPropHolder& self, std::string& name) { return self.GetValue(FSTR(name)); }, py::return_value_policy::reference)
-        .def("__getattr__", [](FNRPropHolder& self, std::string& name) { return self.GetValue(FSTR(name)); }, py::return_value_policy::reference)
+            self.AddMessage(payload, reliable);
+        })
         ;
 }
 

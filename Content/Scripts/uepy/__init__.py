@@ -1,7 +1,7 @@
 from _uepy import *
 
 from importlib import reload
-import sys, shlex, json, time, weakref
+import sys, shlex, json, time, weakref, inspect
 
 from . import enums
 
@@ -55,6 +55,13 @@ def GetWorld():
         if worlds.get(t) is None:
             worlds[t] = w
     return worlds.get(WT.Game) or worlds.get(WT.PIE) or worlds.get(WT.Editor)
+
+def GetUserID():
+    '''Returns the session-unique user ID for the current user. User IDs are small integer values that are unique
+    among the active users (i.e. if a client disconnects and a new client joins, it's possible that the new client will
+    be assigned the old client's user ID).'''
+    from . import netrep
+    return netrep.GetUserID()
 
 class Event:
     '''Utility class for firing events locally among objects. Convention is for objects to declare a public event member variable that
@@ -132,8 +139,18 @@ def MergedClassDefaults(klass):
     ret.update(getattr(klass, 'classDefaults', {}))
     return ret
 
+class NRTrackerMetaclass(type):
+    '''Tracks all subclasses of NetReplicated.'''
+    # Note that not all NetReplicated objects are engine objects
+    All = {} # class name --> class instance
+    def __new__(metaclass, name, bases, dct):
+        klass = super().__new__(metaclass, name, bases, dct)
+        if bases:
+            NRTrackerMetaclass.All[klass.__name__] = klass # don't use name that was passed in, as PyGlueMetaclass modifies it
+        return klass
+
 MANGLE_CLASS_NAMES = True
-class PyGlueMetaclass(type):
+class PyGlueMetaclass(NRTrackerMetaclass):
     def __new__(metaclass, name, bases, dct):
         isGlueClass = not bases # (a glue class has no bases)
 
@@ -228,6 +245,9 @@ EmptyPyUObject = '__empty_pyuobject__' # like EmptyUObject, but for cases where 
 EmptyUClass = '__empty_uclass__'
 SPECIAL_REP_PROPS = (EmptyUObject, EmptyPyUObject, EmptyUClass)
 
+def IsHost():
+    return GetWorld().IsServer()
+
 class AActor_PGLUE(metaclass=PyGlueMetaclass):
     '''Glue class for AActor'''
     repProps = Bag(
@@ -238,45 +258,6 @@ class AActor_PGLUE(metaclass=PyGlueMetaclass):
     def __init__(self):
         self.EndingPlay = Event() # fires (self) on EndPlay.
         super().__init__()
-        self.isHost = GetWorld().IsServer()
-        self._NRRegisterProps() # set up replication
-
-    def _NRGetInitOverrides(self):
-        '''Hacky method subclasses can implement in the (hopefully rare) case of (a) the default value for one or more properties
-        need to be overriden on a per-instance basis and (b) the values must be changed prior to initial replication. In that scenario,
-        a subclass implements this method and returns a dict of rep prop names (must be from class.repProps) and new initial values to
-        use (must be the same type or coercible to the same type of the default).'''
-        return {}
-
-    def _NRGetRepProps(self):
-        '''Returns a Bag of all replicated properties and their default values, recursively including those from parent classes.
-        This method should not have side effects as subclasses may call it for their own needs.'''
-        props = Bag()
-        for klass in self.__class__.__mro__[::-1]: # reverse order so we start at the top of the MRO list
-            props.update(**getattr(klass, 'repProps', {}))
-        return props
-
-    def _NRRegisterProps(self):
-        '''Called by __init__ to figure out all replicated properties for this object by starting at the root class and merging
-        in properties to get the final set, then registering them. Replicated properties are by default stored in a 'repProps'
-        class variable that is a mapping from variable name to default value. Saves the collected properties to self.repPropDefs
-        in case subclasses need them.'''
-        if not self.GetIsReplicated() or self.engineObj.IsDefaultObject():
-            return
-
-        props = self.repPropDefs = self._NRGetRepProps()
-        for name, defaultValue in sorted(props.items()):
-            defaultValue = self._NRTranslateProp(name, defaultValue)
-            if defaultValue is not None:
-                self.nr.AddProperty(name, defaultValue, defaultValue in SPECIAL_REP_PROPS)
-        for name, value in self._NRGetInitOverrides().items():
-            self.nr.InitSetProperty(name, value)
-        self.engineObj.NRRegisterProps()
-
-    def _NRTranslateProp(self, name, defaultValue):
-        '''Used by _NRRegisterProps to do any processing on a repprop - returning None causes this property to be skipped.
-        Otherwise, return the value to use as the default value.'''
-        return defaultValue
 
     def OnRep_loc(self): self.SetActorLocation(self.nr.loc)
     def OnRep_rot(self): self.SetActorRotation(self.nr.rot)
@@ -352,36 +333,16 @@ class AActor_PGLUE(metaclass=PyGlueMetaclass):
             ret.append(comp)
         return ret
 
-    # netrep stuffs
-    def OnNRCall(self, signature, payload, isBinaryBlob):
-        func = getattr(self, signature, None)
-        if func is None:
-            log('ERROR: failed to find NRCall handler for', signature)
-        else:
-            func(*payload)
-
-    def NRCall(self, where, funcName, *args, reliable=True, maxCallsPerSec=-1): LLNRCall(where, self.engineObj, funcName, args, reliable, maxCallsPerSec)
-    def NRUpdate(self, *, where=enums.ENRWhere.All, reliable=True, maxCallsPerSec=-1, **kwargs): self.engineObj.NRUpdate(where, kwargs, reliable, maxCallsPerSec)
-    def NRStartMixedReliability(self, funcName): self.engineObj.NRStartMixedReliability(funcName)
-    def OnNRUpdate(self, modifiedPropNames):
-        # by default, look for any OnRep_<propName> methods that have been defined and call them
-        for name in modifiedPropNames:
-            handler = getattr(self, 'OnRep_' + name, None)
-            if handler:
-                try:
-                    handler()
-                except:
-                    logTB()
-
     @property
     def configStr(self):
         return self.engineObj.configStr
-CPROPS(AActor_PGLUE, 'bAlwaysRelevant', 'bReplicates', 'Tags', 'nr')
+CPROPS(AActor_PGLUE, 'bAlwaysRelevant', 'bReplicates', 'Tags')
 
 class APawn_PGLUE(AActor_PGLUE):
     def IsLocallyControlled(self): return self.engineObj.IsLocallyControlled()
     def SetupPlayerInputComponent(self, comp): self.engineObj.SuperSetupPlayerInputComponent(comp)
     def GetPlayerState(self): return self.engineObj.GetPlayerState()
+    def GetUserID(self): return self.engineObj.GetUserID()
 
 class USceneComponent_PGLUE(metaclass=PyGlueMetaclass):
     @classmethod
@@ -491,4 +452,63 @@ def SpawnActor(world, klass, location=None, rotation=None, **kwargs):
     if location is None: location = FVector(0,0,0)
     if rotation is None: rotation = FRotator(0,0,0)
     return SpawnActor_(world, klass, location, rotation, kwargs)
+
+class RefCache:
+    '''Asset loader. Repeated calls to load the same asset will be fast because previous loads are cached. All assets are
+    loaded by their UE4 editor reference string (right-click on asset and choose to copy the reference).'''
+    def __init__(self):
+        self.cache = {} # editor reference string --> loaded instance of an asset
+
+        # prefix portion of the editor reference string; each type a new type of asset is loaded, an entry is added to the map.
+        # In most cases, the prefix is the class name without the U prefix (e.g. a 'PaperSprite' --> UPaperSprite), but any
+        # special cases should be added to the initial values below.
+        self.classMap = dict(
+            Blueprint=UBlueprintGeneratedClass,
+            MaterialInstanceConstant=UMaterialInstance,
+            WidgetBlueprint=UBlueprintGeneratedClass,
+        )
+
+    def Load(self, ref):
+        '''Given an editor reference string, returns the cached asset, loading it if needed. Returns None if it can't be loaded.'''
+        # TODO: UE4 often seems to blur the lines between assets that are classes for generating stuff and assets that are stuff,
+        # and that blurriness carries over to this function. We might want to someday have e.g. LoadClassByRef and LoadObjectByRef
+        # functions to make the caller's intentions more explicit. Or maybe it never really matters.
+        obj = self.cache.get(ref)
+        if obj is not None: # cache hit!
+            return obj
+
+        objType, path, ignore = ref.split("'") # it's something like Blueprint'/Game/Path/To/Some/Object'
+
+        # Find the UE4 class for this reference, trying to auto-discover it this is the first encounter
+        cls = self.classMap.get(objType)
+        if cls is None:
+            cls = globals().get('U' + objType)
+            if cls is not None:
+                self.classMap[objType] = cls # yay, remember for next time
+        if cls is None:
+            raise Exception('RefCache cannot handle references of type ' + repr(objType))
+
+        if cls == UBlueprintGeneratedClass and not path.endswith('_C'):
+            # The UE4 reference will be like "Blueprint'/Game/Whatever'" but we want the class that the BP generates
+            path += '_C'
+        obj = StaticLoadObject(cls, path)
+        if obj is not None:
+            if cls != UBlueprintGeneratedClass: # if we cast these, it breaks stuff because the result isn't what we want
+                obj = cls.Cast(obj)
+            self.cache[ref] = obj
+        return obj
+
+    def Clear(self):
+        '''Removes from memory all cached references'''
+        self.cache.clear()
+
+# global ref cache
+_refCache = RefCache()
+LoadByRef = _refCache.Load
+ClearRefCache = _refCache.Clear
+
+def Caller(level=2):
+    '''Debugging helper - returns info on the call stack (default=who called the caller of the caller)'''
+    frame = inspect.stack()[level]
+    return '[%s:%d]' % (frame.function, frame.lineno)
 
