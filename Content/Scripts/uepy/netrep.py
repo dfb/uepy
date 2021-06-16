@@ -925,6 +925,7 @@ def ValueToBin(arg):
     if isinstance(arg, float): return 'F', F_Float.pack(arg)
     if isinstance(arg, int): return 'I', F_Int.pack(arg)
     if isinstance(arg, str): return 'S', F_Short.pack(len(arg)) + arg.encode('utf8')
+    if isinstance(arg, bytes): return 'y', F_Short.pack(len(arg)) + arg
     if isinstance(arg, FVector): return 'V', F_FVector.pack(*arg)
     if isinstance(arg, FVector2D): return 'v', F_FVector2D.pack(*arg)
     if isinstance(arg, FRotator): return 'R', F_FRotator.pack(*arg)
@@ -979,6 +980,11 @@ def BinToValues(formatStr, blob):
             dataIndex += F_Short.size
             ret.append(str(blob[dataIndex:dataIndex+sLen], 'utf8'))
             dataIndex += sLen
+        elif typeCode == 'y':
+            bLen = F_Short.unpack_from(blob, dataIndex)[0]
+            dataIndex += F_Short.size
+            ret.append(bytes(blob[dataIndex:dataIndex+bLen]))
+            dataIndex += bLen
         elif typeCode == 'V':
             ret.append(FVector(*F_FVector.unpack_from(blob, dataIndex)))
             dataIndex += F_FVector.size
