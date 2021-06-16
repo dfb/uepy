@@ -237,14 +237,6 @@ def BPPROPS(cls, *propNames):
             setattr(cls, name, property(_get, _set))
         setup(_name) # create a closure so we don't lose the name
 
-# Special cases for NetRep props - if you need to have a replicated variable that is a UObject* but
-# that also has a null default value, use one of these for the default value instead of None.
-# If the values are changed, be sure to change them in C++ too.
-EmptyUObject = '__empty_uobject__'
-EmptyPyUObject = '__empty_pyuobject__' # like EmptyUObject, but for cases where it's been subclassed in Python (i.e. has a pyInst)
-EmptyUClass = '__empty_uclass__'
-SPECIAL_REP_PROPS = (EmptyUObject, EmptyPyUObject, EmptyUClass)
-
 def IsHost():
     return GetWorld().IsServer()
 
@@ -342,7 +334,6 @@ class APawn_PGLUE(AActor_PGLUE):
     def IsLocallyControlled(self): return self.engineObj.IsLocallyControlled()
     def SetupPlayerInputComponent(self, comp): self.engineObj.SuperSetupPlayerInputComponent(comp)
     def GetPlayerState(self): return self.engineObj.GetPlayerState()
-    def GetUserID(self): return self.engineObj.GetUserID()
 
 class USceneComponent_PGLUE(metaclass=PyGlueMetaclass):
     @classmethod
