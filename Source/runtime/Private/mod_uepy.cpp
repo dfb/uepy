@@ -295,6 +295,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def_static("Coincident", [](FVector& normal1, FVector& normal2) { return FVector::Coincident(normal1, normal2); })
         .def_static("DotProduct", [](FVector& a, FVector& b) { return FVector::DotProduct(a, b); })
         .def_static("CrossProduct", [](FVector& a, FVector& b) { return FVector::CrossProduct(a, b); })
+        .def("GetAbs", [](FVector &self) { return self.GetAbs(); })
         ;
 
     py::class_<FRotator>(m, "FRotator")
@@ -998,6 +999,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def_readwrite("IsValid", &FBox::IsValid)
         .def("GetCenter", [](FBox& self) { return self.GetCenter(); })
         .def("GetSize", [](FBox& self) { return self.GetSize(); })
+        .def("Intersect", [](FBox &self, FBox &other) { return self.Intersect(other); })
         .def(py::self + py::self)
         .def(py::self += py::self)
         ;
