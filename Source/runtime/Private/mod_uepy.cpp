@@ -841,6 +841,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         }, py::return_value_policy::reference)
         ;
 
+    // for use with engine-replicated actors only
     m.def("GetOrAssignNetGUID", [](UWorld* world, UObject* obj)
     {
         UNetDriver* driver = world->GetNetDriver();
@@ -1536,6 +1537,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("SuperEndPlay", [](AActor_CGLUE& self, int reason) { self.SuperEndPlay((EEndPlayReason::Type)reason); })
         .def("SuperPostInitializeComponents", [](AActor_CGLUE& self) { self.SuperPostInitializeComponents(); })
         .def("SuperTick", [](AActor_CGLUE& self, float dt) { self.SuperTick(dt); })
+        .def("OverrideTickAllowed", [](AActor_CGLUE& self, bool allowed) { self.tickAllowed = allowed; })
         .def("UpdateTickSettings", [](AActor_CGLUE& self, bool canEverTick, bool startWithTickEnabled) { self.PrimaryActorTick.bCanEverTick = canEverTick; self.PrimaryActorTick.bStartWithTickEnabled = startWithTickEnabled; })
         ;
 
@@ -1572,6 +1574,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("SuperEndPlay", [](APawn_CGLUE& self, int reason) { self.SuperEndPlay((EEndPlayReason::Type)reason); })
         .def("SuperPostInitializeComponents", [](APawn_CGLUE& self) { self.SuperPostInitializeComponents(); })
         .def("SuperTick", [](APawn_CGLUE& self, float dt) { self.SuperTick(dt); })
+        .def("OverrideTickAllowed", [](APawn_CGLUE& self, bool allowed) { self.tickAllowed = allowed; })
         .def("SuperSetupPlayerInputComponent", [](APawn_CGLUE& self, UInputComponent* comp) { self.SuperSetupPlayerInputComponent(comp); })
         ;
 

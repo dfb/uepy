@@ -240,6 +240,7 @@ class UEPY_API AActor_CGLUE : public AActor, public IUEPYGlueMixin
     AActor_CGLUE();
 
 public:
+    bool tickAllowed = true;
     void SuperBeginPlay();
     void SuperEndPlay(EEndPlayReason::Type reason);
     void SuperPostInitializeComponents() { Super::PostInitializeComponents(); }
@@ -261,6 +262,7 @@ class UEPY_API APawn_CGLUE : public APawn, public IUEPYGlueMixin
     APawn_CGLUE();
 
 public:
+    bool tickAllowed = true;
     void SuperBeginPlay();
     void SuperEndPlay(EEndPlayReason::Type reason);
     void SuperPostInitializeComponents() { Super::PostInitializeComponents(); }

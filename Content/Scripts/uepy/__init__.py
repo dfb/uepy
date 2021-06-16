@@ -502,10 +502,21 @@ class RefCache:
         '''Removes from memory all cached references'''
         self.cache.clear()
 
+    def GetReferencePath(self, obj):
+        '''Given an asset, such as a UMaterialInstance, returns a reference path for it, in the same format as right-clicking
+        an asset in the editor and choosing "Copy Reference"'''
+        className = obj.GetClass().GetName()
+        classPath = obj.GetPathName()
+        if className.endswith('GeneratedClass') and classPath.endswith('_C'):
+            className = className[:-len('GeneratedClass')]
+            classPath = classPath[:-2]
+        return "%s'%s'" % (className, classPath)
+
 # global ref cache
 _refCache = RefCache()
 LoadByRef = _refCache.Load
 ClearRefCache = _refCache.Clear
+GetReferencePath = _refCache.GetReferencePath
 
 def Caller(level=2):
     '''Debugging helper - returns info on the call stack (default=who called the caller of the caller)'''

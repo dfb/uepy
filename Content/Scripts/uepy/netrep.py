@@ -28,14 +28,16 @@ Python side of network replication (aka NetRep or NR) code. Misc info/notes:
     Outside of *how* the objects are spawned, replication works pretty much exactly the same in all cases. A huge amount of the complexity
     of this module is due to engine-spawned objects (i.e. synchronizing replicated object creation between two different replication systems)
     so it would be nice to eventually not need it.
-- Engine-spawned and app-spawned objects either intrinsically know or can deduce their netIDs on their own, so they self register with NR
-    on the host and the client. NR-spawned objects on the host either know/gen their netID or they get it from their spawn parameters, so
-    they also self-register with NR. NR-spawned objects on the client are registered with NR automatically. Subclasses can use the global
-    IsHost() function in their constructors to know whether or not they need to call NR.Register (since self.isHost isn't set until OnReplicated).
-    As a special case, engine-spawned replicated objects have their UE4 netGUID appended to their registration name automatically so that
-    the linking with the engine object instances can happen reliably (e.g. if you call NRRegister('mypawn', ENRSpawnReplicatedBy.Engine), and
-    if the engine assigns the object a netGUID of 1005, then on *both* the host and clients that object will be registered with NR under
-    the name 'mypawn_1005' - note that this also frees the application code from trying to figure out how to uniquely identify instances).
+- In order for an object on the host and a corresponding object on a client to know they are the "same" object, both must register with NR
+    (via self.NRRegister) in their __init__ function, using a name (aka 'netID') that is the same on both machines. The exception is for
+    NR-spawned objects on the client: they should /not/ call NRRegister because they are registered automatically. Engine-spawned objects
+    (such as the pawn) automatically have their engine netGUID appended to their netID (e.g. if you register with a name 'pawn' then it'll
+    internally be registered as something like 'pawn_5') - this frees the application code from trying to figure out how to uniquely
+    identify instances and helps avoid a chicken-and-egg problem on clients (them needing to register using a unqiue ID prior to them having
+    any information from the host that could be used to uniquely identify themselves). So:
+    - for engine-spawned: on host and clients call NRRegister in __init__ using a name that basically indicates the type ('vrpawn')
+    - for NR-spawned: on host call NRRegister in __init__ with a unqiue name (e.g. myactor_234523453)
+    - for app-spawned: on host and clients call NRRegister in __init__ using a unique name both sides know (e.g. 'mygamestate')
 - A common pattern when the user is directly generating replication events (e.g. moving an object around) is to send throttled, unreliable
     events while the user interaction is underway, and then once the user is done, send a final, reliable, and unthrottled event so that
     everyone has the correct final value. In order to make this work (and because UE4 sends messages over UDP), application code needs to
@@ -66,6 +68,7 @@ TODO:
         self.NRUpdate(foo=[1,2,3]) # still allow this, but doesn't try to diff and unconditionally resends all
       we don't need to support every possible use of arrays; instead focus on likely/recommended uses of replicated arrays
     - once you support arrays, might as well add support for dictionaries and sets! (and the var__action=X form would work well for them)
+- when the host leaves, the clients don't clean up all the host-spawned objects (not really sure if they should or what)
 '''
 
 from uepy import *
@@ -708,6 +711,8 @@ class NetReplicated(metaclass=NRTrackerMetaclass):
     def NRRegister(self, netID, spawnType:ENRSpawnReplicatedBy):
         '''Registers this instance so that future messages to the given netID will be sent to it. Must be called in all scenarios
         (from __init__) *except* in NR-spawned instances on clients.'''
+        if hasattr(self, 'engineObj') and self.engineObj.IsDefaultObject():
+            return # don't register if it's just the CDO
         _bridge.Register(self, netID, spawnType)
 
     def NRUnregister(self):
@@ -842,6 +847,12 @@ class NetReplicated(metaclass=NRTrackerMetaclass):
             # our netGUID yet. But now that we've gotten this far, the engine has assigned us a netGUID, so we
             # can use it to register ourselves using the same unique name that happend for this instance on the host.
             _bridge.Register(self, self._nrDeferredNetID, ENRSpawnReplicatedBy.Engine)
+
+        # The engine will start ticking actors as soon as BeginPlay has been called, but we want to prevent ticks until
+        # OnReplicated, so override ticking for now.
+        if issubclass(type(self.__class__), PyGlueMetaclass):
+            self.engineObj.OverrideTickAllowed(False)
+
         super().BeginPlay()
         self.nrBeginPlayCalled = True
         self._NRCheckStart()
@@ -873,6 +884,12 @@ class NetReplicated(metaclass=NRTrackerMetaclass):
 
         # We're good to go finally!
         self.nrOnReplicatedCalled = True
+
+        # Allow ticking to happen (if the actor doesn't have ticks enabled, it still won't tick - it's now just allowed to tick
+        # if it wants to)
+        if issubclass(type(self.__class__), PyGlueMetaclass):
+            self.engineObj.OverrideTickAllowed(True)
+
         try:
             self.OnReplicated()
         except:
@@ -919,7 +936,7 @@ def ValueToBin(arg):
     if isinstance(arg, FQuat): return 'Q', F_FQuat.pack(*arg)
     if hasattr(arg, 'nrNetID'): return 'O', F_Int.pack(_bridge.NetIDNumFromObject(arg))
 
-    if hasattr(arg, 'engineObj'):
+    if isinstance(arg, UObject):
         # The object isn't replicated but it is an engine object, so assume it's an asset that has been loaded
         # by LoadByRef (though we should come up with some way to confirm this assumption), so generate and send a reference
         # path

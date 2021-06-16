@@ -351,7 +351,7 @@ void FPyObjectTracker::AddReferencedObjects(FReferenceCollector& InCollector)
 AActor_CGLUE::AActor_CGLUE() { PrimaryActorTick.bCanEverTick = true; PrimaryActorTick.bStartWithTickEnabled = false; }
 void AActor_CGLUE::BeginPlay() { try { pyInst.attr("BeginPlay")(); } catchpy; }
 void AActor_CGLUE::EndPlay(const EEndPlayReason::Type reason) { try { pyInst.attr("EndPlay")((int)reason); } catchpy; }
-void AActor_CGLUE::Tick(float dt) { try { pyInst.attr("Tick")(dt); } catchpy; }
+void AActor_CGLUE::Tick(float dt) { if (tickAllowed) try { pyInst.attr("Tick")(dt); } catchpy; }
 void AActor_CGLUE::SuperBeginPlay() { Super::BeginPlay(); }
 void AActor_CGLUE::SuperEndPlay(EEndPlayReason::Type reason) { Super::EndPlay(reason); }
 void AActor_CGLUE::SuperTick(float dt) { Super::Tick(dt); }
@@ -361,7 +361,7 @@ void AActor_CGLUE::GatherCurrentMovement() { if (IsReplicatingMovement()) Super:
 APawn_CGLUE::APawn_CGLUE() { PrimaryActorTick.bCanEverTick = true; PrimaryActorTick.bStartWithTickEnabled = false; }
 void APawn_CGLUE::BeginPlay() { try { pyInst.attr("BeginPlay")(); } catchpy; }
 void APawn_CGLUE::EndPlay(const EEndPlayReason::Type reason) { try { pyInst.attr("EndPlay")((int)reason); } catchpy; }
-void APawn_CGLUE::Tick(float dt) { try { pyInst.attr("Tick")(dt); } catchpy; }
+void APawn_CGLUE::Tick(float dt) { if (tickAllowed) try { pyInst.attr("Tick")(dt); } catchpy; }
 void APawn_CGLUE::SuperBeginPlay() { Super::BeginPlay(); }
 void APawn_CGLUE::SuperEndPlay(EEndPlayReason::Type reason) { Super::EndPlay(reason); }
 void APawn_CGLUE::SuperTick(float dt) { Super::Tick(dt); }
