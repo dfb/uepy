@@ -40,16 +40,19 @@ public class uepy : ModuleRules
             new string[]
             {
                 "AudioMixer",
+                "CinematicCamera",
                 "Core",
                 "CoreUObject",
                 "Engine",
                 "HeadMountedDisplay",
                 "InputCore",
                 "MediaAssets",
+                "PhysicsCore",
                 "Projects",
                 "Slate",
                 "SlateCore",
                 "UMG",
+                "AudioCapture",
             }
         );
 

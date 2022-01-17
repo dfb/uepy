@@ -48,7 +48,6 @@ public:
 
     virtual void Init(UNetConnection* InConnection, int32 InChIndex, EChannelCreateFlags CreateFlags) override;
     virtual void ReceivedBunch(FInBunch& Bunch) override;
-    virtual int64 Close(EChannelCloseReason Reason);
     virtual bool CleanUp( const bool bForDestroy, EChannelCloseReason CloseReason );
     virtual void Tick() override;
 

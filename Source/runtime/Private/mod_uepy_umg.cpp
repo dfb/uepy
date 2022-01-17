@@ -22,6 +22,7 @@
 #include "Components/Overlay.h"
 #include "Components/OverlaySlot.h"
 #include "Components/PanelWidget.h"
+#include "Components/ProgressBar.h"
 #include "Components/ScaleBox.h"
 #include "Components/ScaleBoxSlot.h"
 #include "Components/SizeBox.h"
@@ -110,12 +111,13 @@ void _LoadModuleUMG(py::module& uepy)
     // e.g. "WidgetBlueprintGeneratedClass'/Game/Blueprints/Foo" --> UUserWidget UClass for that BP
     m.def("GetUserWidgetClassFromReference", [](std::string refPath) { return LoadClass<UUserWidget>(NULL, UTF8_TO_TCHAR(refPath.c_str())); }, py::return_value_policy::reference);
 
-    m.def("CreateWidget", [](UObject* owner, py::object& _widgetClass, py::object name) -> UWidget*
+    m.def("CreateWidget_", [](UObject* owner, py::object& _widgetClass, std::string& name, py::dict kwargs) -> UWidget*
     {
         FName n = NAME_None;
-        if (!name.is_none())
-            n = name.cast<std::string>().c_str();
+        if (name.length() > 0)
+            n = name.c_str();
         UClass *widgetClass = PyObjectToUClass(_widgetClass);
+        SetInternalSpawnArgs(kwargs);
 
         TSubclassOf<UUserWidget> userWidgetClass = widgetClass;
         if (userWidgetClass)
@@ -136,7 +138,7 @@ void _LoadModuleUMG(py::module& uepy)
         }
 
         return NewObject<UWidget>(owner, widgetClass, n, RF_Transactional);
-    }, py::return_value_policy::reference, py::arg("owner"), py::arg("_widgetClass"), py::arg("name")=py::none());
+    }, py::return_value_policy::reference);
 
     py::class_<FAnchors>(m, "FAnchors")
         .def(py::init<FAnchors>())
@@ -169,6 +171,7 @@ void _LoadModuleUMG(py::module& uepy)
     py::class_<UWidget, UVisual, UnrealTracker<UWidget>>(m, "UWidget")
         .def_static("StaticClass", []() { return UWidget::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *obj) { return Cast<UWidget>(obj); }, py::return_value_policy::reference)
+        .def("GetIsEnabled", [](UWidget& self) { return self.GetIsEnabled(); })
         .def("SetIsEnabled", [](UWidget& self, bool e) { self.SetIsEnabled(e); })
         .def("SetVisibility", [](UWidget& self, int v) { self.SetVisibility((ESlateVisibility)v); })
         .def("GetDesiredSize", [](UWidget& self) { return self.GetDesiredSize(); })
@@ -225,6 +228,7 @@ void _LoadModuleUMG(py::module& uepy)
         .def("AddChild", [](UPanelWidget& self, UWidget *child) { return self.AddChild(child); }, py::return_value_policy::reference)
         .def("GetChildrenCount", [](UPanelWidget& self) { return self.GetChildrenCount(); })
         .def("GetChildAt", [](UPanelWidget& self, int index) { return self.GetChildAt(index); }, py::return_value_policy::reference)
+        .def("ClearChildren", [](UPanelWidget& self) { self.ClearChildren(); })
         ;
 
     py::class_<UVerticalBox, UPanelWidget, UnrealTracker<UVerticalBox>>(m, "UVerticalBox")
@@ -328,6 +332,7 @@ void _LoadModuleUMG(py::module& uepy)
         .def_static("StaticClass", []() { return UTextBlock::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *obj) { return Cast<UTextBlock>(obj); }, py::return_value_policy::reference)
         .def("SetText", [](UTextBlock& self, std::string newText) { self.SetText(FText::FromString(newText.c_str())); })
+        .def("SetJustification", [](UTextBlock& self, int j) { self.SetJustification((ETextJustify::Type)j); })
         .def("SetFontSize", [](UTextBlock& self, int newSize)
         {
             FSlateFontInfo& sfi = self.Font;
@@ -354,6 +359,7 @@ void _LoadModuleUMG(py::module& uepy)
     py::class_<UCanvasPanel, UPanelWidget, UnrealTracker<UCanvasPanel>>(m, "UCanvasPanel")
         .def_static("StaticClass", []() { return UCanvasPanel::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *slot) { return Cast<UCanvasPanel>(slot); }, py::return_value_policy::reference)
+        .def("AddChildToCanvas", [](UCanvasPanel& self, UWidget* c) { return self.AddChildToCanvas(c); }, py::return_value_policy::reference)
         ;
 
     py::class_<UOverlay, UPanelWidget, UnrealTracker<UOverlay>>(m, "UOverlay")
@@ -435,7 +441,7 @@ void _LoadModuleUMG(py::module& uepy)
         .def_static("StaticClass", []() { return UWrapBox::StaticClass(); }, py::return_value_policy::reference)
         .def_static("Cast", [](UObject *obj) { return Cast<UWrapBox>(obj); }, py::return_value_policy::reference)
         .def("SetInnerSlotPadding", [](UWrapBox& self, FVector2D& v) { self.SetInnerSlotPadding(v); })
-        .def_readwrite("WrapWidth", &UWrapBox::WrapWidth)
+        .def_readwrite("WrapSize", &UWrapBox::WrapSize)
         ;
 
     UEPY_EXPOSE_CLASS(UWidgetSwitcher, UPanelWidget, m)
@@ -493,6 +499,7 @@ void _LoadModuleUMG(py::module& uepy)
     py::class_<UWidgetLayoutLibrary, UObject, UnrealTracker<UWidgetLayoutLibrary>>(m, "UWidgetLayoutLibrary")
         .def_static("RemoveAllWidgets", [](UObject *worldCtx) { UWidgetLayoutLibrary::RemoveAllWidgets(worldCtx); })
         .def_static("GetViewportSize", [](UObject *worldCtx) { return UWidgetLayoutLibrary::GetViewportSize(worldCtx); })
+        .def_static("SlotAsCanvasSlot", [](UWidget *widget) { return UWidgetLayoutLibrary::SlotAsCanvasSlot(widget); }, py::return_value_policy::reference)
         ;
 
     py::class_<UNamedSlot, UContentWidget, UnrealTracker<UNamedSlot>>(m, "UNamedSlot")
@@ -502,6 +509,10 @@ void _LoadModuleUMG(py::module& uepy)
 
     UEPY_EXPOSE_CLASS(UWidgetTree, UObject, m)
         .def("FindWidget", [](UWidgetTree& self, std::string& name) { return self.FindWidget(FSTR(name)); }, py::return_value_policy::reference)
+        ;
+
+    UEPY_EXPOSE_CLASS(UProgressBar, UWidget, m)
+        .def("SetPercent", [](UProgressBar& self, float p) { self.SetPercent(p); })
         ;
 }
 

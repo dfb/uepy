@@ -29,6 +29,10 @@
         {
             "Name": "Paper2D",
             "Enabled": true
+        },
+        {
+            "Name": "AudioCapture",
+            "Enabled": true
         }
     ]
 }

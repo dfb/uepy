@@ -27,6 +27,14 @@ class Enum(metaclass=EnumMeta):
         return cls._inverse[v]
 
     @classmethod
+    def FromName(cls, name):
+        '''Looks up the value from the name. If 'name' is not a string, assumes the input is already a value
+        and just returns it.'''
+        if isinstance(name, str):
+            return getattr(cls, name)
+        return name
+
+    @classmethod
     def Inverse(cls):
         '''Returns a mapping of enum value --> name'''
         return cls._inverse
@@ -46,17 +54,30 @@ class EEngineMode(Enum):
 class EWorldType(Enum):
     NONE, Game, Editor, PIE, EditorPreview, GamePreview, Inactive = range(7)
 
-class EHorizontalAlignment(Enum):
+class EHorizontalAlignment(Enum): # For use with UMG/Slate
     HAlign_Fill = Fill = 0
     HAlign_Left = Left = 1
     HAlign_Center = Center = 2
     HAlign_Right = Right = 3
 
-class EVerticalAlignment(Enum):
+class EVerticalAlignment(Enum): # For use with UMG/Slate
     VAlign_Fill = Fill = 0
     VAlign_Top = Top = 1
     VAlign_Center = Center = 2
     VAlign_Bottom = Bottom = 3
+
+class EHorizTextAligment(Enum): # For use with UTextRenderComponent
+    EHTA_Left = Left = 0
+    EHTA_Center = Center = 1
+    EHTA_Right = Right = 2
+EHorizTextAlignment = EHorizTextAligment
+
+class EVerticalTextAligment(Enum): # For use with UTextRenderComponent
+    EVRTA_TextTop = Top = 0
+    EVRTA_TextCenter = Center = 1
+    EVRTA_TextBottom = Bottom = 2
+    EVRTA_QuadTop = QuadTop = 3
+EVerticalTextAlignment = EVerticalTextAligment
 
 class ECollisionChannel(Enum):
     ECC_WorldStatic, ECC_WorldDynamic, ECC_Pawn, ECC_Visibility, ECC_Camera, ECC_PhysicsBody, ECC_Vehicle, ECC_Destructible, ECC_EngineTraceChannel1,\
@@ -100,12 +121,15 @@ class EOrientation(Enum):
 
 class EControllerHand(Enum):
     Left, Right, AnyHand = range(3)
+    NONE = -1
 
 class ELightUnits(Enum):
     Unitless, Candelas, Lumens = range(3)
 
 class ESceneCaptureSource(Enum):
-    SCS_SceneColorHDR, SCS_SceneColorHDRNoAlpha, SCS_FinalColorLDR, SCS_SceneColorSceneDepth, SCS_SceneDepth, SCS_DeviceDepth, SCS_Normal, SCS_BaseColor, SCS_FinalColorHDR = range(9)
+    SCS_SceneColorHDR, SCS_SceneColorHDRNoAlpha, SCS_FinalColorLDR, SCS_SceneColorSceneDepth, SCS_SceneDepth, SCS_DeviceDepth, SCS_Normal, SCS_BaseColor, SCS_FinalColorHDR, SCS_FinalToneCurveHDR = range(10)
+
+class ESceneCapturePrimitiveRenderMode(Enum): PRM_LegacySceneCapture, PRM_RenderScenePrimitives, PRM_UseShowOnlyList = range(3)
 
 class EVisibilityPropagation(Enum):
     NoPropagation, DirtyOnly, Propagate = range(3)
@@ -118,13 +142,15 @@ class EInputEvent(Enum): IE_Pressed, IE_Released, IE_Repeat, IE_DoubleClick, IE_
 class ENRSpawnReplicatedBy(Enum): NONE, App, Engine, NR = range(4) # Who is in charge of replicating the act of spawning a particular object
 
 class ENRWhere(Enum):
-    NONE, Local, Host, NotMe = [0,1,2,4]
-    All = Local|Host|NotMe
+    NONE, Local, Host, NotHere = [0,1,2,4]
+    All = Local|Host|NotHere
     USER = 128 # special flag indicating the lower 7 bits are a user ID
-    def Only(self, userID):
+    NotMe = NotHere # deprecated
+    @staticmethod
+    def Only(userID):
         '''Helper to create a value that means "send this message only to a specific user"'''
         assert userID < 128, userID
-        return userID | self.USER
+        return userID | ENRWhere.USER
 
 class EWidgetSpace(Enum): World, Screen = range(2)
 
@@ -146,4 +172,18 @@ class EOnJoinSessionCompleteResult(Enum): Success, SessionIsFull, SessionDoesNot
 class EAttachmentTransformRule(Enum): KeepRelativeTransform, KeepWorldTransform = range(2)
 
 class ESkyLightSourceType(Enum): SLS_CapturedScene, SLS_SpecifiedCubemap = range(2)
+
+class ETickingGroup(Enum): TG_PrePhysics, TG_StartPhysics, TG_DuringPhysics, TG_EndPhysics, TG_PostPhysics, TG_PostUpdateWork, TG_LastDemotable = range(7)
+
+class ENaturalSoundFalloffMode(Enum): Continues, Silent, Hold = range(3)
+
+class EAttenuationShape(Enum): Sphere, Capsule, Box, Cone = range(4)
+class EPriorityAttenuationMethod(Enum): Linear, CustomCurve, Manual = range(3)
+class EAttenuationDistanceModel(Enum): Linear, Logarithmic, Inverse, LogReverse, NaturalSound, Custom = range(6)
+
+#class EPixelFormat(Enum): there are so many, just look up the one you need
+
+class ETextureRenderTargetFormat(Enum): RTF_R8, RTF_RG8, RTF_RGBA8, RTF_RGBA8_SRGB, RTF_R16f, RTF_RG16f, RTF_RGBA16f, RTF_R32f, RTF_RG32f, RTF_RGBA32f, RTF_RGB10A2 = range(11)
+
+class ESpectatorScreenMode(Enum): Disabled, SingleEyeLetterboxed, Undistorted, Distorted, SingleEye, SingleEyeCroppedToFill, Texture, TexturePlusEye = range(8)
 

@@ -1,6 +1,8 @@
 #pragma once
 
 // use this to include pybind in a header file w/o weird errors
+#define PY_MAJOR_VERSION 3
+#define PY_MINOR_VERSION 8
 #pragma warning(push)
 #pragma warning (disable : 4686 4191 340)
 #pragma push_macro("check")

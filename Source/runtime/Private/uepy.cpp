@@ -370,6 +370,18 @@ void APawn_CGLUE::SuperSetupPlayerInputComponent(UInputComponent* comp) { Super:
 void APawn_CGLUE::SetupPlayerInputComponent(UInputComponent* comp) { try { pyInst.attr("SetupPlayerInputComponent")(comp); } catchpy; }
 void APawn_CGLUE::GatherCurrentMovement() { if (IsReplicatingMovement()) Super::GatherCurrentMovement(); } // by default, the engine still calls GCM even if not replicating movement
 
+ACharacter_CGLUE::ACharacter_CGLUE() { PrimaryActorTick.bCanEverTick = true; PrimaryActorTick.bStartWithTickEnabled = false; }
+void ACharacter_CGLUE::BeginPlay() { try { pyInst.attr("BeginPlay")(); } catchpy; }
+void ACharacter_CGLUE::EndPlay(const EEndPlayReason::Type reason) { try { pyInst.attr("EndPlay")((int)reason); } catchpy; }
+void ACharacter_CGLUE::Tick(float dt) { if (tickAllowed) try { pyInst.attr("Tick")(dt); } catchpy; }
+void ACharacter_CGLUE::SuperBeginPlay() { Super::BeginPlay(); }
+void ACharacter_CGLUE::SuperEndPlay(EEndPlayReason::Type reason) { Super::EndPlay(reason); }
+void ACharacter_CGLUE::SuperTick(float dt) { Super::Tick(dt); }
+void ACharacter_CGLUE::PostInitializeComponents() { try { pyInst.attr("PostInitializeComponents")(); } catchpy; }
+void ACharacter_CGLUE::SuperSetupPlayerInputComponent(UInputComponent* comp) { Super::SetupPlayerInputComponent(comp); }
+void ACharacter_CGLUE::SetupPlayerInputComponent(UInputComponent* comp) { try { pyInst.attr("SetupPlayerInputComponent")(comp); } catchpy; }
+void ACharacter_CGLUE::GatherCurrentMovement() { if (IsReplicatingMovement()) Super::GatherCurrentMovement(); } // by default, the engine still calls GCM even if not replicating movement
+
 USceneComponent_CGLUE::USceneComponent_CGLUE() { PrimaryComponentTick.bCanEverTick = true; PrimaryComponentTick.bStartWithTickEnabled = false; }
 void USceneComponent_CGLUE::BeginPlay() { try { pyInst.attr("BeginPlay")(); } catchpy; }
 void USceneComponent_CGLUE::EndPlay(const EEndPlayReason::Type reason) { try { pyInst.attr("EndPlay")((int)reason); } catchpy; }
@@ -379,6 +391,10 @@ void UBoxComponent_CGLUE::BeginPlay() { try { pyInst.attr("BeginPlay")(); } catc
 void UBoxComponent_CGLUE::EndPlay(const EEndPlayReason::Type reason) { try { pyInst.attr("EndPlay")((int)reason); } catchpy; }
 UBoxComponent_CGLUE::UBoxComponent_CGLUE() { PrimaryComponentTick.bCanEverTick = true; PrimaryComponentTick.bStartWithTickEnabled = false; }
 void UBoxComponent_CGLUE::OnRegister() { try { pyInst.attr("OnRegister")(); } catchpy ; }
+
+void UVOIPTalker_CGLUE::OnTalkingBegin(UAudioComponent* AudioComponent) { LOG("OnTalkBegin"); try { pyInst.attr("OnTalkingBegin")(); } catchpy; }
+void UVOIPTalker_CGLUE::OnTalkingEnd() { try { LOG("OnTalkEnd"); pyInst.attr("OnTalkingEnd")(); } catchpy; }
+
 
 UClass *PyObjectToUClass(py::object& klassThing)
 {   
@@ -676,7 +692,7 @@ py::object CallObjectUFunction(UObject *obj, std::string _funcName, py::tuple& p
         UProperty *prop = *iter;
         if (!prop->HasAnyPropertyFlags(CPF_Parm))
             continue;
-        if (prop->HasAnyPropertyFlags(CPF_OutParm))//ReturnParm)) <-- this doesn't quite work: if a function param is e.g. an array of strings, it'll have the OutParm flag. But if we just check for Return, then other function calls fail.
+        if (prop->HasAnyPropertyFlags(CPF_OutParm) && !prop->HasAnyPropertyFlags(CPF_ConstParm|CPF_ReferenceParm))//ReturnParm)) <-- this doesn't quite work: if a function param is e.g. an array of strings, it'll have the OutParm flag. But if we just check for Return, then other function calls fail.
         {
             returnProp = prop;
             continue;

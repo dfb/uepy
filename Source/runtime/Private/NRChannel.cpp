@@ -40,16 +40,10 @@ void UNRChannel::Init(UNetConnection* InConnection, int32 InChIndex, EChannelCre
     }
 }
 
-int64 UNRChannel::Close(EChannelCloseReason Reason)
-{
-    LOG("Closing %d", (int)Reason);
-    return Super::Close(Reason);
-    try { appBridge.attr("OnChannelClosing")(this); } catchpy;
-}
-
 bool UNRChannel::CleanUp( const bool bForDestroy, EChannelCloseReason CloseReason )
 {
-    LOG("Cleaning up %d", (int)CloseReason);
+    LOG("Cleaning up channel %d, forDestroy:%d, reason:%d", channelID, (int)bForDestroy, (int)CloseReason);
+    try { appBridge.attr("OnChannelClosing")(this); } catchpy;
     return Super::CleanUp(bForDestroy, CloseReason);
 }
 

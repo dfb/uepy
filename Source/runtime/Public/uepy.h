@@ -9,6 +9,8 @@
 #include "Runtime/CoreUObject/Public/UObject/GCObject.h"
 #include <functional>
 #include "Components/BoxComponent.h"
+#include "GameFramework/Character.h"
+#include "Net/VoiceConfig.h"
 #include "uepy.generated.h"
 
 // pybind11 lets python exceptions bubble up to be C++ exceptions, which is rarely what we want, so
@@ -20,6 +22,9 @@
 
 // FString --> std::string
 #define PYSTR(fstr) std::string(TCHAR_TO_UTF8(*fstr))
+
+// used for log msgs
+#define REPR(pyObj) UTF8_TO_TCHAR(py::repr(pyObj).cast<std::string>().c_str())
 
 // helpers for declaring py::class_ properties
 #define LIST_PROP(listName, listType, className)\
@@ -54,24 +59,6 @@
     py::class_<className, parentClassName, UnrealTracker<className>>(inModule, #className)\
         .def_static("StaticClass", []() { return className::StaticClass(); }, py::return_value_policy::reference)\
         .def_static("Cast", [](UObject *w) { return Cast<className>(w); }, py::return_value_policy::reference)
-
-// used for cases where we have a simple, fixed-size struct and we want to support x,y,z = v unpacking/iteration
-template<class T>
-struct PyCheesyIterator
-{
-    PyCheesyIterator(std::initializer_list<T> args)
-    {
-        for (auto a : args)
-            source.append(a);
-    }
-    int j = 0;
-    py::list source;
-    T next()
-    {
-        if (j >= source.size()) throw py::stop_iteration();
-        return source[j++].cast<T>();
-    }
-};
 
 // in order to be able pass from BP to Python any custom (game-specific) structs, the game has to provide a conversion function for them
 typedef std::function<py::object(UScriptStruct* s, void *value)> BPToPyFunc;
@@ -279,6 +266,30 @@ protected:
 };
 
 UCLASS()
+class UEPY_API ACharacter_CGLUE : public ACharacter, public IUEPYGlueMixin
+{
+    GENERATED_BODY()
+
+    ACharacter_CGLUE();
+
+public:
+    bool tickAllowed = true;
+    void SuperBeginPlay();
+    void SuperEndPlay(EEndPlayReason::Type reason);
+    void SuperPostInitializeComponents() { Super::PostInitializeComponents(); }
+    void SuperTick(float dt);
+    void SuperSetupPlayerInputComponent(UInputComponent* comp);
+
+protected:
+    virtual void BeginPlay() override;
+    virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+	virtual void GatherCurrentMovement() override;
+    virtual void Tick(float dt) override;
+    virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
+    virtual void PostInitializeComponents() override;
+};
+
+UCLASS()
 class UEPY_API USceneComponent_CGLUE : public USceneComponent, public IUEPYGlueMixin
 {
     GENERATED_BODY()
@@ -310,6 +321,16 @@ public:
     virtual void OnRegister() override;
 };
 
+UCLASS()
+class UEPY_API  UVOIPTalker_CGLUE : public UVOIPTalker, public IUEPYGlueMixin
+{
+    GENERATED_BODY()
+
+public:
+	virtual void OnTalkingBegin(UAudioComponent* AudioComponent) override;
+	virtual void OnTalkingEnd() override;
+};
+
 // helper class for any API that accepts as an argument a UClass parameter. Allows the caller to pass in
 // a UClass pointer, a C++ class that has been exposed via pybind11, or a Python class object that is a subclass
 // of a glue class. In all cases, it finds the appropriate UClass object and returns it.
@@ -322,4 +343,7 @@ py::object CallObjectUFunction(UObject *obj, std::string funcName, py::tuple& ar
 void BindDelegateCallback(UObject *obj, std::string eventName, py::object& callback);
 void UnbindDelegateCallback(UObject *obj, std::string eventName, py::object& callback);
 void BroadcastEvent(UObject* obj, std::string eventName, py::tuple& args);
+
+void SetInternalSpawnArgs(py::dict& kwargs);
+void ClearInternalSpawnArgs();
 
