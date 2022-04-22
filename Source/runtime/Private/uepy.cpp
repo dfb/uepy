@@ -17,13 +17,50 @@
 
 DEFINE_LOG_CATEGORY(UEPY);
 IMPLEMENT_MODULE(FuepyModule, uepy)
-py::object _getuprop(UProperty *prop, uint8* buffer, int index);
+py::object _getprop(FProperty *prop, uint8* buffer, int index);
 
 FUEPyDelegates::FPythonEvent1 FUEPyDelegates::LaunchInit;
 
 // true once interpreter has been finalized. Used to skip some work during shutdown when things are all
 // mixed up
 static bool pyFinalized = false;
+
+// source code for a builtin import hook that allows applications to register modules instead of having to ship .py/.pyc files
+static std::string importHook = R"(
+import sys, marshal
+from importlib.machinery import SourcelessFileLoader
+from importlib.util import spec_from_loader
+
+class UEPYImportHook(SourcelessFileLoader):
+    modules = {} # full name -> (code object, isPackage, extraDataStr) # extraData is just a place to hold any extra metadata that the application wants
+
+    @staticmethod
+    def Add(fullName, code, isPackage=False, extraDataStr=None):
+        if type(code) is bytes: code = marshal.loads(code)
+        UEPYImportHook.modules[fullName] = (code, isPackage, extraDataStr or '')
+
+    @staticmethod
+    def find_spec(name, path, target=None):
+        entry = UEPYImportHook.modules.get(name)
+        if entry:
+            return spec_from_loader(name, UEPYImportHook(path, name), is_package=entry[1])
+        return None
+
+    def get_code(self, fullname):
+        entry = UEPYImportHook.modules.get(fullname)
+        if entry:
+            return entry[0]
+        return None
+
+sys.meta_path.append(UEPYImportHook)
+sys.UEPYImportHook = UEPYImportHook # make it semi-easily accessible
+)";
+
+static std::string mainSrc;
+void UEPYSetMainSource(const std::string& src)
+{
+    mainSrc = src;
+}
 
 void FinishPythonInit()
 {
@@ -63,9 +100,15 @@ void FinishPythonInit()
         sys.attr("path").attr("append")(*pluginScriptsDir);
 #endif
 
-        // add the Content/Scripts dir to sys.path so it can find main.py
+        // add a global import hook for importing Python code without shipping .py/.pyc files
+        py::exec(importHook, py::globals());
+
+#if WITH_EDITOR
+        // add the Content/Scripts dir to sys.path so it can find main.py and other stuff on disk
+        // in built versions, if games want to allow from-disk loading, they can adjust sys.path as needed.
         FString scriptsDir = FPaths::Combine(*FPaths::ProjectContentDir(), _T("Scripts"));
         sys.attr("path").attr("append")(*scriptsDir);
+#endif
 
         // initialize any builtin modules
         _LoadModuleUMG(m);
@@ -77,7 +120,17 @@ void FinishPythonInit()
         // Also, we don't call any specific APIs or anything - just let the module load and whatever it needs
         // to do happens as side effects
         LOG("Loading main.py");
-        py::module main = py::module::import("main");
+
+        // If a game provided the source code for main.py, load it now. Otherwise assume it is on disk somewhere
+        // that is accessible via sys.path
+        if (mainSrc.size())
+        {
+            py::module main = py::module_::create_extension_module("main", nullptr, new py::module_::module_def);
+            sys.attr("modules")["main"] = main;
+            py::exec(mainSrc, main.attr("__dict__"));
+        }
+        else
+            py::module::import("main");
     } catchpy;
 }
 
@@ -241,6 +294,20 @@ UBasePythonDelegate *FPyObjectTracker::FindDelegate(UObject *engineObj, const ch
     return nullptr;
 }
 
+// mark invalid any delegates with the given owner
+void FPyObjectTracker::UnbindDelegatesOn(py::object& obj)
+{
+    for (auto it = delegates.CreateIterator(); it ; ++it)
+    {
+        UBasePythonDelegate* delegate = *it;
+        if (VALID(delegate) && delegate->valid && delegate->callbackOwner.is(obj))
+        {
+            //LWARN("Unbinding delegate on %s %s %s", REPR(obj), *delegate->mcDelName, *delegate->pyDelMethodName);
+            delegate->valid = false;
+        }
+    }
+}
+
 void UBasePythonDelegate::ProcessEvent(UFunction *function, void *params)
 {
     // ProcessEvent is called in one of two scenarios:
@@ -260,15 +327,15 @@ void UBasePythonDelegate::ProcessEvent(UFunction *function, void *params)
         return;
 
     py::list args;
-    for (TFieldIterator<UProperty> iter(signatureFunction); iter ; ++iter)
+    for (TFieldIterator<FProperty> iter(signatureFunction); iter ; ++iter)
     {
-        UProperty *prop = *iter;
+        FProperty *prop = *iter;
         if (!prop->HasAnyPropertyFlags(CPF_Parm))
             continue;
         if (prop->HasAnyPropertyFlags(CPF_OutParm))//ReturnParm))
             continue;
 
-        args.append(_getuprop(prop, (uint8*)params, 0));
+        args.append(_getprop(prop, (uint8*)params, 0));
     }
 
     py::object cb = callback;
@@ -278,6 +345,14 @@ void UBasePythonDelegate::ProcessEvent(UFunction *function, void *params)
         } catchpy;
     });
 }
+
+void UBasePythonDelegate::On() { if (valid) try { callback(); } catchpy; }
+void UBasePythonDelegate::UComboBoxString_OnHandleSelectionChanged(FString Item, ESelectInfo::Type SelectionType) { if (valid) try { callback(*Item, (int)SelectionType); } catchpy; }
+void UBasePythonDelegate::UCheckBox_OnCheckStateChanged(bool checked) { if (valid) try { callback(checked); } catchpy; }
+void UBasePythonDelegate::AActor_OnEndPlay(AActor *actor, EEndPlayReason::Type reason) { if (valid) try { callback(actor, (int)reason); } catchpy; }
+void UBasePythonDelegate::UMediaPlayer_OnMediaOpenFailed(FString failedURL) { std::string s = TCHAR_TO_UTF8(*failedURL); if (valid) try { callback(s); } catchpy; }
+void UBasePythonDelegate::UInputComponent_OnAxis(float value) { if (valid) try { callback(value); } catchpy; }
+void UBasePythonDelegate::UInputComponent_OnKeyAction(FKey key) { if (valid) try { callback(key); } catchpy; }
 
 // removes any objects we should no longer be tracking
 void FPyObjectTracker::Purge()
@@ -319,13 +394,12 @@ void FPyObjectTracker::Purge()
 
         // we can't call IsValidLowLevel on delegate->engineObj because it's not a real (tracked) ref, so it's never safe to call APIs on that object
         // Instead, we ask the engine for the object with the known index - if it's invalid, pending kill, or a different object, we should remove this delegate
-        FUObjectItem *cur = GUObjectArray.IndexToObject(delegate->engineObjIndex);
-        if (!cur || !cur->Object || cur->IsPendingKill() || cur->Object != delegate->engineObj)
-            stillValid = false;
-
-        if (!delegate->valid || !delegate->IsValidLowLevel() || !delegate->engineObj ||
-            //!delegate->engineObj->IsValidLowLevel() || <-- we don't save a real ref to engineObj, so it's never safe to call any APIs on it!
-            !delegate->callbackOwner || Py_REFCNT(delegate->callbackOwner.ptr()) <= 1)
+        if (stillValid)
+        {
+            FUObjectItem *cur = GUObjectArray.IndexToObject(delegate->engineObjIndex);
+            if (!cur || !cur->Object || cur->IsPendingKill() || cur->Object != delegate->engineObj)
+                stillValid = false;
+        }
 
         if (!stillValid)
         {
@@ -345,6 +419,13 @@ void FPyObjectTracker::AddReferencedObjects(FReferenceCollector& InCollector)
     // clear out any delegates whose pyinst is not longer valid
     for (UBasePythonDelegate *delegate : delegates)
         InCollector.AddReferencedObject(delegate);
+
+    for (TPair<UMeshComponent*, MaterialArray>& pair : matOverrideMeshComps)
+    {
+        InCollector.AddReferencedObject(pair.Key);
+        for (UMaterialInterface* mat : pair.Value)
+            InCollector.AddReferencedObject(mat);
+    }
 }
 
 // CGLUE implementations. TODO: so much of this should be auto-generated!
@@ -369,6 +450,8 @@ void APawn_CGLUE::PostInitializeComponents() { try { pyInst.attr("PostInitialize
 void APawn_CGLUE::SuperSetupPlayerInputComponent(UInputComponent* comp) { Super::SetupPlayerInputComponent(comp); }
 void APawn_CGLUE::SetupPlayerInputComponent(UInputComponent* comp) { try { pyInst.attr("SetupPlayerInputComponent")(comp); } catchpy; }
 void APawn_CGLUE::GatherCurrentMovement() { if (IsReplicatingMovement()) Super::GatherCurrentMovement(); } // by default, the engine still calls GCM even if not replicating movement
+void APawn_CGLUE::PossessedBy(AController* c) { Super::PossessedBy(c); try { pyInst.attr("PossessedBy")(c); } catchpy; }
+void APawn_CGLUE::UnPossessed() { Super::UnPossessed(); try { pyInst.attr("UnPossessed")(); } catchpy; }
 
 ACharacter_CGLUE::ACharacter_CGLUE() { PrimaryActorTick.bCanEverTick = true; PrimaryActorTick.bStartWithTickEnabled = false; }
 void ACharacter_CGLUE::BeginPlay() { try { pyInst.attr("BeginPlay")(); } catchpy; }
@@ -381,19 +464,23 @@ void ACharacter_CGLUE::PostInitializeComponents() { try { pyInst.attr("PostIniti
 void ACharacter_CGLUE::SuperSetupPlayerInputComponent(UInputComponent* comp) { Super::SetupPlayerInputComponent(comp); }
 void ACharacter_CGLUE::SetupPlayerInputComponent(UInputComponent* comp) { try { pyInst.attr("SetupPlayerInputComponent")(comp); } catchpy; }
 void ACharacter_CGLUE::GatherCurrentMovement() { if (IsReplicatingMovement()) Super::GatherCurrentMovement(); } // by default, the engine still calls GCM even if not replicating movement
+void ACharacter_CGLUE::PossessedBy(AController* c) { Super::PossessedBy(c); try { pyInst.attr("PossessedBy")(c); } catchpy; }
+void ACharacter_CGLUE::UnPossessed() { Super::UnPossessed(); try { pyInst.attr("UnPossessed")(); } catchpy; }
 
 USceneComponent_CGLUE::USceneComponent_CGLUE() { PrimaryComponentTick.bCanEverTick = true; PrimaryComponentTick.bStartWithTickEnabled = false; }
 void USceneComponent_CGLUE::BeginPlay() { try { pyInst.attr("BeginPlay")(); } catchpy; }
 void USceneComponent_CGLUE::EndPlay(const EEndPlayReason::Type reason) { try { pyInst.attr("EndPlay")((int)reason); } catchpy; }
 void USceneComponent_CGLUE::OnRegister() { try { pyInst.attr("OnRegister")(); } catchpy ; }
+void USceneComponent_CGLUE::TickComponent(float dt, ELevelTick type, FActorComponentTickFunction* func) { Super::TickComponent(dt, type, func); if (tickAllowed) try { pyInst.attr("TickComponent")(dt, (int)type); } catchpy; }
 
 void UBoxComponent_CGLUE::BeginPlay() { try { pyInst.attr("BeginPlay")(); } catchpy; }
 void UBoxComponent_CGLUE::EndPlay(const EEndPlayReason::Type reason) { try { pyInst.attr("EndPlay")((int)reason); } catchpy; }
 UBoxComponent_CGLUE::UBoxComponent_CGLUE() { PrimaryComponentTick.bCanEverTick = true; PrimaryComponentTick.bStartWithTickEnabled = false; }
 void UBoxComponent_CGLUE::OnRegister() { try { pyInst.attr("OnRegister")(); } catchpy ; }
+void UBoxComponent_CGLUE::TickComponent(float dt, ELevelTick type, FActorComponentTickFunction* func) { Super::TickComponent(dt, type, func); if (tickAllowed) try { pyInst.attr("TickComponent")(dt, (int)type); } catchpy; }
 
-void UVOIPTalker_CGLUE::OnTalkingBegin(UAudioComponent* AudioComponent) { LOG("OnTalkBegin"); try { pyInst.attr("OnTalkingBegin")(); } catchpy; }
-void UVOIPTalker_CGLUE::OnTalkingEnd() { try { LOG("OnTalkEnd"); pyInst.attr("OnTalkingEnd")(); } catchpy; }
+void UVOIPTalker_CGLUE::OnTalkingBegin(UAudioComponent* AudioComponent) { try { pyInst.attr("OnTalkingBegin")(); } catchpy; }
+void UVOIPTalker_CGLUE::OnTalkingEnd() { try { pyInst.attr("OnTalkingEnd")(); } catchpy; }
 
 
 UClass *PyObjectToUClass(py::object& klassThing)
@@ -460,35 +547,35 @@ UClass *PyObjectToUClass(py::object& klassThing)
     */
 }
 
-bool _setuprop(UProperty *prop, uint8* buffer, py::object& value, int index)
+bool _setuprop(FProperty *prop, uint8* buffer, py::object& value, int index)
 {
     try
     {
-        if (auto bprop = Cast<UBoolProperty>(prop))
+        if (auto bprop = CastField<FBoolProperty>(prop))
             bprop->SetPropertyValue_InContainer(buffer, value.cast<bool>(), index);
-        else if (auto fprop = Cast<UFloatProperty>(prop))
+        else if (auto fprop = CastField<FFloatProperty>(prop))
             fprop->SetPropertyValue_InContainer(buffer, value.cast<float>(), index);
-        else if (auto iprop = Cast<UIntProperty>(prop))
+        else if (auto iprop = CastField<FIntProperty>(prop))
             iprop->SetPropertyValue_InContainer(buffer, value.cast<int>(), index);
-        else if (auto ui32prop = Cast<UUInt32Property>(prop))
+        else if (auto ui32prop = CastField<FUInt32Property>(prop))
             ui32prop->SetPropertyValue_InContainer(buffer, value.cast<uint32>(), index);
-        else if (auto i64prop = Cast<UInt64Property>(prop))
+        else if (auto i64prop = CastField<FInt64Property>(prop))
             i64prop->SetPropertyValue_InContainer(buffer, value.cast<long long>(), index);
-        else if (auto iu64prop = Cast<UUInt64Property>(prop))
+        else if (auto iu64prop = CastField<FUInt64Property>(prop))
             iu64prop->SetPropertyValue_InContainer(buffer, value.cast<uint64>(), index);
-        else if (auto strprop = Cast<UStrProperty>(prop))
+        else if (auto strprop = CastField<FStrProperty>(prop))
             strprop->SetPropertyValue_InContainer(buffer, UTF8_TO_TCHAR(value.cast<std::string>().c_str()), index);
-        else if (auto textprop = Cast<UTextProperty>(prop))
+        else if (auto textprop = CastField<FTextProperty>(prop))
             textprop->SetPropertyValue_InContainer(buffer, FText::FromString(UTF8_TO_TCHAR(value.cast<std::string>().c_str())), index);
-        else if (auto byteprop = Cast<UByteProperty>(prop))
+        else if (auto byteprop = CastField<FByteProperty>(prop))
             byteprop->SetPropertyValue_InContainer(buffer, value.cast<int>(), index);
-        else if (auto enumprop = Cast<UEnumProperty>(prop))
+        else if (auto enumprop = CastField<FEnumProperty>(prop))
             enumprop->GetUnderlyingProperty()->SetIntPropertyValue(enumprop->ContainerPtrToValuePtr<void>(buffer, index), value.cast<uint64>());
-        else if (auto classprop = Cast<UClassProperty>(prop))
+        else if (auto classprop = CastField<FClassProperty>(prop))
             classprop->SetPropertyValue_InContainer(buffer, value.cast<UClass*>(), index);
-        else if (auto objprop = Cast<UObjectProperty>(prop))
+        else if (auto objprop = CastField<FObjectProperty>(prop))
             objprop->SetObjectPropertyValue_InContainer(buffer, value.cast<UObject*>(), index);
-        else if (auto arrayprop = Cast<UArrayProperty>(prop))
+        else if (auto arrayprop = CastField<FArrayProperty>(prop))
         {
             try {
                 py::list list = value.cast<py::list>();
@@ -508,7 +595,7 @@ bool _setuprop(UProperty *prop, uint8* buffer, py::object& value, int index)
                 }
             } catchpy;
         }
-        else if (auto structprop = Cast<UStructProperty>(prop))
+        else if (auto structprop = CastField<FStructProperty>(prop))
         {
             UScriptStruct* theStruct = structprop->Struct;
             void *src = value.cast<void*>();
@@ -526,10 +613,10 @@ bool _setuprop(UProperty *prop, uint8* buffer, py::object& value, int index)
 
 // sets a UPROPERTY on an object (including BPs). With the old system, this is basically the approach we used everywhere, now we use
 // it only when we have no other choice
-void SetObjectUProperty(UObject *obj, std::string k, py::object& value)
+void SetObjectProperty(UObject *obj, std::string k, py::object& value)
 {
     FName propName = FSTR(k);
-    UProperty* prop = obj->GetClass()->FindPropertyByName(propName);
+    FProperty* prop = obj->GetClass()->FindPropertyByName(propName);
     if (!prop)
     {
         LERROR("Failed to find property %s on object %s", *propName.ToString(), *obj->GetName());
@@ -549,57 +636,57 @@ void PyRegisterStructConverter(BPToPyFunc converterFunc)
 }
 
 #define _GETPROP(enginePropClass, cppType) \
-if (auto t##enginePropClass = Cast<enginePropClass>(prop))\
+if (auto t##enginePropClass = CastField<enginePropClass>(prop))\
 {\
     cppType ret = t##enginePropClass->GetPropertyValue_InContainer(buffer, index);\
     return py::cast(ret);\
 }
 
-py::object _getuprop(UProperty *prop, uint8* buffer, int index)
+py::object _getprop(FProperty *prop, uint8* buffer, int index)
 {
-    _GETPROP(UBoolProperty, bool);
-    _GETPROP(UFloatProperty, float);
-    _GETPROP(UIntProperty, int);
-    _GETPROP(UUInt32Property, uint32);
-    _GETPROP(UInt64Property, long long);
-    _GETPROP(UUInt64Property, uint64);
-    _GETPROP(UByteProperty, int);
-    _GETPROP(UObjectProperty, UObject*);
-    if (auto strprop = Cast<UStrProperty>(prop))
+    _GETPROP(FBoolProperty, bool);
+    _GETPROP(FFloatProperty, float);
+    _GETPROP(FIntProperty, int);
+    _GETPROP(FUInt32Property, uint32);
+    _GETPROP(FInt64Property, long long);
+    _GETPROP(FUInt64Property, uint64);
+    _GETPROP(FByteProperty, int);
+    _GETPROP(FObjectProperty, UObject*);
+    if (auto strprop = CastField<FStrProperty>(prop))
     {
         FString sret = strprop->GetPropertyValue_InContainer(buffer, index);
         std::string ret = TCHAR_TO_UTF8(*sret);
         return py::cast(ret);
     }
-    if (auto textprop = Cast<UTextProperty>(prop))
+    if (auto textprop = CastField<FTextProperty>(prop))
     {
         FText tret = textprop->GetPropertyValue_InContainer(buffer, index);
         std::string ret = TCHAR_TO_UTF8(*tret.ToString());
         return py::cast(ret);
     }
-    if (auto enumprop = Cast<UEnumProperty>(prop))
+    if (auto enumprop = CastField<FEnumProperty>(prop))
     {
         void* prop_addr = enumprop->ContainerPtrToValuePtr<void>(buffer, index);
         uint64 v = enumprop->GetUnderlyingProperty()->GetUnsignedIntPropertyValue(prop_addr);
         return py::cast(v);
     }
-    if (auto classprop = Cast<UClassProperty>(prop))
+    if (auto classprop = CastField<FClassProperty>(prop))
     {
         UClass *klass = Cast<UClass>(classprop->GetPropertyValue_InContainer(buffer, index));
         return py::cast(klass);
     }
-    if (auto arrayprop = Cast<UArrayProperty>(prop))
+    if (auto arrayprop = CastField<FArrayProperty>(prop))
     {
         FScriptArrayHelper_InContainer helper(arrayprop, buffer, index);
         py::list ret;
         for (int i=0; i < helper.Num(); i++)
-            ret.append(_getuprop(arrayprop->Inner, helper.GetRawPtr(i), 0));
+            ret.append(_getprop(arrayprop->Inner, helper.GetRawPtr(i), 0));
         return ret;
     }
 
     // For structures, we handle some specific builtin ones below and then leave it up to the game code to handle
     // any others.
-    if (auto structprop = Cast<UStructProperty>(prop))
+    if (auto structprop = CastField<FStructProperty>(prop))
     {
         UScriptStruct* theStruct = structprop->Struct;
         if (theStruct == TBaseStructure<FVector>::Get())
@@ -643,24 +730,24 @@ py::object _getuprop(UProperty *prop, uint8* buffer, int index)
 }
 
 // gets a UPROPERTY from an object (including BPs)
-py::object GetObjectUProperty(UObject *obj, std::string k)
+py::object GetObjectProperty(UObject *obj, std::string k)
 {
     FName propName = FSTR(k);
-    UProperty* prop = obj->GetClass()->FindPropertyByName(propName);
+    FProperty* prop = obj->GetClass()->FindPropertyByName(propName);
     if (!prop)
     {
         LERROR("Failed to find property %s on object %s", *propName.ToString(), *obj->GetName());
         return py::none();
     }
 
-    return _getuprop(prop, (uint8*)obj, 0);
+    return _getprop(prop, (uint8*)obj, 0);
 }
 
 // calls a UFUNCTION on an object and returns the result
 // NOTE: for now (and maybe forever) there are many, many restrictions on what does and doesn't work here!
 // Allowed:
 // - 0 or more parameters, all types must be supported by _setuprop
-// - 0 or 1 return parameter, type must be supported by _getuprop
+// - 0 or 1 return parameter, type must be supported by _getprop
 // - all parameters must be passed in (i.e. can't leave some off to have them use their default values)
 // - positional arguments only, no kwargs
 // - I have no idea how it works in the presence of super() calls
@@ -679,17 +766,17 @@ py::object CallObjectUFunction(UObject *obj, std::string _funcName, py::tuple& p
     }
 
     // the engine code for this sort of thing doesn't have much in the way of comments, so we get by here
-    // by keeping things really simple. AFAICT it just uses the same UProperty approach as it uses with
+    // by keeping things really simple. AFAICT it just uses the same FProperty approach as it uses with
     // getting/setting UPROPERTYs, so we allocate some space to hold the properties to pass in and then populate
     // them using the args tuple passed in from Python.
     uint8* propArgsBuffer = (uint8*)FMemory_Alloca(func->ParmsSize);
     FMemory::Memzero(propArgsBuffer, func->ParmsSize);
-    UProperty *returnProp = nullptr;
+    FProperty *returnProp = nullptr;
     int nextPyArg = 0;
     int numPyArgs = pyArgs.size();
-    for (TFieldIterator<UProperty> iter(func); iter ; ++iter)
+    for (TFieldIterator<FProperty> iter(func); iter ; ++iter)
     {
-        UProperty *prop = *iter;
+        FProperty *prop = *iter;
         if (!prop->HasAnyPropertyFlags(CPF_Parm))
             continue;
         if (prop->HasAnyPropertyFlags(CPF_OutParm) && !prop->HasAnyPropertyFlags(CPF_ConstParm|CPF_ReferenceParm))//ReturnParm)) <-- this doesn't quite work: if a function param is e.g. an array of strings, it'll have the OutParm flag. But if we just check for Return, then other function calls fail.
@@ -718,12 +805,12 @@ py::object CallObjectUFunction(UObject *obj, std::string _funcName, py::tuple& p
 
     py::object ret = py::none();
     if (returnProp)
-        ret = _getuprop(returnProp, propArgsBuffer, 0);
+        ret = _getprop(returnProp, propArgsBuffer, 0);
 
     // Cleanup
-    for (TFieldIterator<UProperty> iter(func) ; iter ; ++iter)
+    for (TFieldIterator<FProperty> iter(func) ; iter ; ++iter)
     {
-        UProperty *prop = *iter;
+        FProperty *prop = *iter;
         if (iter->HasAnyPropertyFlags(CPF_Parm))
             prop->DestroyValue_InContainer(propArgsBuffer);
     }
@@ -735,13 +822,13 @@ py::object CallObjectUFunction(UObject *obj, std::string _funcName, py::tuple& p
 void BindDelegateCallback(UObject *obj, std::string _eventName, py::object& callback)
 {
     FName eventName = FSTR(_eventName);
-    UProperty* prop = obj->GetClass()->FindPropertyByName(eventName);
+    FProperty* prop = obj->GetClass()->FindPropertyByName(eventName);
     if (!prop)
     {
         LERROR("Failed to find property %s on object %s", *eventName.ToString(), *obj->GetName());
     }
 
-    UMulticastDelegateProperty *mcprop = Cast<UMulticastDelegateProperty>(prop);
+    FMulticastDelegateProperty *mcprop = CastField<FMulticastDelegateProperty>(prop);
     if (!mcprop)
     {
         LERROR("Property %s is not a multicast delegate on object %s", *eventName.ToString(), *obj->GetName());
@@ -760,16 +847,24 @@ void BindDelegateCallback(UObject *obj, std::string _eventName, py::object& call
 void UnbindDelegateCallback(UObject *obj, std::string _eventName, py::object& callback)
 {
     FName eventName = FSTR(_eventName);
-    UProperty* prop = obj->GetClass()->FindPropertyByName(eventName);
+    if (!VALID(obj))
+    {
+        LERROR("Cannot unbind %s on invalid object", *eventName.ToString());
+        return;
+    }
+
+    FProperty* prop = obj->GetClass()->FindPropertyByName(eventName);
     if (!prop)
     {
         LERROR("Failed to find property %s on object %s", *eventName.ToString(), *obj->GetName());
+        return;
     }
 
-    UMulticastDelegateProperty *mcprop = Cast<UMulticastDelegateProperty>(prop);
+    FMulticastDelegateProperty *mcprop = CastField<FMulticastDelegateProperty>(prop);
     if (!mcprop)
     {
         LERROR("Property %s is not a multicast delegate on object %s", *eventName.ToString(), *obj->GetName());
+        return;
     }
 
     UBasePythonDelegate *delegate = FPyObjectTracker::Get()->FindDelegate(obj, _eventName.c_str(), "On", callback);
@@ -790,14 +885,14 @@ void UnbindDelegateCallback(UObject *obj, std::string _eventName, py::object& ca
 void BroadcastEvent(UObject* obj, std::string eventName, py::tuple& args)
 {
     FName propName = FSTR(eventName);
-    UProperty* prop = obj->GetClass()->FindPropertyByName(propName);
+    FProperty* prop = obj->GetClass()->FindPropertyByName(propName);
     if (!prop)
     {
         LERROR("Failed to find property %s on object %s", *propName.ToString(), *obj->GetName());
         return;
     }
 
-    UMulticastInlineDelegateProperty *delprop = Cast<UMulticastInlineDelegateProperty>(prop);
+    FMulticastInlineDelegateProperty *delprop = CastField<FMulticastInlineDelegateProperty>(prop);
     if (!delprop)
     {
         LERROR("Property %s on object %s is not a multicast delegate property", *propName.ToString(), *obj->GetName());
@@ -808,12 +903,12 @@ void BroadcastEvent(UObject* obj, std::string eventName, py::tuple& args)
     uint8* propArgsBuffer = (uint8*)FMemory_Alloca(delprop->SignatureFunction->PropertiesSize);
     FMemory::Memzero(propArgsBuffer, delprop->SignatureFunction->PropertiesSize);
 
-    UProperty *returnProp = nullptr;
+    FProperty *returnProp = nullptr;
     int nextPyArg = 0;
     int numPyArgs = args.size();
-    for (TFieldIterator<UProperty> iter(delprop->SignatureFunction); iter ; ++iter)
+    for (TFieldIterator<FProperty> iter(delprop->SignatureFunction); iter ; ++iter)
     {
-        UProperty *p = *iter;
+        FProperty *p = *iter;
         if (!p->HasAnyPropertyFlags(CPF_Parm))
             continue;
         if (p->HasAnyPropertyFlags(CPF_OutParm))//ReturnParm))
@@ -838,9 +933,9 @@ void BroadcastEvent(UObject* obj, std::string eventName, py::tuple& args)
     delegate.ProcessMulticastDelegate<UObject>(propArgsBuffer);
 
     // Cleanup
-    for (TFieldIterator<UProperty> iter(delprop->SignatureFunction) ; iter ; ++iter)
+    for (TFieldIterator<FProperty> iter(delprop->SignatureFunction) ; iter ; ++iter)
     {
-        UProperty *p = *iter;
+        FProperty *p = *iter;
         if (iter->HasAnyPropertyFlags(CPF_Parm))
             p->DestroyValue_InContainer(propArgsBuffer);
     }

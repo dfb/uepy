@@ -100,6 +100,15 @@ void UUserWidget_CGLUE::NativeTick(const FGeometry& geo, float dt)
     } catchpy;
 }
 
+void UUserWidget_CGLUE::BeginDestroy()
+{
+    Super::BeginDestroy();
+    try {
+        if (pyInst.ptr())
+            pyInst.attr("BeginDestroy")();
+    } catchpy;
+}
+
 // called on pre engine init
 void _LoadModuleUMG(py::module& uepy)
 {
@@ -163,14 +172,10 @@ void _LoadModuleUMG(py::module& uepy)
         .def("GetAbsoluteSize", [](FGeometry& self) { return self.GetAbsoluteSize(); })
         ;
 
-    py::class_<UVisual, UObject, UnrealTracker<UVisual>>(m, "UVisual")
-        .def_static("StaticClass", []() { return UVisual::StaticClass(); }, py::return_value_policy::reference)
-        .def_static("Cast", [](UObject *obj) { return Cast<UVisual>(obj); }, py::return_value_policy::reference)
+    UEPY_EXPOSE_CLASS(UVisual, UObject, m)
         ;
 
-    py::class_<UWidget, UVisual, UnrealTracker<UWidget>>(m, "UWidget")
-        .def_static("StaticClass", []() { return UWidget::StaticClass(); }, py::return_value_policy::reference)
-        .def_static("Cast", [](UObject *obj) { return Cast<UWidget>(obj); }, py::return_value_policy::reference)
+    UEPY_EXPOSE_CLASS(UWidget, UVisual, m)
         .def("GetIsEnabled", [](UWidget& self) { return self.GetIsEnabled(); })
         .def("SetIsEnabled", [](UWidget& self, bool e) { self.SetIsEnabled(e); })
         .def("SetVisibility", [](UWidget& self, int v) { self.SetVisibility((ESlateVisibility)v); })
@@ -180,11 +185,10 @@ void _LoadModuleUMG(py::module& uepy)
         .def("GetRenderOpacity", [](UWidget& self) { return self.GetRenderOpacity(); })
         .def("SetRenderOpacity", [](UWidget& self, float o) { self.SetRenderOpacity(o); })
         .def("GetParent", [](UWidget& self) { return self.GetParent(); }, py::return_value_policy::reference)
+        .def("RemoveFromParent", [](UWidget& self) { self.RemoveFromParent(); })
         ;
 
-    py::class_<UImage, UWidget, UnrealTracker<UImage>>(m, "UImage")
-        .def_static("StaticClass", []() { return UImage::StaticClass(); }, py::return_value_policy::reference)
-        .def_static("Cast", [](UObject *obj) { return Cast<UImage>(obj); }, py::return_value_policy::reference)
+    UEPY_EXPOSE_CLASS(UImage, UWidget, m)
         .def("SetColorAndOpacity", [](UImage& self, FLinearColor& c) { self.SetColorAndOpacity(c); })
         .def("SetOpacity", [](UImage& self, float o) { self.SetOpacity(o); })
         .def("SetBrushSize", [](UImage& self, FVector2D& size) { self.SetBrushSize(size); })
@@ -197,18 +201,14 @@ void _LoadModuleUMG(py::module& uepy)
         .def("SetBrushResourceObject", [](UImage& self, UObject* resourceObj) { self.SetBrushResourceObject(resourceObj); })
         ;
 
-    py::class_<UUserWidget, UWidget, UnrealTracker<UUserWidget>>(m, "UUserWidget")
-        .def_static("StaticClass", []() { return UUserWidget::StaticClass(); }, py::return_value_policy::reference)
-        .def_static("Cast", [](UObject *obj) { return Cast<UUserWidget>(obj); }, py::return_value_policy::reference)
+    UEPY_EXPOSE_CLASS(UUserWidget, UWidget, m)
         .def_readonly("WidgetTree", &UUserWidget::WidgetTree, py::return_value_policy::reference)
         .def("AddToViewport", [](UUserWidget& self, int zOrder) { self.AddToViewport(zOrder); })
         .def("SetDesiredSizeInViewport", [](UUserWidget& self, FVector2D& size) { self.SetDesiredSizeInViewport(size); })
         .def("SetPadding", [](UUserWidget& self, FMargin& padding) { self.SetPadding(padding); })
         ;
 
-    py::class_<UUserWidget_CGLUE, UUserWidget, UnrealTracker<UUserWidget_CGLUE>>(glueclasses, "UUserWidget_CGLUE")
-        .def_static("StaticClass", []() { return UUserWidget_CGLUE::StaticClass(); }, py::return_value_policy::reference)
-        .def_static("Cast", [](UObject *w) { return Cast<UUserWidget_CGLUE>(w); }, py::return_value_policy::reference)
+    UEPY_EXPOSE_CLASS(UUserWidget_CGLUE, UUserWidget, m)
         .def("SetRootWidgetClass", [](UUserWidget_CGLUE& self, py::object& klass)
         {
             UClass *k = PyObjectToUClass(klass);
@@ -222,51 +222,38 @@ void _LoadModuleUMG(py::module& uepy)
         })
         ;
 
-    py::class_<UPanelWidget, UWidget, UnrealTracker<UPanelWidget>>(m, "UPanelWidget")
-        .def_static("StaticClass", []() { return UPanelWidget::StaticClass(); }, py::return_value_policy::reference)
-        .def_static("Cast", [](UObject *obj) { return Cast<UPanelWidget>(obj); }, py::return_value_policy::reference)
+    UEPY_EXPOSE_CLASS(UPanelWidget, UWidget, m)
         .def("AddChild", [](UPanelWidget& self, UWidget *child) { return self.AddChild(child); }, py::return_value_policy::reference)
         .def("GetChildrenCount", [](UPanelWidget& self) { return self.GetChildrenCount(); })
         .def("GetChildAt", [](UPanelWidget& self, int index) { return self.GetChildAt(index); }, py::return_value_policy::reference)
         .def("ClearChildren", [](UPanelWidget& self) { self.ClearChildren(); })
+        .def("RemoveChildAt", [](UPanelWidget& self, int i) { return self.RemoveChildAt(i); })
         ;
 
-    py::class_<UVerticalBox, UPanelWidget, UnrealTracker<UVerticalBox>>(m, "UVerticalBox")
-        .def_static("StaticClass", []() { return UVerticalBox::StaticClass(); }, py::return_value_policy::reference)
-        .def_static("Cast", [](UObject *w) { return Cast<UVerticalBox>(w); }, py::return_value_policy::reference)
+    UEPY_EXPOSE_CLASS(UVerticalBox, UPanelWidget, m)
         .def("AddChild", [](UVerticalBox& self, UWidget *child) { return self.AddChild(child); }, py::return_value_policy::reference)
         ;
 
-    py::class_<UHorizontalBox, UPanelWidget, UnrealTracker<UHorizontalBox>>(m, "UHorizontalBox")
-        .def_static("StaticClass", []() { return UHorizontalBox::StaticClass(); }, py::return_value_policy::reference)
-        .def_static("Cast", [](UObject *w) { return Cast<UHorizontalBox>(w); }, py::return_value_policy::reference)
+    UEPY_EXPOSE_CLASS(UHorizontalBox, UPanelWidget, m)
         .def("AddChild", [](UHorizontalBox& self, UWidget *child) { return self.AddChild(child); }, py::return_value_policy::reference)
         ;
 
-    py::class_<UGridPanel, UPanelWidget, UnrealTracker<UGridPanel>>(m, "UGridPanel")
-        .def_static("StaticClass", []() { return UGridPanel::StaticClass(); }, py::return_value_policy::reference)
-        .def_static("Cast", [](UObject *w) { return Cast<UGridPanel>(w); }, py::return_value_policy::reference)
+    UEPY_EXPOSE_CLASS(UGridPanel, UPanelWidget, m)
         .def("AddChildToGrid", [](UGridPanel& self, UWidget* content, int row, int col) { return self.AddChildToGrid(content, row, col); }, py::return_value_policy::reference)
         .def("SetColumnFill", [](UGridPanel& self, int index, float coefficient) { self.SetColumnFill(index, coefficient); })
         .def("SetRowFill", [](UGridPanel& self, int index, float coefficient) { self.SetRowFill(index, coefficient); })
         ;
 
-    py::class_<UPanelSlot, UVisual, UnrealTracker<UPanelSlot>>(m, "UPanelSlot")
-        .def_static("StaticClass", []() { return UPanelSlot::StaticClass(); }, py::return_value_policy::reference)
-        .def_static("Cast", [](UObject *obj) { return Cast<UPanelSlot>(obj); }, py::return_value_policy::reference)
+    UEPY_EXPOSE_CLASS(UPanelSlot, UVisual, m)
         ;
 
-    py::class_<UBorderSlot, UPanelSlot, UnrealTracker<UBorderSlot>>(m, "UBorderSlot")
-        .def_static("StaticClass", []() { return UBorderSlot::StaticClass(); }, py::return_value_policy::reference)
-        .def_static("Cast", [](UObject *obj) { return Cast<UBorderSlot>(obj); }, py::return_value_policy::reference)
+    UEPY_EXPOSE_CLASS(UBorderSlot, UPanelSlot, m)
         .def("SetPadding", [](UBorderSlot& self, FMargin& m) { self.SetPadding(m); })
         .def("SetVerticalAlignment", [](UBorderSlot& self, int a) { self.SetVerticalAlignment((EVerticalAlignment)a); })
         .def("SetHorizontalAlignment", [](UBorderSlot& self, int a) { self.SetHorizontalAlignment((EHorizontalAlignment)a); })
         ;
 
-    py::class_<UCanvasPanelSlot, UPanelSlot, UnrealTracker<UCanvasPanelSlot>>(m, "UCanvasPanelSlot")
-        .def_static("StaticClass", []() { return UCanvasPanelSlot::StaticClass(); }, py::return_value_policy::reference)
-        .def_static("Cast", [](UObject *obj) { return Cast<UCanvasPanelSlot>(obj); }, py::return_value_policy::reference)
+    UEPY_EXPOSE_CLASS(UCanvasPanelSlot, UPanelSlot, m)
         // GetLayout / SetLayout
         .def("GetPosition", [](UCanvasPanelSlot& self) { return self.GetPosition(); })
         .def("SetPosition", [](UCanvasPanelSlot& self, FVector2D& pos) { self.SetPosition(pos); })
@@ -284,9 +271,7 @@ void _LoadModuleUMG(py::module& uepy)
         .def("SetAnchors", [](UCanvasPanelSlot& self, FAnchors& a) { self.SetAnchors(a); })
         ;
 
-    py::class_<UGridSlot, UPanelSlot, UnrealTracker<UGridSlot>>(m, "UGridSlot")
-        .def_static("StaticClass", []() { return UGridSlot::StaticClass(); }, py::return_value_policy::reference)
-        .def_static("Cast", [](UObject *obj) { return Cast<UGridSlot>(obj); }, py::return_value_policy::reference)
+    UEPY_EXPOSE_CLASS(UGridSlot, UPanelSlot, m)
         .def("SetPadding", [](UGridSlot& self, FMargin& pad) { self.SetPadding(pad); })
         .def("SetRow", [](UGridSlot& self, int row) { self.SetRow(row); })
         .def("SetRowSpan", [](UGridSlot& self, int span) { self.SetRowSpan(span); })
@@ -304,18 +289,14 @@ void _LoadModuleUMG(py::module& uepy)
         ENUM_PROP(SizeRule, ESlateSizeRule::Type, FSlateChildSize)
         ;
 
-    py::class_<UVerticalBoxSlot, UPanelSlot, UnrealTracker<UVerticalBoxSlot>>(m, "UVerticalBoxSlot")
-        .def_static("StaticClass", []() { return UVerticalBoxSlot::StaticClass(); }, py::return_value_policy::reference)
-        .def_static("Cast", [](UObject *slot) { return Cast<UVerticalBoxSlot>(slot); }, py::return_value_policy::reference)
+    UEPY_EXPOSE_CLASS(UVerticalBoxSlot, UPanelSlot, m)
         .def("SetPadding", [](UVerticalBoxSlot& self, FMargin& m) { self.SetPadding(m); })
         .def("SetSize", [](UVerticalBoxSlot& self, FSlateChildSize& size) { self.SetSize(size); })
         .def("SetVerticalAlignment", [](UVerticalBoxSlot& self, int a) { self.SetVerticalAlignment((EVerticalAlignment)a); })
         .def("SetHorizontalAlignment", [](UVerticalBoxSlot& self, int a) { self.SetHorizontalAlignment((EHorizontalAlignment)a); })
         ;
 
-    py::class_<UHorizontalBoxSlot, UPanelSlot, UnrealTracker<UHorizontalBoxSlot>>(m, "UHorizontalBoxSlot")
-        .def_static("StaticClass", []() { return UHorizontalBoxSlot::StaticClass(); }, py::return_value_policy::reference)
-        .def_static("Cast", [](UObject *slot) { return Cast<UHorizontalBoxSlot>(slot); }, py::return_value_policy::reference)
+    UEPY_EXPOSE_CLASS(UHorizontalBoxSlot, UPanelSlot, m)
         .def("SetPadding", [](UHorizontalBoxSlot& self, FMargin& m) { self.SetPadding(m); })
         .def("SetSize", [](UHorizontalBoxSlot& self, FSlateChildSize& size) { self.SetSize(size); })
         .def("SetVerticalAlignment", [](UHorizontalBoxSlot& self, int a) { self.SetVerticalAlignment((EVerticalAlignment)a); })
@@ -328,9 +309,7 @@ void _LoadModuleUMG(py::module& uepy)
         .def("SetHorizontalAlignment", [](UWidgetSwitcherSlot& self, int a) { self.SetHorizontalAlignment((EHorizontalAlignment)a); })
         ;
 
-    py::class_<UTextBlock, UWidget, UnrealTracker<UTextBlock>>(m, "UTextBlock") // note: there is an unexposed intermediate type in between this and UWidget
-        .def_static("StaticClass", []() { return UTextBlock::StaticClass(); }, py::return_value_policy::reference)
-        .def_static("Cast", [](UObject *obj) { return Cast<UTextBlock>(obj); }, py::return_value_policy::reference)
+    UEPY_EXPOSE_CLASS(UTextBlock, UWidget, m)
         .def("SetText", [](UTextBlock& self, std::string newText) { self.SetText(FText::FromString(newText.c_str())); })
         .def("SetJustification", [](UTextBlock& self, int j) { self.SetJustification((ETextJustify::Type)j); })
         .def("SetFontSize", [](UTextBlock& self, int newSize)
@@ -341,44 +320,29 @@ void _LoadModuleUMG(py::module& uepy)
         })
         ;
 
-    py::class_<UContentWidget, UPanelWidget, UnrealTracker<UContentWidget>>(m, "UContentWidget")
-        .def_static("StaticClass", []() { return UContentWidget::StaticClass(); }, py::return_value_policy::reference)
-        .def_static("Cast", [](UObject *slot) { return Cast<UContentWidget>(slot); }, py::return_value_policy::reference)
+    UEPY_EXPOSE_CLASS(UContentWidget, UPanelWidget, m)
         .def("SetContent", [](UContentWidget& self, UWidget *obj) { return self.SetContent(obj); }, py::return_value_policy::reference)
         ;
 
-    py::class_<UScaleBox, UContentWidget, UnrealTracker<UScaleBox>>(m, "UScaleBox")
-        .def_static("StaticClass", []() { return UScaleBox::StaticClass(); }, py::return_value_policy::reference)
-        .def_static("Cast", [](UObject *slot) { return Cast<UScaleBox>(slot); }, py::return_value_policy::reference)
+    UEPY_EXPOSE_CLASS(UScaleBox, UContentWidget, m)
         .def("SetStretch", [](UScaleBox& self, int type) { self.SetStretch((EStretch::Type)type); })
         .def("SetStretchDirection", [](UScaleBox& self, int dir) { self.SetStretchDirection((EStretchDirection::Type)dir); })
         .def("SetUserSpecifiedScale", [](UScaleBox& self, float scale) { self.SetUserSpecifiedScale(scale); })
         .def("SetIgnoreInheritedScale", [](UScaleBox& self, bool ignore) { self.SetIgnoreInheritedScale(ignore); })
         ;
 
-    py::class_<UCanvasPanel, UPanelWidget, UnrealTracker<UCanvasPanel>>(m, "UCanvasPanel")
-        .def_static("StaticClass", []() { return UCanvasPanel::StaticClass(); }, py::return_value_policy::reference)
-        .def_static("Cast", [](UObject *slot) { return Cast<UCanvasPanel>(slot); }, py::return_value_policy::reference)
+    UEPY_EXPOSE_CLASS(UCanvasPanel, UPanelWidget, m)
         .def("AddChildToCanvas", [](UCanvasPanel& self, UWidget* c) { return self.AddChildToCanvas(c); }, py::return_value_policy::reference)
         ;
 
-    py::class_<UOverlay, UPanelWidget, UnrealTracker<UOverlay>>(m, "UOverlay")
-        .def_static("StaticClass", []() { return UOverlay::StaticClass(); }, py::return_value_policy::reference)
-        .def_static("Cast", [](UObject *slot) { return Cast<UOverlay>(slot); }, py::return_value_policy::reference)
+    UEPY_EXPOSE_CLASS(UOverlay, UPanelWidget, m)
         .def("AddChildToOverlay", [](UOverlay& self, UWidget *child) { return self.AddChildToOverlay(child); }, py::return_value_policy::reference)
         ;
 
-    py::class_<UButton, UContentWidget, UnrealTracker<UButton>>(m, "UButton")
-        .def_static("StaticClass", []() { return UButton::StaticClass(); }, py::return_value_policy::reference)
-        .def_static("Cast", [](UObject *obj) { return Cast<UButton>(obj); }, py::return_value_policy::reference)
-        // TODO: event-specific Bind APIs might no longer be needed and might go away
-        .def("BindOnClicked", [](UButton* self, py::object callback) { UEPY_BIND(self, OnClicked, On, callback); })
-        .def("UnbindOnClicked", [](UButton* self, py::object callback) { UEPY_UNBIND(self, OnClicked, On, callback); })
+    UEPY_EXPOSE_CLASS(UButton, UContentWidget, m)
         ;
 
-    py::class_<UComboBoxString, UWidget, UnrealTracker<UComboBoxString>>(m, "UComboBoxString")
-        .def_static("StaticClass", []() { return UComboBoxString::StaticClass(); }, py::return_value_policy::reference)
-        .def_static("Cast", [](UObject *obj) { return Cast<UComboBoxString>(obj); }, py::return_value_policy::reference)
+    UEPY_EXPOSE_CLASS(UComboBoxString, UWidget, m)
         .def("AddOption", [](UComboBoxString& self, std::string o) { self.AddOption(o.c_str()); })
         .def("ClearOptions", [](UComboBoxString& self) { self.ClearOptions(); })
         .def("RefreshOptions", [](UComboBoxString& self) { self.RefreshOptions(); })
@@ -391,29 +355,17 @@ void _LoadModuleUMG(py::module& uepy)
             FSlateFontInfo& sfi = self.Font;
             sfi.Size = newSize;
         })
-        // TODO: event-specific Bind APIs might no longer be needed and might go away
-        .def("BindOnSelectionChanged", [](UComboBoxString* self, py::object callback) { UEPY_BIND(self, OnSelectionChanged, UComboBoxString_OnHandleSelectionChanged, callback); })
-        .def("UnbindOnSelectionChanged", [](UComboBoxString* self, py::object callback) { UEPY_UNBIND(self, OnSelectionChanged, UComboBoxString_OnHandleSelectionChanged, callback); })
         ;
 
-    py::class_<UCheckBox, UContentWidget, UnrealTracker<UCheckBox>>(m, "UCheckBox")
-        .def_static("StaticClass", []() { return UCheckBox::StaticClass(); }, py::return_value_policy::reference)
-        .def_static("Cast", [](UObject *obj) { return Cast<UCheckBox>(obj); }, py::return_value_policy::reference)
+    UEPY_EXPOSE_CLASS(UCheckBox, UContentWidget, m)
         .def("IsChecked", [](UCheckBox& self) { return self.IsChecked(); })
         .def("SetIsChecked", [](UCheckBox& self, bool b) { self.SetIsChecked(b); })
-        // TODO: event-specific Bind APIs might no longer be needed and might go away
-        .def("BindOnCheckStateChanged", [](UCheckBox* self, py::object callback) { UEPY_BIND(self, OnCheckStateChanged, UCheckBox_OnCheckStateChanged, callback); })
-        .def("UnbindOnCheckStateChanged", [](UCheckBox* self, py::object callback) { UEPY_UNBIND(self, OnCheckStateChanged, UCheckBox_OnCheckStateChanged, callback); })
         ;
 
-    py::class_<UEditableTextBox, UWidget, UnrealTracker<UEditableTextBox>>(m, "UEditableTextBox")
-        .def_static("StaticClass", []() { return UEditableTextBox::StaticClass(); }, py::return_value_policy::reference)
-        .def_static("Cast", [](UObject *obj) { return Cast<UEditableTextBox>(obj); }, py::return_value_policy::reference)
+    UEPY_EXPOSE_CLASS(UEditableTextBox, UWidget, m)
         ;
 
-    py::class_<UWrapBoxSlot, UPanelSlot, UnrealTracker<UWrapBoxSlot>>(m, "UWrapBoxSlot")
-        .def_static("StaticClass", []() { return UWrapBoxSlot::StaticClass(); }, py::return_value_policy::reference)
-        .def_static("Cast", [](UObject *obj) { return Cast<UWrapBoxSlot>(obj); }, py::return_value_policy::reference)
+    UEPY_EXPOSE_CLASS(UWrapBoxSlot, UPanelSlot, m)
         .def("SetPadding", [](UWrapBoxSlot& self, FMargin& padding) { self.SetPadding(padding); })
         .def("SetFillEmptySpace", [](UWrapBoxSlot& self, bool b) { self.SetFillEmptySpace(b); })
         .def("SetFillSpanWhenLessThan", [](UWrapBoxSlot& self, float f) { self.SetFillSpanWhenLessThan(f); })
@@ -421,25 +373,19 @@ void _LoadModuleUMG(py::module& uepy)
         .def("SetVerticalAlignment", [](UWrapBoxSlot& self, int a) { self.SetVerticalAlignment((EVerticalAlignment)a); })
         ;
 
-    py::class_<UScaleBoxSlot, UPanelSlot, UnrealTracker<UScaleBoxSlot>>(m, "UScaleBoxSlot")
-        .def_static("StaticClass", []() { return UScaleBoxSlot::StaticClass(); }, py::return_value_policy::reference)
-        .def_static("Cast", [](UObject *obj) { return Cast<UScaleBoxSlot>(obj); }, py::return_value_policy::reference)
+    UEPY_EXPOSE_CLASS(UScaleBoxSlot, UPanelSlot, m)
         .def("SetPadding", [](UScaleBoxSlot& self, FMargin& padding) { self.SetPadding(padding); })
         .def("SetHorizontalAlignment", [](UScaleBoxSlot& self, int a) { self.SetHorizontalAlignment((EHorizontalAlignment)a); })
         .def("SetVerticalAlignment", [](UScaleBoxSlot& self, int a) { self.SetVerticalAlignment((EVerticalAlignment)a); })
         ;
 
-    py::class_<UOverlaySlot, UPanelSlot, UnrealTracker<UOverlaySlot>>(m, "UOverlaySlot")
-        .def_static("StaticClass", []() { return UOverlaySlot::StaticClass(); }, py::return_value_policy::reference)
-        .def_static("Cast", [](UObject *obj) { return Cast<UOverlaySlot>(obj); }, py::return_value_policy::reference)
+    UEPY_EXPOSE_CLASS(UOverlaySlot, UPanelSlot, m)
         .def("SetPadding", [](UOverlaySlot& self, FMargin& padding) { self.SetPadding(padding); })
         .def("SetHorizontalAlignment", [](UOverlaySlot& self, int a) { self.SetHorizontalAlignment((EHorizontalAlignment)a); })
         .def("SetVerticalAlignment", [](UOverlaySlot& self, int a) { self.SetVerticalAlignment((EVerticalAlignment)a); })
         ;
 
-    py::class_<UWrapBox, UPanelWidget, UnrealTracker<UWrapBox>>(m, "UWrapBox")
-        .def_static("StaticClass", []() { return UWrapBox::StaticClass(); }, py::return_value_policy::reference)
-        .def_static("Cast", [](UObject *obj) { return Cast<UWrapBox>(obj); }, py::return_value_policy::reference)
+    UEPY_EXPOSE_CLASS(UWrapBox, UPanelWidget, m)
         .def("SetInnerSlotPadding", [](UWrapBox& self, FVector2D& v) { self.SetInnerSlotPadding(v); })
         .def_readwrite("WrapSize", &UWrapBox::WrapSize)
         ;
@@ -451,17 +397,13 @@ void _LoadModuleUMG(py::module& uepy)
         .def("GetWidgetAtIndex", [](UWidgetSwitcher& self, int i) { return self.GetWidgetAtIndex(i); }, py::return_value_policy::reference)
         ;
 
-    py::class_<USizeBoxSlot, UPanelSlot, UnrealTracker<USizeBoxSlot>>(m, "USizeBoxSlot")
-        .def_static("StaticClass", []() { return USizeBoxSlot::StaticClass(); }, py::return_value_policy::reference)
-        .def_static("Cast", [](UObject *obj) { return Cast<USizeBoxSlot>(obj); }, py::return_value_policy::reference)
+    UEPY_EXPOSE_CLASS(USizeBoxSlot, UPanelSlot, m)
         .def("SetPadding", [](USizeBoxSlot& self, FMargin& padding) { self.SetPadding(padding); })
         .def("SetHorizontalAlignment", [](USizeBoxSlot& self, int a) { self.SetHorizontalAlignment((EHorizontalAlignment)a); })
         .def("SetVerticalAlignment", [](USizeBoxSlot& self, int a) { self.SetVerticalAlignment((EVerticalAlignment)a); })
         ;
 
-    py::class_<USizeBox, UContentWidget, UnrealTracker<USizeBox>>(m, "USizeBox")
-        .def_static("StaticClass", []() { return USizeBox::StaticClass(); }, py::return_value_policy::reference)
-        .def_static("Cast", [](UObject *obj) { return Cast<USizeBox>(obj); }, py::return_value_policy::reference)
+    UEPY_EXPOSE_CLASS(USizeBox, UContentWidget, m)
         .def("SetWidthOverride", [](USizeBox& self, float n) { self.SetWidthOverride(n); })
         .def("SetHeightOverride", [](USizeBox& self, float n) { self.SetHeightOverride(n); })
         .def("SetMinDesiredWidth", [](USizeBox& self, float n) { self.SetMinDesiredWidth(n); })
@@ -480,15 +422,11 @@ void _LoadModuleUMG(py::module& uepy)
         .def("ClearMaxAspectRatio", [](USizeBox& self) { self.ClearMaxAspectRatio(); })
         ;
 
-    py::class_<USpacer, UWidget, UnrealTracker<USpacer>>(m, "USpacer")
-        .def_static("StaticClass", []() { return USpacer::StaticClass(); }, py::return_value_policy::reference)
-        .def_static("Cast", [](UObject *obj) { return Cast<USpacer>(obj); }, py::return_value_policy::reference)
+    UEPY_EXPOSE_CLASS(USpacer, UWidget, m)
         .def("SetSize", [](USpacer& self, FVector2D& size) { self.SetSize(size); })
         ;
 
-    py::class_<UBorder, UContentWidget, UnrealTracker<UBorder>>(m, "UBorder")
-        .def_static("StaticClass", []() { return UBorder::StaticClass(); }, py::return_value_policy::reference)
-        .def_static("Cast", [](UObject *obj) { return Cast<UBorder>(obj); }, py::return_value_policy::reference)
+    UEPY_EXPOSE_CLASS(UBorder, UContentWidget, m)
         .def("SetPadding", [](UBorder& self, FMargin& pad) { self.SetPadding(pad); })
         .def("SetHorizontalAlignment", [](UBorder& self, int a) { self.SetHorizontalAlignment((EHorizontalAlignment)a); })
         .def("SetVerticalAlignment", [](UBorder& self, int a) { self.SetVerticalAlignment((EVerticalAlignment)a); })
@@ -496,15 +434,19 @@ void _LoadModuleUMG(py::module& uepy)
         //.def("SetBrush", [](UBorder& self, (const FSlateBrush& InBrush);
         ;
 
-    py::class_<UWidgetLayoutLibrary, UObject, UnrealTracker<UWidgetLayoutLibrary>>(m, "UWidgetLayoutLibrary")
+    UEPY_EXPOSE_CLASS(UWidgetLayoutLibrary, UObject, m)
         .def_static("RemoveAllWidgets", [](UObject *worldCtx) { UWidgetLayoutLibrary::RemoveAllWidgets(worldCtx); })
         .def_static("GetViewportSize", [](UObject *worldCtx) { return UWidgetLayoutLibrary::GetViewportSize(worldCtx); })
         .def_static("SlotAsCanvasSlot", [](UWidget *widget) { return UWidgetLayoutLibrary::SlotAsCanvasSlot(widget); }, py::return_value_policy::reference)
+        .def_static("ProjectWorldLocationToWidgetPosition", [](APlayerController* pc, FVector worldLoc, bool viewportRelative)
+        {
+            FVector2D screenPos;
+            bool hitScreen = UWidgetLayoutLibrary::ProjectWorldLocationToWidgetPosition(pc, worldLoc, screenPos, viewportRelative);
+            return py::make_tuple(hitScreen, screenPos);
+        })
         ;
 
-    py::class_<UNamedSlot, UContentWidget, UnrealTracker<UNamedSlot>>(m, "UNamedSlot")
-        .def_static("StaticClass", []() { return UNamedSlot::StaticClass(); }, py::return_value_policy::reference)
-        .def_static("Cast", [](UObject *obj) { return Cast<UNamedSlot>(obj); }, py::return_value_policy::reference)
+    UEPY_EXPOSE_CLASS(UNamedSlot, UContentWidget, m)
         ;
 
     UEPY_EXPOSE_CLASS(UWidgetTree, UObject, m)

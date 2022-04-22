@@ -187,3 +187,18 @@ class ETextureRenderTargetFormat(Enum): RTF_R8, RTF_RG8, RTF_RGBA8, RTF_RGBA8_SR
 
 class ESpectatorScreenMode(Enum): Disabled, SingleEyeLetterboxed, Undistorted, Distorted, SingleEye, SingleEyeCroppedToFill, Texture, TexturePlusEye = range(8)
 
+class ECameraProjectionMode(Enum): Perspective, Orthographic = range(2)
+
+class EMovementMode(Enum):
+    NONE, Walking, NavWalking, Falling, Swimming, Flying, Custom = MOVE_None, MOVE_Walking, MOVE_NavWalking, MOVE_Falling, MOVE_Swimming, MOVE_Flying, MOVE_Custom = range(7)
+
+class ESpawnActorCollisionHandlingMethod(Enum): Undefined, AlwaysSpawn, AdjustIfPossibleButAlwaysSpawn, AdjustIfPossibleButDontSpawnIfColliding, DontSpawnIfColliding = range(5)
+
+class ECameraFocusMethod(Enum): DoNotOverride, Manual, Tracking, Disable = range(4)
+
+class EMouseLockMode(Enum): DoNotLock, LockOnCapture, LockAlways, LockInFullscreen = range(4)
+
+class EWindowMode(Enum): Fullscreen, WindowedFullscreen, Windowed = range(3)
+class EAutoReceiveInput(Enum): Disabled,Player0,Player1,Player2,Player3,Player4,Player5,Player6,Player7 = range(9)
+class EAutoPossessAI(Enum): Disabled,PlacedInWorld,Spawned,PlacedInWorldOrSpawned = range(4)
+

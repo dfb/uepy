@@ -153,6 +153,7 @@ class Event:
                 # so we need to detect that scenario and not call the callback.
                 engineObj = getattr(cb.__self__, 'engineObj', None)
                 if engineObj and not engineObj.IsValid():
+                    log('WARNING: skipping callback to', cb.__self__, cb, 'because engine obj is no longer valid')
                     self.callbacks.remove(methodRef)
                     continue
 
@@ -299,6 +300,37 @@ def BPPROPS(cls, *propNames):
 def IsHost():
     return GetWorld().IsServer()
 
+# When creating components we automatically add a suffix of the form ':::<N>' to work around a problem in UE4 where if
+# you create a component of a given name and then remove it and then create it again too soon, the engine will complain
+# about it, so the auto-generated suffix avoids this problem by making every component get a unique name. The suffix is
+# used by AddComponent and AActor_PGLUE.
+_componentNameCounter = 0
+COMPONENT_NAME_SUFFIX_SEPARATOR = ':::'
+
+def AddComponent(klass, toComp, name, socket='', ctor=False, **kwargs):
+    '''Adds a component of the given type to the given component, optionally snapping and attaching it to a socket.
+    If ctor is True, it means this is being called from a constructor, so SetupAttachment will be used instead of
+    RegisterComponent.'''
+    global _componentNameCounter
+    _componentNameCounter += 1
+    name = '%s%s%d' % (name, COMPONENT_NAME_SUFFIX_SEPARATOR, _componentNameCounter)
+    if hasattr(klass, 'engineClass'):
+        # This is a Python subclass of an engine component class
+        comp = PyInst(NewObject(klass, toComp, name, **kwargs))
+    else:
+        comp = klass.Cast(NewObject(klass, toComp, name, **kwargs))
+    comp.SetIsReplicated(False)
+    if ctor:
+        comp.SetupAttachment(toComp, socket)
+    else:
+        comp.AttachToComponent(toComp, socket)
+        comp.RegisterComponent()
+    return comp
+
+def GetCleanName(comp):
+    '''Given a component, returns comp.GetName() minus the suffix hackery that AddComponent tacked on'''
+    return comp.GetName().split(COMPONENT_NAME_SUFFIX_SEPARATOR, 1)[0]
+
 class AActor_PGLUE(metaclass=PyGlueMetaclass):
     '''Glue class for AActor'''
     repProps = Bag(
@@ -315,6 +347,7 @@ class AActor_PGLUE(metaclass=PyGlueMetaclass):
     def PostInitializeComponents(self): self.engineObj.SuperPostInitializeComponents()
     def GetName(self): return self.engineObj.GetName()
     def SetReplicates(self, b): self.engineObj.SetReplicates(b)
+    def SetCanBeDamaged(self, b): self.engineObj.SetCanBeDamaged(b)
     def GetWorld(self): return self.engineObj.GetWorld()
     def GetOwner(self): return self.engineObj.GetOwner()
     def SetOwner(self, o): self.engineObj.SetOwner(o)
@@ -323,6 +356,7 @@ class AActor_PGLUE(metaclass=PyGlueMetaclass):
     def GetActorLocation(self): return self.engineObj.GetActorLocation()
     def GetActorRotation(self): return self.engineObj.GetActorRotation()
     def GetActorTransform(self): return self.engineObj.GetActorTransform()
+    def SetActorTransform(self, t): self.engineObj.SetActorTransform(t)
     def GetActorForwardVector(self): return self.engineObj.GetActorForwardVector()
     def GetActorUpVector(self): return self.engineObj.GetActorUpVector()
     def GetActorRightVector(self): return self.engineObj.GetActorRightVector()
@@ -330,16 +364,20 @@ class AActor_PGLUE(metaclass=PyGlueMetaclass):
     def GetActorScale3D(self): return self.engineObj.GetActorScale3D()
     def SetActorScale3D(self, s): self.engineObj.SetActorScale3D(s)
     def CreateUStaticMeshComponent(self, name): return self.engineObj.CreateUStaticMeshComponent(name)
+    def GetComponentByName(self, name, incAllDescendents): return self.engineObj.GetComponentByName(name, incAllDescendents, COMPONENT_NAME_SUFFIX_SEPARATOR)
     def GetRootComponent(self): return self.engineObj.GetRootComponent()
     def SetRootComponent(self, s): self.engineObj.SetRootComponent(s)
     def GetComponentsByClass(self, klass): return self.engineObj.GetComponentsByClass(klass)
     def IsValid(self): return self.engineObj.IsValid()
     def BeginPlay(self): self.engineObj.SuperBeginPlay()
     def EndPlay(self, reason):
+        UnbindDelegatesOn(self)
         self.EndingPlay.Fire(self)
         self.engineObj.SuperEndPlay(reason)
     def Tick(self, dt): self.engineObj.SuperTick(dt)
     def HasAuthority(self): return self.engineObj.HasAuthority()
+    def EnableInput(self, pc): self.engineObj.EnableInput(pc)
+    def DisableInput(self, pc): self.engineObj.DisableInput(pc)
     def IsActorTickEnabled(self): return self.engineObj.IsActorTickEnabled()
     def SetActorTickEnabled(self, e): self.engineObj.SetActorTickEnabled(e)
     def SetActorTickInterval(self, i): self.engineObj.SetActorTickInterval(i)
@@ -347,14 +385,17 @@ class AActor_PGLUE(metaclass=PyGlueMetaclass):
     def SetActorHiddenInGame(self, h): self.engineObj.SetActorHiddenInGame(h)
     def SetReplicateMovement(self, b): self.engineObj.SetReplicateMovement(b)
     def Destroy(self): return self.engineObj.Destroy()
-    def BindOnEndPlay(self, cb): self.engineObj.BindOnEndPlay(cb) # NOTE: you may be better off using the EndingPlay Event instance.
-    def UnbindOnEndPlay(self, cb): self.engineObj.UnbindOnEndPlay(cb)
+    def IsPendingKillPending(self): return self.engineObj.IsPendingKillPending()
     def Set(self, k, v): self.engineObj.Set(k, v)
     def Get(self, k): return self.engineObj.Get(k)
     def Call(self, funcName, *args): return self.engineObj.Call(funcName, *args)
     def UpdateTickSettings(self, canEverTick, startWithTickEnabled): self.engineObj.UpdateTickSettings(canEverTick, startWithTickEnabled)
     def OnReplicated(self): pass
     def AddTag(self, tag): self.engineObj.AddTag(tag)
+    def AddMovementInput(self, worldDir, scale, force): self.engineObj.AddMovementInput(worldDir, scale, force)
+    def AddControllerPitchInput(self, v): self.engineObj.AddControllerPitchInput(v)
+    def AddControllerYawInput(self, v): self.engineObj.AddControllerYawInput(v)
+    def AddControllerRollInput(self, v): self.engineObj.AddControllerRollInput(v)
 
     def GetFilteredComponents(self, ofClass=UPrimitiveComponent, onlyVisible=True, ignore=None, ignoreTags=None, includeAttachedActors=False):
         '''Returns a list of all of this actor's visible mesh component (including descendants) that are instances of the
@@ -388,20 +429,36 @@ class AActor_PGLUE(metaclass=PyGlueMetaclass):
     @property
     def configStr(self):
         return self.engineObj.configStr
-CPROPS(AActor_PGLUE, 'bAlwaysRelevant', 'bReplicates', 'Tags')
+CPROPS(AActor_PGLUE, 'bAlwaysRelevant', 'bReplicates', 'Tags', 'SpawnCollisionHandlingMethod', 'bUseControllerRotationPitch', 'bUseControllerRotationYaw', 'InputComponent')
 
 class APawn_PGLUE(AActor_PGLUE):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.SpawnCollisionHandlingMethod = enums.ESpawnActorCollisionHandlingMethod.AlwaysSpawn # drives me crazy that APawn overrides this
+
     def IsLocallyControlled(self): return self.engineObj.IsLocallyControlled()
+    def GetController(self): return self.engineObj.GetController()
     def SetupPlayerInputComponent(self, comp): self.engineObj.SuperSetupPlayerInputComponent(comp)
     def GetPlayerState(self): return self.engineObj.GetPlayerState()
+    def PossessedBy(self, pc): pass # C++ calls super
+    def UnPossessed(self): pass # C++ calls super
+CPROPS(APawn_PGLUE, 'AIControllerClass', 'AutoPossessPlayer', 'AutoPossessAI')
+
+class ACharacter_PGLUE(APawn_PGLUE):
+    def GetCharacterMovement(self): return self.engineObj.GetCharacterMovement()
+    def GetCapsuleComponent(self): return self.engineObj.GetCapsuleComponent()
+    def SetReplicateMovement(self, b): self.engineObj.SetReplicateMovement(b)
 
 class USceneComponent_PGLUE(metaclass=PyGlueMetaclass):
     @classmethod
     def Cast(cls, obj): return cls.engineClass.Cast(obj)
     def IsValid(self): return self.engineObj.IsValid()
-
+    def TickComponent(self, dt, tickType): pass # C++ calls super::TickComponent already
     def BeginPlay(self): self.engineObj.SuperBeginPlay()
-    def EndPlay(self, reason): self.engineObj.SuperEndPlay(reason)
+    def EndPlay(self, reason):
+        UnbindDelegatesOn(self)
+        self.engineObj.SuperEndPlay(reason)
+    def SetComponentTickEnabled(self, t): self.engineObj.SetComponentTickEnabled(t)
     def OnRegister(self): self.engineObj.SuperOnRegister()
     def ComponentHasTag(self, tag): return self.engineObj.ComponentHasTag(tag)
     def GetOwner(self): return self.engineObj.GetOwner()
@@ -446,15 +503,19 @@ class USceneComponent_PGLUE(metaclass=PyGlueMetaclass):
     def GetSocketRotation(self, name): return self.engineObj.GetSocketRotation(name)
     def CalcBounds(self, locToWorld): return self.engineObj.CalcBounds(locToWorld)
     def SetMobility(self, m): self.engineObj.SetMobility(m)
+    def Show(self, visible, propagate=True, updateCollision=True): self.engineObj.Show(visible, propagate, updateCollision)
 CPROPS(USceneComponent_PGLUE, 'ComponentTags')
 
 class UBoxComponent_PGLUE(USceneComponent_PGLUE):
     def SetCollisionEnabled(self, e): self.engineObj.SetCollisionEnabled(e) # this is actually from UPrimitiveComponent
     def BeginPlay(self): self.engineObj.SuperBeginPlay()
-    def EndPlay(self, reason): self.engineObj.SuperEndPlay(reason)
+    def EndPlay(self, reason):
+        UnbindDelegatesOn(self)
+        self.engineObj.SuperEndPlay(reason)
     def OnRegister(self): self.engineObj.SuperOnRegister()
     def SetBoxExtent(self, e): self.engineObj.SetBoxExtent(e)
     def GetUnscaledBoxExtent(self): return self.engineObj.GetUnscaledBoxExtent()
+    def TickComponent(self, dt, tickType): pass # C++ calls super::TickComponent already
 
 class UVOIPTalker_PGLUE(metaclass=PyGlueMetaclass):
     @classmethod
@@ -497,14 +558,13 @@ class UEPYAssistantActor(AActor_PGLUE):
             self.forceDevModuleReload = False # we just want to force scratchpad to reload on start
             self.lastCheck = time.time()
 
-def AddHelper():
-    SpawnActor(GetWorld(), UEPYAssistantActor)
-
 class UUserWidget_PGLUE(metaclass=PyGlueMetaclass):
     '''Base class of all Python subclasses from AActor-derived C++ classes'''
     # TODO: why doesn't this live in umg.py?
     # We do not implement a default Tick but instead have the C++ only call into Python if a Tick function is defined
     #def Tick(self, geometry, dt): pass
+    def BeginDestroy(self): # C++ impl already calls super before this is called
+        UnbindDelegatesOn(self)
 
 def SpawnActor(world, klass, location=None, rotation=None, **kwargs):
     '''Extends __uepy.SpawnActor_ so that you can also pass in values for any UPROPERTY fields'''
@@ -590,8 +650,9 @@ LoadByRef = _refCache.Load
 ClearRefCache = _refCache.Clear
 GetReferencePath = _refCache.GetReferencePath
 
-def Caller(level=2):
+def Caller(extraLevels=0):
     '''Debugging helper - returns info on the call stack (default=who called the caller of the caller)'''
+    level = 2 + extraLevels
     stack = inspect.stack()
     if level >= len(stack):
         return '[top]'

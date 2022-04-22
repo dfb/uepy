@@ -17,6 +17,8 @@
 // instead do try { ... } catchpy
 #define catchpy catch (std::exception e) { LERROR("%s", UTF8_TO_TCHAR(e.what())); }
 
+#define VALID(obj) (obj != nullptr && obj->IsValidLowLevel())
+
 // std::string --> FString, sort of
 #define FSTR(stdstr) UTF8_TO_TCHAR((stdstr).c_str())
 
@@ -58,11 +60,14 @@
 #define UEPY_EXPOSE_CLASS(className, parentClassName, inModule)\
     py::class_<className, parentClassName, UnrealTracker<className>>(inModule, #className)\
         .def_static("StaticClass", []() { return className::StaticClass(); }, py::return_value_policy::reference)\
-        .def_static("Cast", [](UObject *w) { return Cast<className>(w); }, py::return_value_policy::reference)
+        .def_static("Cast", [](UObject *w) { return VALID(w) ? Cast<className>(w) : nullptr; }, py::return_value_policy::reference)
 
 // in order to be able pass from BP to Python any custom (game-specific) structs, the game has to provide a conversion function for them
 typedef std::function<py::object(UScriptStruct* s, void *value)> BPToPyFunc;
 UEPY_API void PyRegisterStructConverter(BPToPyFunc converterFunc);
+
+// games can provide a main.py on disk or use the API to provide the code for a virtual one
+UEPY_API void UEPYSetMainSource(const std::string& src);
 
 class FToolBarBuilder;
 class FMenuBuilder;
@@ -107,24 +112,16 @@ public:
     // TODO: now that we have support for multicast delegates binding and firing via the UE4 reflection system, do we really need these one-off
     // events? They might be slightly more efficient (but maybe not), but is it enough to ever matter?
 
-    // generic - also used for BP callbacks where we have to have a registered UFUNCTION that exists for the check right before it calls ProcessEvent
-    UFUNCTION() void On() { if (valid) callback(); }
-
-    // UComboBoxString
-    UFUNCTION() void UComboBoxString_OnHandleSelectionChanged(FString Item, ESelectInfo::Type SelectionType) { if (valid) callback(*Item, (int)SelectionType); }
-
-    // UCheckBox
-    UFUNCTION() void UCheckBox_OnCheckStateChanged(bool checked) { if (valid) callback(checked); }
-
-    // AActor
-    UFUNCTION() void AActor_OnEndPlay(AActor *actor, EEndPlayReason::Type reason) { if (valid) callback(actor, (int)reason); }
-
-    // UMediaPlayer
-    UFUNCTION() void UMediaPlayer_OnMediaOpenFailed(FString failedURL) { std::string s = TCHAR_TO_UTF8(*failedURL); if (valid) callback(s); }
-
-    // UInputComponent
-    UFUNCTION() void UInputComponent_OnAxis(float value) { if (valid) callback(value); }
+    UFUNCTION() void On(); // generic - also used for BP callbacks where we have to have a registered UFUNCTION that exists for the check right before it calls ProcessEvent
+    UFUNCTION() void UComboBoxString_OnHandleSelectionChanged(FString Item, ESelectInfo::Type SelectionType);
+    UFUNCTION() void UCheckBox_OnCheckStateChanged(bool checked);
+    UFUNCTION() void AActor_OnEndPlay(AActor *actor, EEndPlayReason::Type reason);
+    UFUNCTION() void UMediaPlayer_OnMediaOpenFailed(FString failedURL);
+    UFUNCTION() void UInputComponent_OnAxis(float value);
+    UFUNCTION() void UInputComponent_OnKeyAction(FKey key);
 };
+
+typedef TArray<UMaterialInterface*> MaterialArray;
 
 // a singleton that taps into the engine's garbage collection system to keep some engine objects alive as long as they are
 // being referenced from Python
@@ -149,12 +146,17 @@ public:
     // used for binding engine multicast delegates to python functions
     UBasePythonDelegate *CreateDelegate(UObject *engineObj, const char *mcDelName, const char *pyDelMethodName, py::object pyCB);
     UBasePythonDelegate *FindDelegate(UObject *engineObj, const char *mcDelName, const char *pyDelMethodName, py::object pyCB);
+    void UnbindDelegatesOn(py::object& obj);
 
     static FPyObjectTracker *Get();
     virtual void AddReferencedObjects(FReferenceCollector& InCollector) override;
     void Track(UObject *o);
     void Untrack(UObject *o);
     void Purge();
+
+    // holds all mesh comps that are temporarily having their materials overridden - for each such comp, the key is the comp and the value
+    // is a list of original materials, one per material slot. Lives here so that we can ensure referenced objs don't get GC'd.
+    TMap<UMeshComponent*, MaterialArray> matOverrideMeshComps;
 };
 
 template <typename T> class UnrealTracker {
@@ -236,7 +238,7 @@ public:
 protected:
     virtual void BeginPlay() override;
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
-	virtual void GatherCurrentMovement() override;
+    virtual void GatherCurrentMovement() override;
     virtual void Tick(float dt) override;
     virtual void PostInitializeComponents() override;
 };
@@ -259,10 +261,12 @@ public:
 protected:
     virtual void BeginPlay() override;
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
-	virtual void GatherCurrentMovement() override;
+    virtual void GatherCurrentMovement() override;
     virtual void Tick(float dt) override;
     virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
     virtual void PostInitializeComponents() override;
+    virtual void PossessedBy(AController* NewController) override;
+    virtual void UnPossessed() override;
 };
 
 UCLASS()
@@ -283,10 +287,12 @@ public:
 protected:
     virtual void BeginPlay() override;
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
-	virtual void GatherCurrentMovement() override;
+    virtual void GatherCurrentMovement() override;
     virtual void Tick(float dt) override;
     virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
     virtual void PostInitializeComponents() override;
+    virtual void PossessedBy(AController* NewController) override;
+    virtual void UnPossessed() override;
 };
 
 UCLASS()
@@ -297,12 +303,14 @@ class UEPY_API USceneComponent_CGLUE : public USceneComponent, public IUEPYGlueM
     USceneComponent_CGLUE();
 
 public:
+    bool tickAllowed = true;
     void SuperBeginPlay() { Super::BeginPlay(); }
     void SuperEndPlay(EEndPlayReason::Type reason) { Super::EndPlay(reason); }
     void SuperOnRegister() { Super::OnRegister(); }
     virtual void BeginPlay() override;
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
     virtual void OnRegister() override;
+    virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction *ThisTickFunction) override;
 };
 
 UCLASS()
@@ -313,12 +321,14 @@ class UEPY_API UBoxComponent_CGLUE : public UBoxComponent, public IUEPYGlueMixin
     UBoxComponent_CGLUE();
 
 public:
+    bool tickAllowed = true;
     void SuperBeginPlay() { Super::BeginPlay(); }
     void SuperEndPlay(EEndPlayReason::Type reason) { Super::EndPlay(reason); }
     void SuperOnRegister() { Super::OnRegister(); }
     virtual void BeginPlay() override;
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
     virtual void OnRegister() override;
+    virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction *ThisTickFunction) override;
 };
 
 UCLASS()
@@ -327,8 +337,8 @@ class UEPY_API  UVOIPTalker_CGLUE : public UVOIPTalker, public IUEPYGlueMixin
     GENERATED_BODY()
 
 public:
-	virtual void OnTalkingBegin(UAudioComponent* AudioComponent) override;
-	virtual void OnTalkingEnd() override;
+    virtual void OnTalkingBegin(UAudioComponent* AudioComponent) override;
+    virtual void OnTalkingEnd() override;
 };
 
 // helper class for any API that accepts as an argument a UClass parameter. Allows the caller to pass in
@@ -337,8 +347,8 @@ public:
 UEPY_API UClass *PyObjectToUClass(py::object& klassThing);
 
 // stuff for integrating into the UE4 reflection system (e.g. calling BPs)
-py::object GetObjectUProperty(UObject *obj, std::string k);
-void SetObjectUProperty(UObject *obj, std::string k, py::object& value);
+py::object GetObjectProperty(UObject *obj, std::string k);
+void SetObjectProperty(UObject *obj, std::string k, py::object& value);
 py::object CallObjectUFunction(UObject *obj, std::string funcName, py::tuple& args);
 void BindDelegateCallback(UObject *obj, std::string eventName, py::object& callback);
 void UnbindDelegateCallback(UObject *obj, std::string eventName, py::object& callback);

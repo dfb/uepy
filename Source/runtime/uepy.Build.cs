@@ -9,8 +9,8 @@ public class uepy : ModuleRules
         //OptimizeCode = CodeOptimization.Never;
         PCHUsage = ModuleRules.PCHUsageMode.UseExplicitOrSharedPCHs;
         bUseRTTI = true;
-        bEnableExceptions = true; // needed for clipper.cpp
-        
+        bEnableExceptions = true; // needed for clipper.cpp and pybind11
+
         PublicIncludePaths.AddRange(
             new string[] {
                 Path.Combine(ModuleDirectory, "../../pybind11/include"),
@@ -25,8 +25,8 @@ public class uepy : ModuleRules
                 // ... add other private include paths required here ...
             }
             );
-            
-        
+
+
         PublicDependencyModuleNames.AddRange(
             new string[]
             {
@@ -34,11 +34,12 @@ public class uepy : ModuleRules
                 "Paper2D",
             }
             );
-            
-        
+
+
         PrivateDependencyModuleNames.AddRange(
             new string[]
             {
+                "AIModule",
                 "AudioMixer",
                 "CinematicCamera",
                 "Core",
@@ -47,6 +48,7 @@ public class uepy : ModuleRules
                 "HeadMountedDisplay",
                 "InputCore",
                 "MediaAssets",
+                "Niagara",
                 "PhysicsCore",
                 "Projects",
                 "Slate",
@@ -87,4 +89,3 @@ public class uepy : ModuleRules
         System.Console.WriteLine("Done copying files");
     }
 }
-

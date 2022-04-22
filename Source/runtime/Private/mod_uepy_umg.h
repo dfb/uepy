@@ -18,6 +18,7 @@ public:
     virtual TSharedRef<SWidget> RebuildWidget() override;
     virtual void NativePreConstruct() override;
     virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
+    virtual void BeginDestroy() override;
 
     // Hack: UUserWidget::Initialize is convinced that py-based configurators implement INamedSlotInterface, and the default
     // implementation of GetSlotNames accesses WidgetTree while it is still NULL. This prevents that.

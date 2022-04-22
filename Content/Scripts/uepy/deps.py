@@ -2,7 +2,10 @@
 import os, shutil, zipapp, glob, sys
 
 def Package():
-    '''Called if you run deps.py from the command line, which you should do anytime you modify requirements.txt'''
+    '''Called if you run deps.py from the command line, which you should do anytime you modify requirements.txt,
+    i.e. add a dependency to requirements.txt (in your project's Content/Scripts dir) and then, from that dir run:
+    python ~/path/to/your/prj/Plugins/uepy/Content/Scripts/uepy/deps.py
+    '''
     outName = 'deps.pyz'
     if os.path.exists(outName):
         os.remove(outName)
