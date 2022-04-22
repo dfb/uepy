@@ -208,7 +208,7 @@ void _LoadModuleUMG(py::module& uepy)
         .def("SetPadding", [](UUserWidget& self, FMargin& padding) { self.SetPadding(padding); })
         ;
 
-    UEPY_EXPOSE_CLASS(UUserWidget_CGLUE, UUserWidget, m)
+    UEPY_EXPOSE_CLASS(UUserWidget_CGLUE, UUserWidget, glueclasses)
         .def("SetRootWidgetClass", [](UUserWidget_CGLUE& self, py::object& klass)
         {
             UClass *k = PyObjectToUClass(klass);
