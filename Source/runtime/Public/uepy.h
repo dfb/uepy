@@ -17,7 +17,10 @@
 // instead do try { ... } catchpy
 #define catchpy catch (std::exception e) { LERROR("%s", UTF8_TO_TCHAR(e.what())); }
 
-#define VALID(obj) (obj != nullptr && obj->IsValidLowLevel())
+#define VALID(obj) (IsValid(obj) && obj->IsValidLowLevel())
+
+// for CGLUE methods: evals to true if it appears ok for us to use pyInst
+#define PYOK (IsValid(this) && !pyInst.is_none())
 
 // std::string --> FString, sort of
 #define FSTR(stdstr) UTF8_TO_TCHAR((stdstr).c_str())
@@ -60,7 +63,8 @@
 #define UEPY_EXPOSE_CLASS(className, parentClassName, inModule)\
     py::class_<className, parentClassName, UnrealTracker<className>>(inModule, #className)\
         .def_static("StaticClass", []() { return className::StaticClass(); }, py::return_value_policy::reference)\
-        .def_static("Cast", [](UObject *w) { return VALID(w) ? Cast<className>(w) : nullptr; }, py::return_value_policy::reference)
+        .def_static("Cast", [](UObject *w) { return VALID(w) ? Cast<className>(w) : nullptr; }, py::return_value_policy::reference)\
+        .def("__repr__", [](className* self) { py::str name = PYSTR(self->GetName()); return py::str("<{} {:X}>").format(name, (unsigned long long)self); })
 
 // in order to be able pass from BP to Python any custom (game-specific) structs, the game has to provide a conversion function for them
 typedef std::function<py::object(UScriptStruct* s, void *value)> BPToPyFunc;
@@ -78,6 +82,20 @@ public:
     virtual void StartupModule() override;
     virtual void ShutdownModule() override;
     virtual bool IsGameModule() const override { return true; }
+};
+
+UCLASS()
+class UEPY_API UBackgroundWorker : public UObject
+{
+    // helper for running background tasks that call into Python once done (or multiple times). Subclasses should call
+    // Setup and Cleanup at the beginning and end, respectively, of their work in the game thread. They should also
+    // create a UPROPERTY delegate variable called TheEvent and broadcast it to call Python.
+    GENERATED_BODY()
+
+protected:
+    py::object cb;
+    void Setup(py::object& callback);
+    void Cleanup();
 };
 
 // base class (and maybe the only class?) that acts as an intermediary when binding a python callback function to a
@@ -103,7 +121,7 @@ public:
     FString pyDelMethodName; // the name of one of our On* methods
 
     static UBasePythonDelegate *Create(UObject *engineObj, FString mcDelName, FString pyDelMethodName, py::object pyCB);
-    bool Matches(UObject *engineObj, FString& mcDelName, FString& pyDelMethodName, py::object pyCBOwner);
+    bool Matches(UObject *engineObj, FString& mcDelName, FString& pyDelMethodName, py::object pyCB);
 
     UFunction *signatureFunction=nullptr; // used for BP events instead of one of the On functions below - we use this to get the signature
     virtual void ProcessEvent(UFunction *function, void *params) override;
@@ -133,11 +151,13 @@ class UEPY_API FPyObjectTracker : public FGCObject
         // counting here
         int refs=0;
         uint32 objIndex=0; // UObject.InternalIndex, so we can early detect corruption
+        UObject* obj; // this is a reference but not one the engine knows about (i.e. a raw pointer)
 #if WITH_EDITOR
+        uint64 objAddr; // for debugging
         FString objName; // for debugging - save it at the time of tracking so we can display it even if the obj gets force-GC'd by the engine out from under us
 #endif
     } Slot;
-    TMap<UObject*,Slot> objectMap; // an engine object we're keeping alive because it's being referenced in Python --> how many references in Python there are
+    TMap<uint64,Slot> objectMap; // an engine object we're keeping alive because it's being referenced in Python --> how many references in Python there are
     TArray<UBasePythonDelegate*> delegates; // bound delegates we need to keep alive so they don't get cleaned up by the engine since nobody references them directly
 
 public:
@@ -150,8 +170,9 @@ public:
 
     static FPyObjectTracker *Get();
     virtual void AddReferencedObjects(FReferenceCollector& InCollector) override;
-    void Track(UObject *o);
-    void Untrack(UObject *o);
+    uint64 Track(UObject *o);
+    void Untrack(uint64 key);
+    void IncRef(uint64 key);
     void Purge();
 
     // holds all mesh comps that are temporarily having their materials overridden - for each such comp, the key is the comp and the value
@@ -160,43 +181,52 @@ public:
 };
 
 template <typename T> class UnrealTracker {
-    struct Deleter {
-        void operator()(T *t) { FPyObjectTracker::Get()->Untrack(t); }
-    };
-
-    std::unique_ptr<T, Deleter> ptr;
+    T* ptr = nullptr;
+    uint64 key = 0;
 public:
-    UnrealTracker(T *p) : ptr(p, Deleter()) { FPyObjectTracker::Get()->Track(p); };
-    T *get() { return ptr.get(); }
+    UnrealTracker(T *p) : ptr(p) { if (p) key = FPyObjectTracker::Get()->Track(p); }
+    UnrealTracker(const UnrealTracker& ut)
+    {
+        ptr = ut.ptr;
+        key = ut.key;
+        if (key != 0) FPyObjectTracker::Get()->IncRef(key);
+    }
+    UnrealTracker(UnrealTracker&& mv) : ptr(mv.ptr), key(mv.key) { mv.ptr = nullptr; mv.key = 0; }
+    ~UnrealTracker() { if (key != 0) FPyObjectTracker::Get()->Untrack(key); }
+
+    UnrealTracker& operator=(const UnrealTracker& other)
+    {
+        if (this != &other)
+        {
+            auto tracker = FPyObjectTracker::Get();
+            if (key != 0) tracker->Untrack(key);
+            ptr = other.ptr;
+            key = other.key;
+            if (key != 0) tracker->IncRef(key);
+        }
+        return *this;
+    }
+    UnrealTracker& operator=(UnrealTracker&& other)
+    {
+        if (this != &other)
+        {
+            if (key != 0) FPyObjectTracker::Get()->Untrack(key);
+            ptr = other.ptr;
+            key = other.key;
+            other.ptr = nullptr;
+            other.key = 0;
+        }
+        return *this;
+    }
+
+    T& operator*() const { return *ptr; }
+    T* get() const { return ptr; }
+    T* operator->() const { return ptr; }
+    bool operator==(const UnrealTracker& other) { return key == other.key; }
 };
 
-// macros for binding a Python function to an engine object's multicast delegate
-// engineObj - a UObject* to the engine object that has a delegate to bind to
-// mcDel- the name of the multicast delegate member var on engineObj
-// pyDelMethod- the name of one of the On* methods defined in UBasePythonDelegate
-// pyCB - the Python function to be called when the delegate event fires
-// Example: UEPY_BIND(someButtonVar, OnClicked, On, somePyFunctionVar);
-// TODO: Should we get rid of this now that we have delegates working via the reflection system?
-#define UEPY_BIND(engineObj, mcDel, pyDelMethod, pyCB)\
-{\
-    if (engineObj && engineObj->IsValidLowLevel())\
-    {\
-        UBasePythonDelegate *delegate = FPyObjectTracker::Get()->CreateDelegate(engineObj, #mcDel, #pyDelMethod, pyCB);\
-        if (delegate)\
-            engineObj->mcDel.AddDynamic(delegate, &UBasePythonDelegate::pyDelMethod);\
-    }\
-}
-
-// To unbind, pass in the same original args
-#define UEPY_UNBIND(engineObj, mcDel, pyDelMethod, pyCB)\
-{\
-    UBasePythonDelegate *delegate = FPyObjectTracker::Get()->FindDelegate(engineObj, #mcDel, #pyDelMethod, pyCB);\
-    if (delegate && engineObj && engineObj->IsValidLowLevel())\
-        engineObj->mcDel.RemoveDynamic(delegate, &UBasePythonDelegate::pyDelMethod);\
-}
-
 // Engine objects passed to Python have to be kept alive as long as Python is keeping a ref to them; we achieve this by connecting
-// them to the root set during that time - pybind's default holder is just unique_ptr, so we just wrap it to get the same effect.
+// them to the root set during that time
 PYBIND11_DECLARE_HOLDER_TYPE(T, UnrealTracker<T>, true);
 
 namespace pybind11 {

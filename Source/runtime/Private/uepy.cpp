@@ -16,6 +16,7 @@
 //#pragma optimize("", off)
 
 DEFINE_LOG_CATEGORY(UEPY);
+DEFINE_LOG_CATEGORY(NetRep);
 IMPLEMENT_MODULE(FuepyModule, uepy)
 py::object _getprop(FProperty *prop, uint8* buffer, int index);
 
@@ -143,6 +144,15 @@ void OnPreBeginPIE(bool b)
             main.attr("OnPreBeginPIE")();
     } catchpy;
 }
+
+void OnEndPIE(bool b)
+{
+    try {
+        py::module main = py::module::import("main");
+        if (py::hasattr(main, "OnEndPIE"))
+            main.attr("OnEndPIE")();
+    } catchpy;
+}
 #endif
 
 void FuepyModule::StartupModule()
@@ -155,6 +165,7 @@ void FuepyModule::StartupModule()
 #if WITH_EDITOR
     // TODO: maybe this should live in uepyEditor?
     FEditorDelegates::PreBeginPIE.AddStatic(&OnPreBeginPIE);
+    FEditorDelegates::EndPIE.AddStatic(&OnEndPIE);
 #endif
 
 }
@@ -184,9 +195,9 @@ FPyObjectTracker *FPyObjectTracker::Get()
         {
             globalTracker->Purge();
             LOG("TRK EndPIE");
+            /*
             for (auto& entry : globalTracker->objectMap)
             {
-                UObject *obj = entry.Key;
                 FPyObjectTracker::Slot& slot = entry.Value;
                 //LOG("TRK post-PIE obj: type:%s name:%s %p (%d refs)", *obj->GetClass()->GetName(), *obj->GetName(), obj, slot.refs);
             }
@@ -195,54 +206,62 @@ FPyObjectTracker *FPyObjectTracker::Get()
                 //if (d->valid)
                 //    LOG("TRK post-PIE delegate: %p (engineObj %p), mc:%s, pyDel:%s", d, d->engineObj, *d->mcDelName, *d->pyDelMethodName);
             }
+            */
         });
 #endif
     }
     return globalTracker;
 }
 
-void FPyObjectTracker::Track(UObject *o)
+uint64 FPyObjectTracker::Track(UObject *o)
 {
-    if (pyFinalized) return; // we're shutting down
-    if (!o || !o->IsValidLowLevel())
+    if (pyFinalized) return 0; // we're shutting down
+    if (!IsValid(o) || !o->IsValidLowLevel() || o->IsPendingKillOrUnreachable())
     {
 #if WITH_EDITOR
-        //LERROR("Told to track invalid object");
+        LERROR("TRK TIO Told to track invalid object");
 #endif
-        return;
+        return 0;
     }
 
-    //LOG("TRK Track %s, %p", *o->GetName(), o);
-    FPyObjectTracker::Slot& slot = objectMap.FindOrAdd(o);
+    //LOG("TRK + %s : %p", *o->GetName(), o);
+    uint64 key = (((uint64)o) << 32) | o->GetUniqueID();
+    FPyObjectTracker::Slot& slot = objectMap.FindOrAdd(key);
     slot.refs++;
     slot.objIndex = o->GetUniqueID();
+    slot.obj = o;
 #if WITH_EDITOR
     slot.objName = o->GetName();
+    slot.objAddr = (uint64)o;
 #endif
+    return key;
 }
 
-void FPyObjectTracker::Untrack(UObject *o)
+void FPyObjectTracker::IncRef(uint64 key)
 {
-    if (pyFinalized) return; // we're shutting down
-    if (!o)
-    {
-#if WITH_EDITOR
-        //LERROR("Told to untrack invalid object");
-#endif
-        return;
-    }
-
-    //LOG("TRK Untrack %s, %p", *o->GetName(), o);
-    FPyObjectTracker::Slot *slot = objectMap.Find(o);
+    FPyObjectTracker::Slot *slot = objectMap.Find(key);
     if (!slot)
     {
-#if WITH_EDITOR
-        //too verbose! LWARN("TRK Untracking %s (%p) but it is not being tracked", (o && o->IsValidLowLevel()) ? *o->GetName() : TEXT("???"), o);
-        // TODO: with editor, save obj name during tracking
-#endif
+        LERROR("Failed to find slot for key %llX", key);
     }
     else
-        slot->refs--; // Purge will take care of removing it
+        slot->refs++;
+}
+
+void FPyObjectTracker::Untrack(uint64 key)
+{
+    if (pyFinalized) return; // we're shutting down
+    FPyObjectTracker::Slot *slot = objectMap.Find(key);
+    if (!slot)
+    {
+        // there are legitimate cases for when a slot can't be found. A common one is when we "subclass" an engine object in
+        // python and get to the point where there are only self-references left (a ref cycle between the c++ and pyinst) so
+        // we manually break the cycle and remove the slot entry. If the engine object is then GC'd, then on the next python GC
+        // run, the pyinst handle will be cleaned up and try to call Untrack, but the slot is gone.
+        //LERROR("Failed to find slot for key %llX", key);
+    }
+    else
+        slot->refs--; // if <= 0, Purge will remove it
 }
 
 UBasePythonDelegate *UBasePythonDelegate::Create(UObject *engineObj, FString _mcDelName, FString _pyDelMethodName, py::object pyCB)
@@ -270,9 +289,24 @@ UBasePythonDelegate *UBasePythonDelegate::Create(UObject *engineObj, FString _mc
     return delegate;
 }
 
-bool UBasePythonDelegate::Matches(UObject *_engineObj, FString& _mcDelName, FString& _pyDelMethodName, py::object _pyCBOwner)
+bool UBasePythonDelegate::Matches(UObject *_engineObj, FString& _mcDelName, FString& _pyDelMethodName, py::object _pyCB)
 {
-    return engineObj == (void*)_engineObj && callbackOwner.ptr() == _pyCBOwner.ptr() && mcDelName == _mcDelName && pyDelMethodName == _pyDelMethodName;
+    // in the check below, we can't see if callback.ptr() == _pyCB.ptr() because of the way cpython works - "obj.method"
+    // returns a bound method object, but that object may not be the same every time:
+    // >>> class Foo:
+    // ...   def bar(self): pass
+    // ...
+    // >>> f = Foo()
+    // >>> id(f.bar)
+    // 1585735241928
+    // >>> f.bar
+    // <bound method Foo.bar of <__main__.Foo object at 0x0000017135376E10>>
+    // >>> id(f.bar)
+    // 1585735241800 <--- !!!!!
+    // The bound method object, however, does have a __func__ attribute, and it will point to the same underlying function object.
+    py::object _pyCBOwner = _pyCB.attr("__self__");
+    return engineObj == (void*)_engineObj && callbackOwner.ptr() == _pyCBOwner.ptr() && mcDelName == _mcDelName &&
+           pyDelMethodName == _pyDelMethodName && callback.attr("__func__").ptr() == _pyCB.attr("__func__").ptr();
 }
 
 UBasePythonDelegate *FPyObjectTracker::CreateDelegate(UObject *engineObj, const char *mcDelName, const char *pyDelMethodName, py::object pyCB)
@@ -285,11 +319,10 @@ UBasePythonDelegate *FPyObjectTracker::CreateDelegate(UObject *engineObj, const 
 
 UBasePythonDelegate *FPyObjectTracker::FindDelegate(UObject *engineObj, const char *mcDelName, const char *pyDelMethodName, py::object pyCB)
 {
-    py::object pyCBOwner = pyCB.attr("__self__");
     FString findMCDelName = UTF8_TO_TCHAR(mcDelName);
     FString findPyDelMethodName = UTF8_TO_TCHAR(pyDelMethodName);
     for (UBasePythonDelegate* delegate : delegates)
-        if (delegate->valid && delegate->Matches(engineObj, findMCDelName, findPyDelMethodName, pyCBOwner))
+        if (delegate->valid && delegate->Matches(engineObj, findMCDelName, findPyDelMethodName, pyCB))
             return delegate;
     return nullptr;
 }
@@ -360,31 +393,38 @@ void FPyObjectTracker::Purge()
     if (pyFinalized) return; // we're shutting down
     for (auto it = objectMap.CreateIterator(); it ; ++it)
     {
-        UObject *obj = it->Key;
         FPyObjectTracker::Slot& slot = it->Value;
-        if (!obj || !obj->IsValidLowLevel() || slot.refs <= 0)
+        UObject* obj = slot.obj;
+        if (!IsValid(obj) || !obj->IsValidLowLevel())
+        {
+            if (slot.refs > 0)
+            {
+                // this seems bad, but I'm not sure if there's anything we can do. The docs seem to imply that actors and components specifically can sometimes
+                // be destroyed out from under referrers, and so in that case it nulls out UPROPERTY and TWeakObjPtr refs, so we can at least detect it. Still, it
+                // seems like if we followed the UE4 GC rules (via FGCObject, flag objects via AddReferencedObjects) then it shouldn't be cleaned up, and yet,
+                // it still happens, so the best we've been able to do so far is just sorta handle it gracefully.
+#if WITH_EDITOR
+                //LOG("TRK PSWR %s : %p - removing tracking slot %llX because obj is invalid even though %d refs remain", *slot.objName, slot.objAddr, it->Key, slot.refs);
+#endif
+            }
             it.RemoveCurrent();
-    }
-
-    for (auto it = objectMap.CreateIterator(); it ; ++it)
-    {
-        UObject *obj = it->Key;
-        FPyObjectTracker::Slot& slot = it->Value;
-        if (obj->GetUniqueID() != slot.objIndex)
-        {
-            LERROR("TRK: objectMap says object %s had objIndex %u but the object says it is %u", *obj->GetName(), slot.objIndex, obj->GetUniqueID());
         }
-
-        FUObjectItem *cur = GUObjectArray.IndexToObject(slot.objIndex);
-        if (!cur)
+        else if (slot.refs <= 0)
+            it.RemoveCurrent();
+        else if (IUEPYGlueMixin *p = Cast<IUEPYGlueMixin>(obj))
         {
-            LERROR("TRK: Object %s no longer found in GUObjectArray (index %u)", *obj->GetName(), slot.objIndex);
+            // When we "subclass" an engine object in python, on the C++ side we maintain a hard ref to pyinst, and pyinst maintains a hard ref to engineObj.
+            // This creates a reference cycle but is how we coordinate the life cycles between the two GC systems. Once the only remaining reference on the
+            // python side is pyinst, we break the cycle by removing the slot from objectMap. At that point, if the engine object is ready to die, UE4 will
+            // clean it up, which will in turn decref pyinst, causing it to be cleaned up too.
+            if (Py_REFCNT(p->pyInst.ptr()) <= 1)
+            {
+#if WITH_EDITOR
+                //LOG("TRK BR %s : %p %llX - breaking reference cycle because only remaining py ref is self", *slot.objName, slot.objAddr, it->Key);
+#endif
+                it.RemoveCurrent();
+            }
         }
-        else if (cur->Object && cur->Object != obj)
-        {
-            LERROR("TRK: Another object is in this object's (%s) slot", *obj->GetName());
-        }
-
     }
 
     for (auto it = delegates.CreateIterator(); it ; ++it)
@@ -414,7 +454,7 @@ void FPyObjectTracker::AddReferencedObjects(FReferenceCollector& InCollector)
 {
     Purge();
     for (auto& entry : objectMap)
-        InCollector.AddReferencedObject(entry.Key);
+        InCollector.AddReferencedObject(entry.Value.obj);
 
     // clear out any delegates whose pyinst is not longer valid
     for (UBasePythonDelegate *delegate : delegates)
@@ -432,7 +472,7 @@ void FPyObjectTracker::AddReferencedObjects(FReferenceCollector& InCollector)
 AActor_CGLUE::AActor_CGLUE() { PrimaryActorTick.bCanEverTick = true; PrimaryActorTick.bStartWithTickEnabled = false; }
 void AActor_CGLUE::BeginPlay() { try { pyInst.attr("BeginPlay")(); } catchpy; }
 void AActor_CGLUE::EndPlay(const EEndPlayReason::Type reason) { try { pyInst.attr("EndPlay")((int)reason); } catchpy; }
-void AActor_CGLUE::Tick(float dt) { if (tickAllowed) try { pyInst.attr("Tick")(dt); } catchpy; }
+void AActor_CGLUE::Tick(float dt) { if (PYOK && tickAllowed) try { pyInst.attr("Tick")(dt); } catchpy; }
 void AActor_CGLUE::SuperBeginPlay() { Super::BeginPlay(); }
 void AActor_CGLUE::SuperEndPlay(EEndPlayReason::Type reason) { Super::EndPlay(reason); }
 void AActor_CGLUE::SuperTick(float dt) { Super::Tick(dt); }
@@ -442,7 +482,7 @@ void AActor_CGLUE::GatherCurrentMovement() { if (IsReplicatingMovement()) Super:
 APawn_CGLUE::APawn_CGLUE() { PrimaryActorTick.bCanEverTick = true; PrimaryActorTick.bStartWithTickEnabled = false; }
 void APawn_CGLUE::BeginPlay() { try { pyInst.attr("BeginPlay")(); } catchpy; }
 void APawn_CGLUE::EndPlay(const EEndPlayReason::Type reason) { try { pyInst.attr("EndPlay")((int)reason); } catchpy; }
-void APawn_CGLUE::Tick(float dt) { if (tickAllowed) try { pyInst.attr("Tick")(dt); } catchpy; }
+void APawn_CGLUE::Tick(float dt) { if (PYOK && tickAllowed) try { pyInst.attr("Tick")(dt); } catchpy; }
 void APawn_CGLUE::SuperBeginPlay() { Super::BeginPlay(); }
 void APawn_CGLUE::SuperEndPlay(EEndPlayReason::Type reason) { Super::EndPlay(reason); }
 void APawn_CGLUE::SuperTick(float dt) { Super::Tick(dt); }
@@ -456,7 +496,7 @@ void APawn_CGLUE::UnPossessed() { Super::UnPossessed(); try { pyInst.attr("UnPos
 ACharacter_CGLUE::ACharacter_CGLUE() { PrimaryActorTick.bCanEverTick = true; PrimaryActorTick.bStartWithTickEnabled = false; }
 void ACharacter_CGLUE::BeginPlay() { try { pyInst.attr("BeginPlay")(); } catchpy; }
 void ACharacter_CGLUE::EndPlay(const EEndPlayReason::Type reason) { try { pyInst.attr("EndPlay")((int)reason); } catchpy; }
-void ACharacter_CGLUE::Tick(float dt) { if (tickAllowed) try { pyInst.attr("Tick")(dt); } catchpy; }
+void ACharacter_CGLUE::Tick(float dt) { if (PYOK && tickAllowed) try { pyInst.attr("Tick")(dt); } catchpy; }
 void ACharacter_CGLUE::SuperBeginPlay() { Super::BeginPlay(); }
 void ACharacter_CGLUE::SuperEndPlay(EEndPlayReason::Type reason) { Super::EndPlay(reason); }
 void ACharacter_CGLUE::SuperTick(float dt) { Super::Tick(dt); }
@@ -471,13 +511,13 @@ USceneComponent_CGLUE::USceneComponent_CGLUE() { PrimaryComponentTick.bCanEverTi
 void USceneComponent_CGLUE::BeginPlay() { try { pyInst.attr("BeginPlay")(); } catchpy; }
 void USceneComponent_CGLUE::EndPlay(const EEndPlayReason::Type reason) { try { pyInst.attr("EndPlay")((int)reason); } catchpy; }
 void USceneComponent_CGLUE::OnRegister() { try { pyInst.attr("OnRegister")(); } catchpy ; }
-void USceneComponent_CGLUE::TickComponent(float dt, ELevelTick type, FActorComponentTickFunction* func) { Super::TickComponent(dt, type, func); if (tickAllowed) try { pyInst.attr("TickComponent")(dt, (int)type); } catchpy; }
+void USceneComponent_CGLUE::TickComponent(float dt, ELevelTick type, FActorComponentTickFunction* func) { Super::TickComponent(dt, type, func); if (PYOK && tickAllowed) try { pyInst.attr("TickComponent")(dt, (int)type); } catchpy; }
 
 void UBoxComponent_CGLUE::BeginPlay() { try { pyInst.attr("BeginPlay")(); } catchpy; }
 void UBoxComponent_CGLUE::EndPlay(const EEndPlayReason::Type reason) { try { pyInst.attr("EndPlay")((int)reason); } catchpy; }
 UBoxComponent_CGLUE::UBoxComponent_CGLUE() { PrimaryComponentTick.bCanEverTick = true; PrimaryComponentTick.bStartWithTickEnabled = false; }
 void UBoxComponent_CGLUE::OnRegister() { try { pyInst.attr("OnRegister")(); } catchpy ; }
-void UBoxComponent_CGLUE::TickComponent(float dt, ELevelTick type, FActorComponentTickFunction* func) { Super::TickComponent(dt, type, func); if (tickAllowed) try { pyInst.attr("TickComponent")(dt, (int)type); } catchpy; }
+void UBoxComponent_CGLUE::TickComponent(float dt, ELevelTick type, FActorComponentTickFunction* func) { Super::TickComponent(dt, type, func); if (PYOK && tickAllowed) try { pyInst.attr("TickComponent")(dt, (int)type); } catchpy; }
 
 void UVOIPTalker_CGLUE::OnTalkingBegin(UAudioComponent* AudioComponent) { try { pyInst.attr("OnTalkingBegin")(); } catchpy; }
 void UVOIPTalker_CGLUE::OnTalkingEnd() { try { pyInst.attr("OnTalkingEnd")(); } catchpy; }
@@ -564,9 +604,16 @@ bool _setuprop(FProperty *prop, uint8* buffer, py::object& value, int index)
         else if (auto iu64prop = CastField<FUInt64Property>(prop))
             iu64prop->SetPropertyValue_InContainer(buffer, value.cast<uint64>(), index);
         else if (auto strprop = CastField<FStrProperty>(prop))
-            strprop->SetPropertyValue_InContainer(buffer, UTF8_TO_TCHAR(value.cast<std::string>().c_str()), index);
+        {
+            std::string t = value.cast<std::string>();
+            strprop->SetPropertyValue_InContainer(buffer, FSTR(t), index);
+        }
         else if (auto textprop = CastField<FTextProperty>(prop))
-            textprop->SetPropertyValue_InContainer(buffer, FText::FromString(UTF8_TO_TCHAR(value.cast<std::string>().c_str())), index);
+        {
+            std::string t = value.cast<std::string>();
+            FString f = FSTR(t);
+            textprop->SetPropertyValue_InContainer(buffer, FText::FromString(f), index);
+        }
         else if (auto byteprop = CastField<FByteProperty>(prop))
             byteprop->SetPropertyValue_InContainer(buffer, value.cast<int>(), index);
         else if (auto enumprop = CastField<FEnumProperty>(prop))
@@ -940,6 +987,21 @@ void BroadcastEvent(UObject* obj, std::string eventName, py::tuple& args)
             p->DestroyValue_InContainer(propArgsBuffer);
     }
 
+}
+
+void UBackgroundWorker::Setup(py::object& callback)
+{
+    check(IsInGameThread());
+    cb = callback;
+    BindDelegateCallback(this, "TheEvent", callback);
+    AddToRoot(); // force it to stay alive until its work is done
+}
+
+void UBackgroundWorker::Cleanup()
+{
+    check(IsInGameThread());
+    UnbindDelegateCallback(this, "TheEvent", cb);
+    RemoveFromRoot();
 }
 
 //#pragma optimize("", on)

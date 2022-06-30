@@ -38,6 +38,7 @@
 #include "Components/WrapBoxSlot.h"
 #include "Paper2D/Classes/PaperSprite.h"
 #include "PaperSprite.h"
+#include "WebBrowser.h"
 
 /*
 GRRR: should we subclass slate? subclass UWidget? UUserWidget? UUserWidget is commonly suggested, but it's geared towards
@@ -102,11 +103,11 @@ void UUserWidget_CGLUE::NativeTick(const FGeometry& geo, float dt)
 
 void UUserWidget_CGLUE::BeginDestroy()
 {
-    Super::BeginDestroy();
     try {
-        if (pyInst.ptr())
+        if (!pyInst.is(py::none()) && pyInst.ptr())
             pyInst.attr("BeginDestroy")();
     } catchpy;
+    Super::BeginDestroy();
 }
 
 // called on pre engine init
@@ -118,13 +119,13 @@ void _LoadModuleUMG(py::module& uepy)
     py::object glueclasses = uepy.attr("glueclasses");
 
     // e.g. "WidgetBlueprintGeneratedClass'/Game/Blueprints/Foo" --> UUserWidget UClass for that BP
-    m.def("GetUserWidgetClassFromReference", [](std::string refPath) { return LoadClass<UUserWidget>(NULL, UTF8_TO_TCHAR(refPath.c_str())); }, py::return_value_policy::reference);
+    m.def("GetUserWidgetClassFromReference", [](std::string& refPath) { return LoadClass<UUserWidget>(NULL, FSTR(refPath)); }, py::return_value_policy::reference);
 
     m.def("CreateWidget_", [](UObject* owner, py::object& _widgetClass, std::string& name, py::dict kwargs) -> UWidget*
     {
         FName n = NAME_None;
         if (name.length() > 0)
-            n = name.c_str();
+            n = FSTR(name);
         UClass *widgetClass = PyObjectToUClass(_widgetClass);
         SetInternalSpawnArgs(kwargs);
 
@@ -204,6 +205,7 @@ void _LoadModuleUMG(py::module& uepy)
     UEPY_EXPOSE_CLASS(UUserWidget, UWidget, m)
         .def_readonly("WidgetTree", &UUserWidget::WidgetTree, py::return_value_policy::reference)
         .def("AddToViewport", [](UUserWidget& self, int zOrder) { self.AddToViewport(zOrder); })
+        .def("RemoveFromViewport", [](UUserWidget& self) { self.RemoveFromViewport(); })
         .def("SetDesiredSizeInViewport", [](UUserWidget& self, FVector2D& size) { self.SetDesiredSizeInViewport(size); })
         .def("SetPadding", [](UUserWidget& self, FMargin& padding) { self.SetPadding(padding); })
         ;
@@ -310,7 +312,7 @@ void _LoadModuleUMG(py::module& uepy)
         ;
 
     UEPY_EXPOSE_CLASS(UTextBlock, UWidget, m)
-        .def("SetText", [](UTextBlock& self, std::string newText) { self.SetText(FText::FromString(newText.c_str())); })
+        .def("SetText", [](UTextBlock& self, std::string& newText) { self.SetText(FText::FromString(FSTR(newText))); })
         .def("SetJustification", [](UTextBlock& self, int j) { self.SetJustification((ETextJustify::Type)j); })
         .def("SetFontSize", [](UTextBlock& self, int newSize)
         {
@@ -343,10 +345,10 @@ void _LoadModuleUMG(py::module& uepy)
         ;
 
     UEPY_EXPOSE_CLASS(UComboBoxString, UWidget, m)
-        .def("AddOption", [](UComboBoxString& self, std::string o) { self.AddOption(o.c_str()); })
+        .def("AddOption", [](UComboBoxString& self, std::string& o) { self.AddOption(FSTR(o)); })
         .def("ClearOptions", [](UComboBoxString& self) { self.ClearOptions(); })
         .def("RefreshOptions", [](UComboBoxString& self) { self.RefreshOptions(); })
-        .def("SetSelectedOption", [](UComboBoxString& self, std::string o) { self.SetSelectedOption(o.c_str()); })
+        .def("SetSelectedOption", [](UComboBoxString& self, std::string o) { self.SetSelectedOption(FSTR(o)); })
         .def("SetSelectedIndex", [](UComboBoxString& self, int i) { self.SetSelectedIndex(i); })
         .def("GetSelectedOption", [](UComboBoxString& self) { return PYSTR(self.GetSelectedOption()); })
         .def("GetSelectedIndex", [](UComboBoxString& self) { return self.GetSelectedIndex(); })
@@ -451,10 +453,21 @@ void _LoadModuleUMG(py::module& uepy)
 
     UEPY_EXPOSE_CLASS(UWidgetTree, UObject, m)
         .def("FindWidget", [](UWidgetTree& self, std::string& name) { return self.FindWidget(FSTR(name)); }, py::return_value_policy::reference)
+        .def_property("RootWidget", [](UWidgetTree& self) { return self.RootWidget; }, [](UWidgetTree& self, UWidget* w) { self.RootWidget = w; }, py::return_value_policy::reference)
+        .def("RemoveWidget", [](UWidgetTree& self, UWidget* w) { return self.RemoveWidget(w); })
         ;
 
     UEPY_EXPOSE_CLASS(UProgressBar, UWidget, m)
         .def("SetPercent", [](UProgressBar& self, float p) { self.SetPercent(p); })
+        ;
+
+    UEPY_EXPOSE_CLASS(UWebBrowser, UWidget, m)
+        .def("LoadURL", [](UWebBrowser& self, std::string& url) { self.LoadURL(FSTR(url)); })
+        .def("LoadString", [](UWebBrowser& self, std::string& contents, std::string& dummyURL) { self.LoadString(FSTR(contents), FSTR(dummyURL)); })
+        .def("ExecuteJavascript", [](UWebBrowser& self, std::string& js) { self.ExecuteJavascript(FSTR(js)); })
+        .def("GetTitleText", [](UWebBrowser& self) { return self.GetTitleText(); })
+        .def("GetUrl", [](UWebBrowser& self) { return self.GetUrl(); })
+        .def("GetURL", [](UWebBrowser& self) { return self.GetUrl(); })
         ;
 }
 

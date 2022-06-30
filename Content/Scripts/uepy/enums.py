@@ -121,6 +121,7 @@ class EOrientation(Enum):
 
 class EControllerHand(Enum):
     Left, Right, AnyHand = range(3)
+    LETTER_FOR = {Left:'L', Right:'R'}
     NONE = -1
 
 class ELightUnits(Enum):
@@ -147,10 +148,10 @@ class ENRWhere(Enum):
     USER = 128 # special flag indicating the lower 7 bits are a user ID
     NotMe = NotHere # deprecated
     @staticmethod
-    def Only(userID):
+    def Only(playerID):
         '''Helper to create a value that means "send this message only to a specific user"'''
-        assert userID < 128, userID
-        return userID | ENRWhere.USER
+        assert playerID < 128, playerID
+        return playerID | ENRWhere.USER
 
 class EWidgetSpace(Enum): World, Screen = range(2)
 
@@ -201,4 +202,5 @@ class EMouseLockMode(Enum): DoNotLock, LockOnCapture, LockAlways, LockInFullscre
 class EWindowMode(Enum): Fullscreen, WindowedFullscreen, Windowed = range(3)
 class EAutoReceiveInput(Enum): Disabled,Player0,Player1,Player2,Player3,Player4,Player5,Player6,Player7 = range(9)
 class EAutoPossessAI(Enum): Disabled,PlacedInWorld,Spawned,PlacedInWorldOrSpawned = range(4)
+class ENiagaraTickBehavior(Enum): UsePrereqs, UseComponentTickGroup, ForceTickFirst, ForceTickLast = range(4)
 

@@ -1,22 +1,26 @@
 from _uepy import *
 
 from importlib import reload
-import sys, shlex, json, time, weakref, inspect
+import sys, shlex, json, time, weakref, inspect, os
 from collections.abc import MutableMapping
 
 from . import enums
 
 # Capture sys.stdout/stderr
 class OutRedir:
-    def write(self, buf):
-        log(buf)
-    def flush(self):
-        pass
-    def isatty(self):
-        return False
-sys.stdout = OutRedir()
-sys.stderr = OutRedir()
-del OutRedir
+    def __init__(self):
+        self.dests = []
+
+    def write(self, buff):
+        for dest in self.dests:
+            dest(buff)
+
+    def AddDestination(self, dest): self.dests.append(dest) # a single-arg func to receive the input
+    def RemoveDestination(self, dest): self.dests.remove(dest)
+    def flush(self): pass
+    def isatty(self): return False
+sys.stderr = sys.stdout = OutRedir()
+sys.stdout.AddDestination(log)
 
 # some stuff for interactive
 __builtins__['reload'] = reload
@@ -107,12 +111,12 @@ def GetWorld():
             worlds[t] = w
     return worlds.get(WT.Game) or worlds.get(WT.PIE) or worlds.get(WT.Editor)
 
-def GetUserID():
-    '''Returns the session-unique user ID for the current user. User IDs are small integer values that are unique
+def GetLocalPlayerID():
+    '''Returns the session-unique player ID for the local user. Player IDs are small integer values that are unique
     among the active users (i.e. if a client disconnects and a new client joins, it's possible that the new client will
-    be assigned the old client's user ID). The function returns a bogus value prior to BeginPlay.'''
+    be assigned the old client's player ID). The function returns a bogus value prior to BeginPlay.'''
     from . import netrep
-    return netrep.GetUserID()
+    return netrep.GetLocalPlayerID()
 
 class Event:
     '''Utility class for firing events locally among objects. Convention is for objects to declare a public event member variable that
@@ -126,12 +130,14 @@ class Event:
     def Add(self, method):
         self.callbacks.append(weakref.WeakMethod(method))
 
-    def Remove(self, method):
+    def Remove(self, method, missingOk=False):
         for i, ref in enumerate(self.callbacks):
             if ref() == method:
                 self.callbacks.pop(i)
                 return
-        log('ERROR: failed to remove', method)
+
+        if not missingOk:
+            log('ERROR: failed to remove', method)
 
     def RemoveAll(self):
         self.callbacks = []
@@ -349,12 +355,17 @@ class AActor_PGLUE(metaclass=PyGlueMetaclass):
     def SetReplicates(self, b): self.engineObj.SetReplicates(b)
     def SetCanBeDamaged(self, b): self.engineObj.SetCanBeDamaged(b)
     def GetWorld(self): return self.engineObj.GetWorld()
+    def AddTickPrerequisiteActor(self, a): self.engineObj.AddTickPrerequisiteActor(a)
+    def AddTickPrerequisiteComponent(self, c): self.engineObj.AddTickPrerequisiteComponent(c)
+    def RemoveTickPrerequisiteActor(self, a): self.engineObj.RemoveTickPrerequisiteActor(a)
+    def RemoveTickPrerequisiteComponent(self, c): self.engineObj.RemoveTickPrerequisiteComponent(c)
     def GetOwner(self): return self.engineObj.GetOwner()
     def SetOwner(self, o): self.engineObj.SetOwner(o)
     def GetTransform(self): return self.engineObj.GetTransform()
     def SetActorLocation(self, v): self.engineObj.SetActorLocation(v) # this works because engineObj is a pointer to a real instance, and we will also write wrapper code to expose these APIs anyway
     def GetActorLocation(self): return self.engineObj.GetActorLocation()
     def GetActorRotation(self): return self.engineObj.GetActorRotation()
+    def GetActorQuat(self): return self.engineObj.GetActorQuat()
     def GetActorTransform(self): return self.engineObj.GetActorTransform()
     def SetActorTransform(self, t): self.engineObj.SetActorTransform(t)
     def GetActorForwardVector(self): return self.engineObj.GetActorForwardVector()
@@ -504,7 +515,7 @@ class USceneComponent_PGLUE(metaclass=PyGlueMetaclass):
     def CalcBounds(self, locToWorld): return self.engineObj.CalcBounds(locToWorld)
     def SetMobility(self, m): self.engineObj.SetMobility(m)
     def Show(self, visible, propagate=True, updateCollision=True): self.engineObj.Show(visible, propagate, updateCollision)
-CPROPS(USceneComponent_PGLUE, 'ComponentTags')
+CPROPS(USceneComponent_PGLUE, 'ComponentTags', 'Bounds')
 
 class UBoxComponent_PGLUE(USceneComponent_PGLUE):
     def SetCollisionEnabled(self, e): self.engineObj.SetCollisionEnabled(e) # this is actually from UPrimitiveComponent
@@ -657,5 +668,5 @@ def Caller(extraLevels=0):
     if level >= len(stack):
         return '[top]'
     frame = stack[level]
-    return '[%s:%d]' % (frame.function, frame.lineno)
+    return '[%s:%s:%d]' % (os.path.basename(frame.filename), frame.function, frame.lineno)
 

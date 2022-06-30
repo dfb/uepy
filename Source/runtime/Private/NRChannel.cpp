@@ -5,6 +5,8 @@
 #include "Engine/PackageMapClient.h"
 #include "Kismet/GameplayStatics.h"
 
+#define NRLOG(format, ...) UE_LOG(NetRep, Log, TEXT("[%s:%d] %s"), TEXT(__FUNCTION__), __LINE__, *FString::Printf(TEXT(format), ##__VA_ARGS__ ))
+
 //#pragma optimize("", off)
 static py::object appBridge = py::none();
 
@@ -42,7 +44,7 @@ void UNRChannel::Init(UNetConnection* InConnection, int32 InChIndex, EChannelCre
 
 bool UNRChannel::CleanUp( const bool bForDestroy, EChannelCloseReason CloseReason )
 {
-    LOG("Cleaning up channel %d, forDestroy:%d, reason:%d", channelID, (int)bForDestroy, (int)CloseReason);
+    NRLOG("Cleaning up channel %d, forDestroy:%d, reason:%d", channelID, (int)bForDestroy, (int)CloseReason);
     try { appBridge.attr("OnChannelClosing")(this); } catchpy;
     return Super::CleanUp(bForDestroy, CloseReason);
 }
@@ -65,7 +67,7 @@ void UNRChannel::ReceivedBunch(FInBunch& bunch)
 // our attempt to make sure that never happens. If it does happen, lower this percent. :-/
 const float MAX_BUFFER_PERCENT = 66.0f;
 const int MAX_WAITING_PACKETS = (int)(RELIABLE_BUFFER * MAX_BUFFER_PERCENT / 100);
-const int MAX_SEND_PER_TICK = 20; // another attempt at throttling outgoing data
+const int MAX_SEND_PER_TICK = 30; // another attempt at throttling outgoing data
 
 void UNRChannel::Tick()
 {
@@ -74,6 +76,7 @@ void UNRChannel::Tick()
         return;
 
     // send queued outgoing messages across the wire
+    float now = FPlatformTime::Seconds();
     if (messagesToSend.Num() > 0)
     {   // loosely based on VoiceChannel.cpp's implementation
         int32 index = 0;
@@ -83,17 +86,17 @@ void UNRChannel::Tick()
                 break;
             if (index >= MAX_SEND_PER_TICK)
             {
-                //LOG("WARNING: saving %d messages for a later tick [max per tick reached]", messagesToSend.Num()-index);
+                NRLOG("Saving %d messages for a later tick [max per tick reached]", messagesToSend.Num()-index);
                 break;
             }
-            if (NumOutRec > MAX_WAITING_PACKETS)
+            if (NumOutRec + Connection->GetOutgoingBunches().Num() > MAX_WAITING_PACKETS)
             {
-                //LOG("WARNING: saving %d messages for a later tick [max waiting reached]", messagesToSend.Num()-index);
+                NRLOG("Saving %d messages for a later tick [max waiting reached]", messagesToSend.Num()-index);
                 break;
             }
 
-            FOutBunch bunch(this, false);
             TSharedPtr<FNRMessage> msg = messagesToSend[index];
+            FOutBunch bunch(this, false);
             bunch.bReliable = msg->reliable;
             bunch << msg->payload;
             if (!bunch.IsError())
@@ -110,11 +113,18 @@ void UNRChannel::Tick()
     // dispatch any inbound messages we received since last time
     if (messagesToProcess.Num() > 0 && !appBridge.is_none())
     {
-        for (auto _message : messagesToProcess)
-        {   // dispatch the msgs to Python
-            try { appBridge.attr("OnMessage")(this, py::memoryview::from_memory(_message->payload.GetData(), _message->payload.Num(), true), _message->reliable); } catchpy;
+        int32 index = 0;
+        for (index=0; index < messagesToProcess.Num(); index++)
+        {
+            auto msg = messagesToProcess[index];
+            try { appBridge.attr("OnMessage")(this, py::memoryview::from_memory(msg->payload.GetData(), msg->payload.Num(), true), msg->reliable); } catchpy;
         }
-        messagesToProcess.Empty();
+
+        // remove processed messages
+        if (index >= messagesToProcess.Num())
+            messagesToProcess.Empty(); // fer efficiency!
+        else if (index > 0)
+            messagesToProcess.RemoveAt(0, index);
     }
 }
 

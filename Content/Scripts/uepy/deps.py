@@ -15,7 +15,7 @@ def Package():
         shutil.rmtree(tempDir)
     os.mkdir(tempDir)
 
-    assert not os.system('pip install -r requirements.txt --target ' + tempDir)
+    assert not os.system(r'c:\python387\scripts\pip.exe install -r requirements.txt --target ' + tempDir)
 
     with open(os.path.join(tempDir, '__main__.py'), 'w') as f:
         f.write('print("hello")\n')

@@ -40,6 +40,7 @@ public class uepy : ModuleRules
             new string[]
             {
                 "AIModule",
+                "AudioCapture",
                 "AudioMixer",
                 "CinematicCamera",
                 "Core",
@@ -54,7 +55,7 @@ public class uepy : ModuleRules
                 "Slate",
                 "SlateCore",
                 "UMG",
-                "AudioCapture",
+                "WebBrowserWidget",
             }
         );
 

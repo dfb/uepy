@@ -118,15 +118,33 @@ TODO:
 
 from uepy import *
 from uepy.enums import *
-import struct, weakref, time, random, inspect
+import struct, weakref, time, random, inspect, threading
 
-class ENRBridgeMessage(Enum): NONE, SigDef, SetChannelInfo, FragmentMapping, ObjInitialState, Call, Unregister = range(7)
+class ENRBridgeMessage(Enum): NONE, SigDef, SetChannelInfo, FragmentMapping, ObjInitialState, InitialStateComplete, Call, Unregister = range(8)
 
+class GV:
+    trafficDumpF = None # if not None, an open file handle to which we'll dump all outgoing network traffic to
+
+def SetDebugTrafficFile(f):
+    '''Starts/stops debug dumping to a file. If f is None, no traffic is dumped. Otherwise, f is expected to be a file-like
+    object opened in binary writing mode. All subsequent outgoing network messages will be written to the file along with
+    a timestamp and reliable flag (see code below).'''
+    GV.trafficDumpF = f
+
+logLock = threading.RLock()
 def _SendMessage(channel, payload, reliable):
     if not channel or not channel.IsValid():
         log('Skipping message on invalid channel from', Caller())
     else:
         channel.AddMessage(payload, reliable)
+        f = GV.trafficDumpF
+        if f: # debug dump enabled
+            with logLock:
+                try:
+                    f.write(struct.pack('<dbbL', time.time(), channel.channelID, reliable, len(payload)))
+                    f.write(payload)
+                except:
+                    logTB()
 
 class SignatureDefinitionManager:
     '''Helper for managing "signature definitions", which are simply mappings between strings and uint16 IDs. In a nutshell, there are a lot
@@ -164,8 +182,13 @@ class SignatureDefinitionManager:
         return n
 
     def StringForID(self, n):
-        '''Inverse of IDForString. Raises KeyError if not found, though that should never happen.'''
-        return self.n2s[n]
+        '''
+        Inverse of IDForString. Returns None if not found.
+        May happen if unreliable messages are being pushed by the server
+        on client connect. Caller should ignore messages with a None
+        respose.
+        '''
+        return self.n2s.get(n, None)
 
     @staticmethod
     def CreateFor(channel):
@@ -179,13 +202,14 @@ class NRAppBridge:
     # Note: this code has both netIDs (strings) and netIDNums (uint32s). All code outside of this class uses the former,
     # while over the wire and internally in some places (for efficiency) we use the latter.
     def __init__(self):
-        self.ChannelIDChanged = Event() # fires (newchannelID) when it gets assigned on a client
-        self.ClientJoined = Event() # fires (clientChannelID) when a connection is added
+        self.ChannelIDChanged = Event() # (client) fires (newchannelID) when it gets assigned on a client
+        self.ClientJoined = Event() # (host) fires (clientChannelID) when a connection is added
+        self.JoinedHost = Event() # (client) fires () when the client has received all the initial state from the host
         self.Reset()
 
     def Reset(self):
         self.isHost = True # True until we learn otherwise (currently we don't get recreated when a client joins a host, so we detect dynamically)
-        self.channelID = 0 # aka playerID or userID
+        self.channelID = 0 # aka playerID
         self.hostChannel = None # on clients, the UNRChannel to the host
         self.clientChannels = {} # on the host, all channels to connected clients, channelID -> UNRChannel instance
         self.lastCallTimes = {} # sigDefStr -> timestamp of last time we issued a remote call for it
@@ -236,7 +260,7 @@ class NRAppBridge:
         self.objs[netID] = weakref.ref(obj)
         obj.nrNetID = netID
 
-        if spawnType == ENRSpawnReplicatedBy.App:
+        if spawnType == ENRSpawnReplicatedBy.App and not issubclass(type(obj.__class__), PyGlueMetaclass):
             obj._NRCheckStart() # otherwise, on the host, non-Actor subclasses will never call this
 
     def Unregister(self, *, netID=None, netIDNum=None):
@@ -310,6 +334,7 @@ class NRAppBridge:
 
         # Create an ordered list of repProp values - no need for naming them since the receiving side knows the same prop ordering
         # send the format string for repprops (len+str) and the blob of data (len+data) for it
+        #log('XXX netrep.SISF', obj.nrNetID, netIDNum, ' '.join(['%d:%s' % (i,k) for i,k in enumerate(obj.nrPropNames)]))
         formatStr, propsBlob = ValuesToBin([obj.nr[k] for k in obj.nrPropNames])
         PA(struct.pack('<BH', len(formatStr), len(propsBlob)))
         PA(formatStr.encode('utf8'))
@@ -337,7 +362,7 @@ class NRAppBridge:
             fragmentID = self.GetFragmentID(fragmentName)
             for elIndex, propValues in enumerate(frag.propValues):
                 formatStr, propsBlob = ValuesToBin(propValues)
-                header = struct.pack('<HHBB', fragmentID, elIndex, len(formatStr), len(propsBlob))
+                header = struct.pack('<HHHH', fragmentID, elIndex, len(formatStr), len(propsBlob))
                 entries.append((header, formatStr.encode('utf8'), propsBlob))
         PA(struct.pack('<H', len(entries)))
         for header, format, props in entries:
@@ -380,6 +405,9 @@ class NRAppBridge:
                 allObjs.append((netIDNum, obj))
         for netIDNum, obj in sorted(allObjs): # sorted so info gets sent in creation order
             self.SendInitialStateFor(obj, chan)
+
+        # Tell the client it got all the things
+        _SendMessage(chan, struct.pack('<B', ENRBridgeMessage.InitialStateComplete), True)
 
         self.ClientJoined.Fire(chanID)
 
@@ -438,7 +466,7 @@ class NRAppBridge:
                     runLocal = True # caller wants it to run on a specific user, and we are that user
                 else:
                     callHost = True
-                    outboundWhere = where # stomp any prior values and set it to userID + user bit
+                    outboundWhere = where # stomp any prior values and set it to playerID + user bit
             else:
                 if where & ENRWhere.Local: runLocal = True
                 if where & ENRWhere.Host:
@@ -501,6 +529,10 @@ class NRAppBridge:
         self.channelID = payload[0]
         self.ChannelIDChanged.Fire(self.channelID)
 
+    def _OnBridgeMessage_InitialStateComplete(self, chan, payload):
+        '''Called on the client once it has received all of the initial state from the host'''
+        self.JoinedHost.Fire()
+
     def _OnBridgeMessage_ObjInitialState(self, chan, payload):
         '''Called on client to replicate the initial state of an actor. If the object is NR-spawned, also causes the object
         to be spawned.'''
@@ -543,8 +575,8 @@ class NRAppBridge:
         entryCount = struct.unpack('<H', payload[:2])[0]
         payload = payload[2:]
         for i in range(entryCount):
-            fragmentID, elementIndex, formatStrLen, propsBlobLen = struct.unpack('<HHBB', payload[:6])
-            payload = payload[6:]
+            fragmentID, elementIndex, formatStrLen, propsBlobLen = struct.unpack('<HHHH', payload[:8])
+            payload = payload[8:]
             fragFormatStr = str(payload[:formatStrLen], 'utf8')
             payload = payload[formatStrLen:]
             fragPropsBlob = payload[:propsBlobLen]
@@ -599,6 +631,9 @@ class NRAppBridge:
         blob = payload[9:]
         runLocal = False
         sigDef = senderChannel.recvSigDefs.StringForID(sigDefID)
+        if not sigDef:
+            log(f"WARNING: Unknown sigdef id {sigDefID} received")
+            return
         if self.isHost:
             # When a message is received on the host, valid outcomes are to run it locally, to forward it on to all channels
             # except for the one that sent the message, or to forward it on to one specific channel
@@ -841,7 +876,7 @@ class NRAppBridge:
 _bridge = NRAppBridge()
 UNRChannel.SetAppBridge(_bridge)
 
-def GetUserID():
+def GetLocalPlayerID():
     '''Public API used by __init__'''
     return _bridge.channelID
 
@@ -981,7 +1016,7 @@ class NetReplicated(metaclass=NRTrackerMetaclass):
         pass
 
     def NRCall(self, where:ENRWhere, methodName, *args, reliable=True, maxCallsPerSec=-1):
-        '''Performs a replicated call to one or more machines. To send a message to a specific user, use ENRWhere.Only(userID).'''
+        '''Performs a replicated call to one or more machines. To send a message to a specific user, use ENRWhere.Only(playerID).'''
         if WITH_EDITOR: assert IsInGameThread()
         _bridge.DoCall(self, where, methodName, args, reliable, maxCallsPerSec)
 
@@ -1218,7 +1253,7 @@ def ValueToBin(arg):
     if isinstance(arg, type):
         className = arg.__name__
         return 'C', F_Short.pack(len(className)) + className.encode('utf8')
-    if isinstance(arg, FTransform): return 'T', F_FTransform.pack(*arg.GetLocation(), *arg.GetRotation(), *arg.GetScale3D())
+    if isinstance(arg, FTransform): return 'T', F_FTransform.pack(*arg.GetLocation(), *arg.Rotator(), *arg.GetScale3D())
     if isinstance(arg, FQuat): return 'Q', F_FQuat.pack(*arg)
     if hasattr(arg, 'nrNetID'): return 'O', F_Int.pack(_bridge.NetIDNumFromObject(arg))
 
