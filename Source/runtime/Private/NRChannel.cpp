@@ -68,6 +68,7 @@ void UNRChannel::ReceivedBunch(FInBunch& bunch)
 const float MAX_BUFFER_PERCENT = 66.0f;
 const int MAX_WAITING_PACKETS = (int)(RELIABLE_BUFFER * MAX_BUFFER_PERCENT / 100);
 const int MAX_SEND_PER_TICK = 30; // another attempt at throttling outgoing data
+const float CONGESTION_SMOOTH = 1.0f / 60.0f; // smoothing value for computing congestion level moving average (bigger denominator --> slower EMA)
 
 void UNRChannel::Tick()
 {
@@ -75,8 +76,15 @@ void UNRChannel::Tick()
     if (!Connection->Driver || !Connection->Driver->World || !Connection->OwningActor)
         return;
 
+    // stats!
+    int totalOutRec = 0;
+    for (auto chan : Connection->OpenChannels)
+        totalOutRec += chan->NumOutRec;
+    //NRLOG("XXX outBytes:%d, outBytesPerSec:%d, totalOutRec:%d", Connection->OutBytes, Connection->OutBytesPerSecond, totalOutRec);
+
     // send queued outgoing messages across the wire
     float now = FPlatformTime::Seconds();
+    float congestion = 0.0f;
     if (messagesToSend.Num() > 0)
     {   // loosely based on VoiceChannel.cpp's implementation
         int32 index = 0;
@@ -87,11 +95,25 @@ void UNRChannel::Tick()
             if (index >= MAX_SEND_PER_TICK)
             {
                 NRLOG("Saving %d messages for a later tick [max per tick reached]", messagesToSend.Num()-index);
+                congestion = 1.0f;
                 break;
             }
             if (NumOutRec + Connection->GetOutgoingBunches().Num() > MAX_WAITING_PACKETS)
             {
                 NRLOG("Saving %d messages for a later tick [max waiting reached]", messagesToSend.Num()-index);
+                congestion = 1.0f;
+                break;
+            }
+            if (Connection->OutBytesPerSecond > 100000)
+            {
+                NRLOG("Saving %d messages for a later tick [conn outBytesPerSec too high]", messagesToSend.Num()-index);
+                congestion = 1.0f;
+                break;
+            }
+            if (totalOutRec > 300)
+            {
+                NRLOG("Saving %d messages for a later tick [totalOutRec too high]", messagesToSend.Num()-index);
+                congestion = 1.0f;
                 break;
             }
 
@@ -109,6 +131,9 @@ void UNRChannel::Tick()
         else if (index > 0)
             messagesToSend.RemoveAt(0, index);
     }
+
+    // update our notion of how congested the connection is
+    congestionLevel = congestion * CONGESTION_SMOOTH + congestionLevel * (1.0f - CONGESTION_SMOOTH);
 
     // dispatch any inbound messages we received since last time
     if (messagesToProcess.Num() > 0 && !appBridge.is_none())
@@ -135,8 +160,29 @@ void UNRChannel::AddMessage(TArray<uint8>& payload, bool reliable)
     // reliable and unreliable messages, which doesn't help us, but it is particularly unhelpful when a client is
     // first joining a host, because often the unreliable messages reference objects the client doesn't know about
     // yet because their definitions are backlogged in the reliable message queue.
-    if (!reliable && NumOutRec > MAX_WAITING_PACKETS/2)
-        return;
+    if (!reliable)
+    {
+        if (Connection->OutBytesPerSecond > 100000)
+        {
+            NRLOG("Skipping unreliable message [outBytesPerSecond too high]");
+            return;
+        }
+
+        int totalOutRec = 0;
+        for (auto chan : Connection->OpenChannels)
+            totalOutRec += chan->NumOutRec;
+
+        if (totalOutRec > 300)
+        {
+            NRLOG("Skipping unreliable message [totalOutRec too high]");
+            return;
+        }
+        if (NumOutRec > MAX_WAITING_PACKETS/2)
+        {
+            NRLOG("Skipping unreliable message [half max waiting packets reached]");
+            return;
+        }
+    }
 
 	TSharedPtr<FNRMessage> message = MakeShareable(new FNRMessage());
     message->payload = payload;

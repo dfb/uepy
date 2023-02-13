@@ -42,6 +42,7 @@ class UEPY_API UNRChannel : public UChannel
 
 public:
     int channelID=-1; // unique ID for this channel, same on client and host (tried to use UNetConnection ID, but it doesn't get replicated). Set by app bridge.
+    float congestionLevel=0; // 0..1, moving average of how congested outgoing traffic is for this whole connection
 
     // Establishes a bridge between low level NR code and the application layer
     static void SetAppBridge(py::object& bridge);

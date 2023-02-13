@@ -113,11 +113,10 @@ bool SaveCubeRenderTargetToFile(UTextureRenderTargetCube* target, FString fullPa
         return false;
     }
 
-    UTextureCube* tCube = target->ConstructTextureCube(target, TEXT("what"), RF_Transient);
     TArray64<uint8> RawData;
     FIntPoint size;
     EPixelFormat format;
-    bool bUnwrapSuccess = CubemapHelpers::GenerateLongLatUnwrap(tCube, RawData, size, format);
+    bool bUnwrapSuccess = CubemapHelpers::GenerateLongLatUnwrap(target, RawData, size, format);
     if (!bUnwrapSuccess)
         return false;
 

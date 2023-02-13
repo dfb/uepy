@@ -120,7 +120,7 @@ from uepy import *
 from uepy.enums import *
 import struct, weakref, time, random, inspect, threading
 
-class ENRBridgeMessage(Enum): NONE, SigDef, SetChannelInfo, FragmentMapping, ObjInitialState, InitialStateComplete, Call, Unregister = range(8)
+class ENRBridgeMessage(Enum): NONE, Hello, SigDef, SetChannelInfo, FragmentMapping, ObjInitialState, InitialStateComplete, Call, Unregister = range(9)
 
 class GV:
     trafficDumpF = None # if not None, an open file handle to which we'll dump all outgoing network traffic to
@@ -202,6 +202,8 @@ class NRAppBridge:
     # Note: this code has both netIDs (strings) and netIDNums (uint32s). All code outside of this class uses the former,
     # while over the wire and internally in some places (for efficiency) we use the latter.
     def __init__(self):
+        self.helloData = b'' # data sent in a Hello message when a new connection is established
+        self.connectionCheckerCB = None # app-defined callback to validate each new remote connection
         self.ChannelIDChanged = Event() # (client) fires (newchannelID) when it gets assigned on a client
         self.ClientJoined = Event() # (host) fires (clientChannelID) when a connection is added
         self.JoinedHost = Event() # (client) fires () when the client has received all the initial state from the host
@@ -209,11 +211,13 @@ class NRAppBridge:
 
     def Reset(self):
         self.isHost = True # True until we learn otherwise (currently we don't get recreated when a client joins a host, so we detect dynamically)
+        self.joinedHost = False # True once we fire JoinedHost and not self.isHost
         self.channelID = 0 # aka playerID
         self.hostChannel = None # on clients, the UNRChannel to the host
         self.clientChannels = {} # on the host, all channels to connected clients, channelID -> UNRChannel instance
         self.lastCallTimes = {} # sigDefStr -> timestamp of last time we issued a remote call for it
         self.nextNetIDNum = 1 # the next net ID number we'll assign in a Register call. Only used on the host
+        self.nextFakeNetGUID = -2 # these are always negative and go more negative
         self.netIDToNum = {} # netID name --> numerical ID (a uint32) - nobody outside of the AppBridge knows/cares about numerical ID mapping
         self.numToNetID = {} # inverse of netIDToNum
         self.objs = {} # netID -> weakref to instance; we don't use netIDNum here because clients may register objects by netID prior to getting the netIDNum from the server
@@ -222,6 +226,25 @@ class NRAppBridge:
         self.waitingForNetIDNum = {} # on clients, netID -> obj instance that has registered but the mapping has not yet arrived from the server
         self.deferredCalls = {} # unknown netIDNum -> [list of tuples of args for calling _ExecuteLocalCall for calls being held until the recipient replicates]
         self.fragmentNameToID = BiDict() # fragment name <--> fragment ID
+
+    def AlreadyJoinedHost(self):
+        return self.joinedHost
+
+    def GetCongestionLevels(self):
+        '''Returns {playerID -> congestionLevel (0..1)} representing how congested outbound traffic is. On clients, the only
+        entry present will be the one for this player ID. On the host, contains entries for each connected client.'''
+        ret = {}
+        if self.isHost:
+            for chanID, chan in self.clientChannels.items():
+                ret[chanID] = chan.congestionLevel
+        else:
+            ret[self.channelID] = self.hostChannel.congestionLevel if self.hostChannel else 0
+        return ret
+
+    def _NRInit(self, helloData, connectionCheckerCB):
+        '''see global NRInit function'''
+        self.helloData = helloData
+        self.connectionCheckerCB = connectionCheckerCB
 
     def Register(self, obj, netID, spawnType:ENRSpawnReplicatedBy):
         '''Called by NetReplicated.NRRegister'''
@@ -241,6 +264,11 @@ class NRAppBridge:
             # come up with it.
             if self.isHost or hasattr(obj, '_nrDeferredNetID'): # if it does have this prop, it means BeginPlay is happening
                 netGUID = GetOrAssignNetGUID(obj.GetWorld(), obj.engineObj)
+                if netGUID == -1:
+                    # special case: networking isn't enabled at all, so all NetGUIDs will be -1, which means we can get collisions,
+                    # so just assign fake ones ourselves.
+                    netGUID = self.nextFakeNetGUID
+                    self.nextFakeNetGUID -= 1
                 netID += '_%d' % netGUID
             else:
                 # On clients, it's too early to ask the engine for the netGUID, so all we do for now is save the netID
@@ -253,6 +281,8 @@ class NRAppBridge:
             # Allocate a new netIDNum
             num = self.nextNetIDNum
             self.nextNetIDNum += 1
+            if netID in self.netIDToNum:
+                log('ERROR: netrep Register stomping existing object', netID, self.netIDToNum[netID])
             self.netIDToNum[netID] = num
             self.numToNetID[num] = netID
 
@@ -387,12 +417,14 @@ class NRAppBridge:
             else:
                 break
 
-        log('OnChannelFromClient', chanID)
+        log(f'OnChannelFromClient {chanID} - will replicate {len(self.objs)} objects')
         chan.channelID = chanID
         SignatureDefinitionManager.CreateFor(chan)
         self.clientChannels[chanID] = chan
 
         # Sync state with the client by informing it of its channel ID, any fragment mappings, and the state of all active replicated objects
+        if self.helloData:
+            _SendMessage(chan, struct.pack('<B', ENRBridgeMessage.Hello) + self.helloData, True)
         _SendMessage(chan, struct.pack('<BB', ENRBridgeMessage.SetChannelInfo, chanID), True)
         for fragmentName, fragmentID in self.fragmentNameToID.items():
             self._SendFragmentMapping(fragmentName, fragmentID, chan)
@@ -402,8 +434,8 @@ class NRAppBridge:
             obj = objRef()
             if obj:
                 netIDNum = self.netIDToNum[obj.nrNetID]
-                allObjs.append((netIDNum, obj))
-        for netIDNum, obj in sorted(allObjs): # sorted so info gets sent in creation order
+                allObjs.append((obj.nrSpawnType, netIDNum, obj))
+        for spawnType, netIDNum, obj in sorted(allObjs): # engine-spawned objects first, then NR-spawned, then app spawned, with each set in creation order
             self.SendInitialStateFor(obj, chan)
 
         # Tell the client it got all the things
@@ -418,6 +450,8 @@ class NRAppBridge:
         self.fragmentNameToID = BiDict() # forget any prior mappings, the host will send new ones
         SignatureDefinitionManager.CreateFor(chan)
         self.hostChannel = chan
+        if self.helloData:
+            _SendMessage(chan, struct.pack('<B', ENRBridgeMessage.Hello) + self.helloData, True)
 
     def OnChannelClosing(self, chan):
         '''Called by NRChannel when it is closing'''
@@ -517,6 +551,18 @@ class NRAppBridge:
         if runLocal:
             self._DoLocalCall(recipient, methodName, args)
 
+    def _OnBridgeMessage_Hello(self, chan, payload):
+        '''Called when we receive the hello message from the other side of the channel'''
+        helloData = bytes(payload)
+        if self.connectionCheckerCB:
+            if self.connectionCheckerCB(helloData) is False: # must explicitly return False, not some false-y thing like None
+                log('Connection checker rejected remote connection with', helloData)
+                # TODO: close the connection. Maybe only if we're the host?
+            else:
+                log('Connection checker approved remote connection with', helloData)
+        else:
+            log('Remote side sent hello data:', helloData)
+
     def _OnBridgeMessage_SigDef(self, chan, payload):
         ''''Called when we receive a sigdef from the other side of the channel'''
         sigDefID = struct.unpack('<H', payload[:2])[0]
@@ -531,6 +577,8 @@ class NRAppBridge:
 
     def _OnBridgeMessage_InitialStateComplete(self, chan, payload):
         '''Called on the client once it has received all of the initial state from the host'''
+        log('netrep received all initial state from host')
+        self.joinedHost = True
         self.JoinedHost.Fire()
 
     def _OnBridgeMessage_ObjInitialState(self, chan, payload):
@@ -557,8 +605,8 @@ class NRAppBridge:
         if depsStr:
             for dep in depsStr.split('|'):
                 depNetIDNum, attrName = dep.split(':')
-                depNetID = self.numToNetID[int(depNetIDNum, 16)]
-                deps.append((depNetID, attrName))
+                depNetIDNum = int(depNetIDNum, 16)
+                deps.append((depNetIDNum, attrName))
 
         # Save the state and dependency information so it can later be attached to the actors
         propValues = BinToValues(formatStr, propsBlob)
@@ -740,7 +788,7 @@ class NRAppBridge:
             if waiterRef:
                 waiterObj = waiterRef()
                 if waiterObj:
-                    try: waiterObj.nrWaitingDependencies.remove(obj.nrNetID)
+                    try: waiterObj.nrWaitingDependencies.remove(netIDNum)
                     except ValueError: pass # shouldn't happen but...
                     if attrName:
                         # The waiting object wants a ref of the newly-replicated object stored on it
@@ -771,10 +819,10 @@ class NRAppBridge:
 
         # Also resolve or set up tracking of any replicated objects this object depends on
         waitingFor = [] # netIDs of objs that have not yet arrived
-        for depNetID, attrName in state.dependencies:
+        for depNetIDNum, attrName in state.dependencies:
             # See if the object exists and is fully replicated already
-            depNetIDNum = self.netIDToNum.get(depNetID)
-            if depNetIDNum is not None:
+            depNetID = self.numToNetID.get(depNetIDNum)
+            if depNetID is not None:
                 ref = self.objs.get(depNetID)
                 if ref:
                     depObj = ref()
@@ -786,7 +834,7 @@ class NRAppBridge:
 
             # Either the object doesn't exist yet or it does but it too is still replicating, so we'll wait to list this
             # object as waiting on it
-            waitingFor.append(depNetID)
+            waitingFor.append(depNetIDNum)
             self.dependencyWaiters.setdefault(depNetIDNum, []).append((netIDNum, attrName))
 
         obj.nrWaitingDependencies = waitingFor
@@ -807,6 +855,13 @@ class NRAppBridge:
         ref = self.objs.get(netID)
         if ref is None:
             log('ERROR: bridge failed to find object for', netIDNum, netID)
+            return None
+        return ref()
+
+    def ObjectFromNetID(self, netID):
+        '''Returns an object given its net ID, or None of it can't be found'''
+        ref = self.objs.get(netID)
+        if ref is None:
             return None
         return ref()
 
@@ -883,6 +938,12 @@ def GetLocalPlayerID():
 def NRGetAppBridge():
     return _bridge
 
+def NRInit(helloData, connectionCheckerCB):
+    '''Does one-time initialization of netrep. helloData is a byte string of data to pass to any new connections. connectionCheckerCB
+    is used to decide if each new connection is supported and is called like cb(remoteSideHelloData). If False is returned (specifically
+    False and not just a false-y value), then the new connection is rejected.'''
+    _bridge._NRInit(helloData, connectionCheckerCB)
+
 class NRWrappedDefault:
     '''Used for repProps where the application code needs additional annotation information - apps can create custom subclasses
     instead of providing "bare" default values; NR will just take the .defaultValue member as the default. For example:
@@ -907,7 +968,7 @@ class NetReplicated(metaclass=NRTrackerMetaclass):
         self.nrBeginPlayCalled = False # on all actors, has BeginPlay been called?
         self.nrOnReplicatedCalled = False # on all instances, has OnReplicated been called?
         self.nrDependencies = [] # list of (netID, attrName or '') of replicated objects this object depends on. Only set on host.
-        self.nrWaitingDependencies = [] # netIDs of replicated objects this object is waiting on before OnReplicated will be called
+        self.nrWaitingDependencies = [] # netIDNums of replicated objects this object is waiting on before OnReplicated will be called
         self.nrMixedSessionIDs = {} # method name -> mixed reliability session ID that is currently active
         self.nrFragments = {} # fragment name -> NRFragment instance
         self.nrQueuedElementUpdates = {} # {(fragmentID, elementIndex) -> [(propIndex, propValue)]} - undelivered updates to fragment elements
@@ -958,6 +1019,7 @@ class NetReplicated(metaclass=NRTrackerMetaclass):
         self.nrFragments = {}
         if self.isHost and self.nrNetID is not None:
             _bridge.Unregister(netID=self.nrNetID)
+            self.nrNetID = None
 
     def NRSetDependencies(self, *depInfos):
         '''Called on the host to declare that this object should not be considered fully replicated on clients until all of the listed
@@ -1015,6 +1077,10 @@ class NetReplicated(metaclass=NRTrackerMetaclass):
         Called on all machines.'''
         pass
 
+    def PostReplicated(self):
+        '''Called after OnReplicated has completed, and any data has been sent over the wire.'''
+        pass
+
     def NRCall(self, where:ENRWhere, methodName, *args, reliable=True, maxCallsPerSec=-1):
         '''Performs a replicated call to one or more machines. To send a message to a specific user, use ENRWhere.Only(playerID).'''
         if WITH_EDITOR: assert IsInGameThread()
@@ -1051,9 +1117,7 @@ class NetReplicated(metaclass=NRTrackerMetaclass):
                 self.nr[k] = v
         elif where == ENRWhere.Local:
             # Special case but common enough that we want to handle it here: it's just a local update, so skip a whole bunch of extra work
-            for k,v in kwargs.items():
-                setattr(self.nr, k, v)
-            self.OnNRUpdate(propNames)
+            self.OnNRUpdate(list(kwargs.items()))
         else:
             indices = []
             values = []
@@ -1068,18 +1132,25 @@ class NetReplicated(metaclass=NRTrackerMetaclass):
     def _OnNRUpdate(self, indicesStr, *args):
         '''The receiving end of NRUpdate'''
         indices = [int(x) for x in indicesStr.split('_')] # indicesStr is a list of repprop indices in a _-separated string like '2_5_10'
-        propNames = []
+        changes = []
         for propIndex, value in zip(indices, args):
             # Convert the index to a prop name and update that property to its new value
             propName = self.nrPropNames[propIndex]
-            propNames.append(propName)
-            setattr(self.nr, propName, value)
-        self.OnNRUpdate(propNames)
+            changes.append((propName, value))
+        self.OnNRUpdate(changes)
 
-    def OnNRUpdate(self, modifiedPropNames):
-        '''Called anytime an NRUpdate has happend on this object. Subclasses can override. Default implementation triggers
-        and OnRep_* methods to be called.'''
-        for name in modifiedPropNames:
+    def OnNRUpdate(self, changes):
+        '''Called anytime an NRUpdate has happend on this object. changes is a list of (name, value) of properties to update.
+        Subclasses can override. Default implementation applies the values to self.nr and then triggers any OnRep_* methods
+        to be called.'''
+        # The default convention is that all values in this update are applied before any OnRep methods are called
+        for name, value in changes:
+            setattr(self.nr, name, value)
+
+        if not self.nrOnReplicatedCalled:
+            log('WARNING: OnNRUpdate not calling OnRep handlers because object has not fully replicated yet', self)
+            return
+        for name, value in changes:
             handler = getattr(self, 'OnRep_' + name, None)
             if handler:
                 try:
@@ -1152,6 +1223,11 @@ class NetReplicated(metaclass=NRTrackerMetaclass):
             _bridge.NoteObjectReplicated(self)
 
         self._NRDeliverQueuedElementUpdates() # see if there were any updates we received but couldn't yet deliver
+
+        try:
+            self.PostReplicated()
+        except:
+            logTB()
 
     # --------------------------------------------------------------------------------------------------------------------------------------------------------------------
     # Fragments and elements
@@ -1269,7 +1345,7 @@ def ValueToBin(arg):
         formatStr, propsBlob = ValuesToBin([k for k in arg.keys()] + [v for v in arg.values()])
         return 'D', F_Short.pack(len(formatStr)) + F_Short.pack(len(propsBlob)) + formatStr.encode('utf8') + propsBlob
 
-    if isinstance(arg, list):
+    if isinstance(arg, (list, tuple)):
         #L, I, S, and T are allready used, so is everything from "ARRAY" except Y, so Y it is!
         formatStr, propsBlob = ValuesToBin(arg)
         return 'Y', F_Short.pack(len(formatStr)) + F_Short.pack(len(propsBlob)) + formatStr.encode('utf8') + propsBlob
@@ -1289,7 +1365,7 @@ def ValuesToBin(args):
 def BinToValues(formatStr, blob):
     '''Inverse of ValuesToBin, returns a list of Python objects'''
     if not formatStr:
-        return ()
+        return [] # return a list instead of a tuple for re-serialization
     ret = []
     dataIndex = 0 # where in blob we're reading from next
     for typeCode in formatStr:
@@ -1399,9 +1475,17 @@ class NRFragment:
         .nrElementIsRegistered, .nrFragment, .nrElementIndex, and .nrSyncPropNames.'''
         element.nrElementIsRegistered = True
         element.nrFragment = self
-        element.nrElementIndex = len(self.elements) # for faster lookup later
         element.nrSyncPropNames = syncPropNames[:]
-        self.elements.append(element)
+        if element.nrElementIndex != -1 and element.nrElementIndex != len(self.elements):
+            # For whatever reason, this NRElement was created with an explicit element index, so we try to respect the caller's wishes
+            # and replace an existing element with this new instance. Currently the only known scenario for this is a custom UMG widget
+            # that creates custom child elements that register some state to sync, and for whatever reason the parent custom widget's
+            # BuildWidget is called multiple times, so when creating the child widgets, it will retrieve their existing element indices
+            # and pass them in when creating the new instances, so that those bits of UI continue to sync properly.
+            self.elements[element.nrElementIndex] = element
+        else:
+            element.nrElementIndex = len(self.elements) # for faster lookup later
+            self.elements.append(element)
         propNameMap = BiDict()
         for i, name in enumerate(syncPropNames):
             propNameMap[name] = i
@@ -1440,6 +1524,9 @@ class NRFragment:
 
         # If this element has been registered, go ahead and inform it of the change. If it has not been registered
         # yet, it will receive the change once it does
+        if not self.owner.nrOnReplicatedCalled:
+            log('WARNING: skipping calls to OnNRPropertyUpdated because owner has not finished replicating', self.owner)
+            return
         if elIndex < len(self.elements):
             element = self.elements[elIndex]
             try:
@@ -1451,9 +1538,12 @@ class NRFragment:
 
 class NRElement:
     '''Mixin class for non-actor objects that want to have bits of state replicated from the locally-controlled copy to all
-    other copies. Instances must call self.NRRegisterElement to enable synchronization.'''
-    def __init__(self, *args, **kwargs):
+    other copies. Instances must call self.NRRegisterElement to enable synchronization. nrElementIndex should almost never be
+    specified; it is for highly specialized cases such as needing to register a new element instance that is replacing an
+    existing instance but needs to be known by the same index as before.'''
+    def __init__(self, *args, nrElementIndex=-1, **kwargs):
         self.nrElementIsRegistered = False # this is the only element property subclasses can safely inspect until its value becomes True
+        self.nrElementIndex = nrElementIndex
         super().__init__(*args, **kwargs)
 
     def NRUpdateProperty(self, propName, value, reliable=True, maxCallsPerSec=-1):
@@ -1474,5 +1564,5 @@ class NRElement:
         '''Links this object into the replication system. owner is the NetReplicated object with which this object is
         associated. fragmentName is the name of the cluster of elements grouped together, and syncPropNames is an ordered
         list of properties on this object that will be kept in sync across the copy of this object running on each machine.'''
-        owner._NRRegisterElement(self, fragmentName, syncPropNames)
+        owner._NRRegisterElement(weakref.proxy(self), fragmentName, syncPropNames)
 

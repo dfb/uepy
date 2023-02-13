@@ -140,7 +140,7 @@ class EStretch: NONE, Fill, ScaleToFit, ScaleToFitX, ScaleToFitY, ScaleToFill, S
 
 class EInputEvent(Enum): IE_Pressed, IE_Released, IE_Repeat, IE_DoubleClick, IE_Axis, IE_MAX = range(6)
 
-class ENRSpawnReplicatedBy(Enum): NONE, App, Engine, NR = range(4) # Who is in charge of replicating the act of spawning a particular object
+class ENRSpawnReplicatedBy(Enum): NONE, Engine, NR, App = range(4) # Who is in charge of replicating the act of spawning a particular object (the order of these matters - see OnChannelFromClient)
 
 class ENRWhere(Enum):
     NONE, Local, Host, NotHere = [0,1,2,4]

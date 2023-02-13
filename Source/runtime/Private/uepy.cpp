@@ -29,28 +29,34 @@ static bool pyFinalized = false;
 // source code for a builtin import hook that allows applications to register modules instead of having to ship .py/.pyc files
 static std::string importHook = R"(
 import sys, marshal
+from collections import namedtuple
 from importlib.machinery import SourcelessFileLoader
 from importlib.util import spec_from_loader
 
+ImportHookEntry = namedtuple('ImportHookEntry', 'code diskPath isPackage'.split())
 class UEPYImportHook(SourcelessFileLoader):
-    modules = {} # full name -> (code object, isPackage, extraDataStr) # extraData is just a place to hold any extra metadata that the application wants
+    modules = {} # dotted name -> ImportHookEntry
+    # diskPath is what module.__file__ will be set to
 
     @staticmethod
-    def Add(fullName, code, isPackage=False, extraDataStr=None):
+    def Add(dottedName, code, diskPath, isPackage):
         if type(code) is bytes: code = marshal.loads(code)
-        UEPYImportHook.modules[fullName] = (code, isPackage, extraDataStr or '')
+        UEPYImportHook.modules[dottedName] = ImportHookEntry(code, diskPath, isPackage)
 
     @staticmethod
-    def find_spec(name, path, target=None):
-        entry = UEPYImportHook.modules.get(name)
+    def find_spec(dottedName, path, target=None):
+        entry = UEPYImportHook.modules.get(dottedName)
         if entry:
-            return spec_from_loader(name, UEPYImportHook(path, name), is_package=entry[1])
+            ret = spec_from_loader(dottedName, UEPYImportHook(path, dottedName), is_package=entry.isPackage)
+            if entry.diskPath:
+                ret.origin = entry.diskPath
+            return ret
         return None
 
-    def get_code(self, fullname):
-        entry = UEPYImportHook.modules.get(fullname)
+    def get_code(self, dottedName):
+        entry = UEPYImportHook.modules.get(dottedName)
         if entry:
-            return entry[0]
+            return entry.code
         return None
 
 sys.meta_path.append(UEPYImportHook)

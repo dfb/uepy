@@ -118,19 +118,42 @@ def GetLocalPlayerID():
     from . import netrep
     return netrep.GetLocalPlayerID()
 
+def Caller(extraLevels=0):
+    '''Debugging helper - returns info on the call stack (default=who called the caller of the caller)'''
+    level = 2 + extraLevels
+    stack = inspect.stack()
+    if level >= len(stack):
+        return '[top]'
+    frame = stack[level]
+    return '[%s:%s:%d]' % (os.path.basename(frame.filename), frame.function, frame.lineno)
+
 class Event:
     '''Utility class for firing events locally among objects. Convention is for objects to declare a public event member variable that
     other objects access directly to add/remove listener callbacks. User Add/Remove to register/unregister a function to be called when
     the event owner calls event.Fire. The signature of the event is up to the owner and supports args and kwargs. Callbacks are weak
     referenced and it is not required to Remove a registered callback, but it must be owned by an object (the callback function object
     must be a method bound to an object).'''
+    DEBUG = False # when True, set self.source in __init__
     def __init__(self):
+        if Event.DEBUG:
+            self.source = Caller() # super helpful for debugging
         self.callbacks = [] # list of (owner, cb method)
 
     def Add(self, method):
         self.callbacks.append(weakref.WeakMethod(method))
 
+        # also make the owning object aware of what methods have been bound on it
+        events = Event.GetBoundEventsListFor(method=method)
+        events.append(weakref.ref(self))
+
     def Remove(self, method, missingOk=False):
+        # remove ourselves from the events bound to this object
+        events = Event.GetBoundEventsListFor(method=method)
+        for i, ref in enumerate(events):
+            if ref() == self:
+                events.pop(i)
+                break
+
         for i, ref in enumerate(self.callbacks):
             if ref() == method:
                 self.callbacks.pop(i)
@@ -138,6 +161,19 @@ class Event:
 
         if not missingOk:
             log('ERROR: failed to remove', method)
+
+    def RemoveOn(self, owner):
+        '''Removes any callbacks bound to the given object'''
+        keep = []
+        for ref in self.callbacks:
+            method = ref()
+            if method:
+                methOwner = getattr(method, '__self__', None)
+                if methOwner and methOwner == owner:
+                    continue
+                keep.append(ref)
+            # note that we're tossing any cleaned up weakrefs here by not adding back in refs that returned None for ref()
+        self.callbacks = keep
 
     def RemoveAll(self):
         self.callbacks = []
@@ -167,6 +203,38 @@ class Event:
                     cb(*args, **kwargs)
                 except:
                     logTB()
+
+    @staticmethod
+    def GetBoundEventsListFor(*, method=None, owner=None):
+        '''helper to retrieve the list attached to the object owning the given method object that is used to hold weakrefs
+        to any bound events, creating it if needed. Note that it returns a reference to the actual list, and not a new list/copy.'''
+        if method is not None:
+            assert owner is None, 'Do not supply both method and owner'
+            owner = getattr(method, '__self__', None)
+        else:
+            assert owner is not None, 'Must be called with either method or owner parameters'
+
+        if not owner:
+            assert 0, method # force it to blow up, cuz this should be impossible
+        boundEvents = getattr(owner, '_boundEvents', None)
+        if boundEvents is None:
+            boundEvents = []
+            setattr(owner, '_boundEvents', boundEvents)
+        return boundEvents
+
+    @staticmethod
+    def UnbindOn(obj):
+        '''Checks the given object for any cases where event.Add has been called on one of its methods, and unbinds any
+        events that are still bound. In some ways this shouldn't be needed, but when there are really complex ownership
+        hierarchies, it can help disentangle things enough to allow resources to be cleaned up that might otherwise live
+        around for a long time (or forever). Note that subclasses of AActor_PGLUE and USceneComponent_PGLUE already call
+        this from their EndPlay methods.'''
+        events = Event.GetBoundEventsListFor(owner=obj)
+        for ref in events:
+            event = ref()
+            if event:
+                event.RemoveOn(obj)
+        events[:] = [] # i.e. clear out the actual array
 
 def DestroyAllActorsOfClass(klass):
     for a in UGameplayStatics.GetAllActorsOfClass(GetWorld(), klass):
@@ -362,7 +430,8 @@ class AActor_PGLUE(metaclass=PyGlueMetaclass):
     def GetOwner(self): return self.engineObj.GetOwner()
     def SetOwner(self, o): self.engineObj.SetOwner(o)
     def GetTransform(self): return self.engineObj.GetTransform()
-    def SetActorLocation(self, v): self.engineObj.SetActorLocation(v) # this works because engineObj is a pointer to a real instance, and we will also write wrapper code to expose these APIs anyway
+    def SetActorLocation(self, v): self.engineObj.SetActorLocation(v)
+    def SetActorLocationAndRotation(self, v, r): self.engineObj.SetActorLocationAndRotation(v, r)
     def GetActorLocation(self): return self.engineObj.GetActorLocation()
     def GetActorRotation(self): return self.engineObj.GetActorRotation()
     def GetActorQuat(self): return self.engineObj.GetActorQuat()
@@ -382,6 +451,7 @@ class AActor_PGLUE(metaclass=PyGlueMetaclass):
     def IsValid(self): return self.engineObj.IsValid()
     def BeginPlay(self): self.engineObj.SuperBeginPlay()
     def EndPlay(self, reason):
+        Event.UnbindOn(self)
         UnbindDelegatesOn(self)
         self.EndingPlay.Fire(self)
         self.engineObj.SuperEndPlay(reason)
@@ -403,6 +473,7 @@ class AActor_PGLUE(metaclass=PyGlueMetaclass):
     def UpdateTickSettings(self, canEverTick, startWithTickEnabled): self.engineObj.UpdateTickSettings(canEverTick, startWithTickEnabled)
     def OnReplicated(self): pass
     def AddTag(self, tag): self.engineObj.AddTag(tag)
+    def RemoveTag(self, tag): self.engineObj.RemoveTag(tag)
     def AddMovementInput(self, worldDir, scale, force): self.engineObj.AddMovementInput(worldDir, scale, force)
     def AddControllerPitchInput(self, v): self.engineObj.AddControllerPitchInput(v)
     def AddControllerYawInput(self, v): self.engineObj.AddControllerYawInput(v)
@@ -436,10 +507,6 @@ class AActor_PGLUE(metaclass=PyGlueMetaclass):
                 continue
             ret.append(comp)
         return ret
-
-    @property
-    def configStr(self):
-        return self.engineObj.configStr
 CPROPS(AActor_PGLUE, 'bAlwaysRelevant', 'bReplicates', 'Tags', 'SpawnCollisionHandlingMethod', 'bUseControllerRotationPitch', 'bUseControllerRotationYaw', 'InputComponent')
 
 class APawn_PGLUE(AActor_PGLUE):
@@ -467,6 +534,10 @@ class USceneComponent_PGLUE(metaclass=PyGlueMetaclass):
     def TickComponent(self, dt, tickType): pass # C++ calls super::TickComponent already
     def BeginPlay(self): self.engineObj.SuperBeginPlay()
     def EndPlay(self, reason):
+        for comp in self.GetChildrenComponents(True): # apparently we have to do this manually!
+            comp.DetachFromComponent()
+            comp.DestroyComponent()
+        Event.UnbindOn(self)
         UnbindDelegatesOn(self)
         self.engineObj.SuperEndPlay(reason)
     def SetComponentTickEnabled(self, t): self.engineObj.SetComponentTickEnabled(t)
@@ -505,10 +576,11 @@ class USceneComponent_PGLUE(metaclass=PyGlueMetaclass):
     def GetComponentQuat(self): return self.engineObj.GetComponentQuat()
     def GetComponentScale(self): return self.engineObj.GetComponentScale()
     def GetComponentToWorld(self): return self.engineObj.GetComponentToWorld()
-    def GetAttachParent(self): return self.engineObj.GetAttachedParent()
+    def GetAttachParent(self): return self.engineObj.GetAttachParent()
     def GetChildrenComponents(self, includeAllDescendents): return self.engineObj.GetChildrenComponents(includeAllDescendents)
     def SetWorldLocation(self, x): self.engineObj.SetWorldLocation(x)
     def SetWorldRotation(self, x): self.engineObj.SetWorldRotation(x)
+    def SetWorldScale3D(self, s): self.engineObj.SetWorldScale3D(s)
     def GetSocketTransform(self, name): return self.engineObj.GetSocketTransform(name)
     def GetSocketLocation(self, name): return self.engineObj.GetSocketLocation(name)
     def GetSocketRotation(self, name): return self.engineObj.GetSocketRotation(name)
@@ -517,12 +589,16 @@ class USceneComponent_PGLUE(metaclass=PyGlueMetaclass):
     def Show(self, visible, propagate=True, updateCollision=True): self.engineObj.Show(visible, propagate, updateCollision)
 CPROPS(USceneComponent_PGLUE, 'ComponentTags', 'Bounds')
 
-class UBoxComponent_PGLUE(USceneComponent_PGLUE):
-    def SetCollisionEnabled(self, e): self.engineObj.SetCollisionEnabled(e) # this is actually from UPrimitiveComponent
+class UPrimitiveComponent(USceneComponent_PGLUE):
+    def SetCollisionEnabled(self, e): self.engineObj.SetCollisionEnabled(e)
+    def Show(self, visible, propagate=False, updateCollision=True): self.engineObj.Show(visible, propagate, updateCollision)
+    def SetCollisionObjectType(self, c): self.engineObj.SetCollisionObjectType(c)
+    def SetCollisionProfileName(self, name, updateOverlaps): self.engineObj.SetCollisionProfileName(name, updateOverlaps)
+    def SetCollisionResponseToAllChannels(self, r): self.engineObj.SetCollisionResponseToAllChannels(r)
+    def SetCollisionResponseToChannel(self, chan, r): self.engineObj.SetCollisionResponseToChannel(chan, r)
+
+class UBoxComponent_PGLUE(UPrimitiveComponent):
     def BeginPlay(self): self.engineObj.SuperBeginPlay()
-    def EndPlay(self, reason):
-        UnbindDelegatesOn(self)
-        self.engineObj.SuperEndPlay(reason)
     def OnRegister(self): self.engineObj.SuperOnRegister()
     def SetBoxExtent(self, e): self.engineObj.SetBoxExtent(e)
     def GetUnscaledBoxExtent(self): return self.engineObj.GetUnscaledBoxExtent()
@@ -660,13 +736,4 @@ _refCache = RefCache()
 LoadByRef = _refCache.Load
 ClearRefCache = _refCache.Clear
 GetReferencePath = _refCache.GetReferencePath
-
-def Caller(extraLevels=0):
-    '''Debugging helper - returns info on the call stack (default=who called the caller of the caller)'''
-    level = 2 + extraLevels
-    stack = inspect.stack()
-    if level >= len(stack):
-        return '[top]'
-    frame = stack[level]
-    return '[%s:%s:%d]' % (os.path.basename(frame.filename), frame.function, frame.lineno)
 
