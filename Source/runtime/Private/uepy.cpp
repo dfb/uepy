@@ -492,12 +492,14 @@ void APawn_CGLUE::Tick(float dt) { if (PYOK && tickAllowed) try { pyInst.attr("T
 void APawn_CGLUE::SuperBeginPlay() { Super::BeginPlay(); }
 void APawn_CGLUE::SuperEndPlay(EEndPlayReason::Type reason) { Super::EndPlay(reason); }
 void APawn_CGLUE::SuperTick(float dt) { Super::Tick(dt); }
+//UPawnMovementComponent* APawn_CGLUE::SuperGetMovementComponent() const { return Super::GetMovementComponent(); }
 void APawn_CGLUE::PostInitializeComponents() { try { pyInst.attr("PostInitializeComponents")(); } catchpy; }
 void APawn_CGLUE::SuperSetupPlayerInputComponent(UInputComponent* comp) { Super::SetupPlayerInputComponent(comp); }
 void APawn_CGLUE::SetupPlayerInputComponent(UInputComponent* comp) { try { pyInst.attr("SetupPlayerInputComponent")(comp); } catchpy; }
 void APawn_CGLUE::GatherCurrentMovement() { if (IsReplicatingMovement()) Super::GatherCurrentMovement(); } // by default, the engine still calls GCM even if not replicating movement
 void APawn_CGLUE::PossessedBy(AController* c) { Super::PossessedBy(c); try { pyInst.attr("PossessedBy")(c); } catchpy; }
 void APawn_CGLUE::UnPossessed() { Super::UnPossessed(); try { pyInst.attr("UnPossessed")(); } catchpy; }
+//UPawnMovementComponent* APawn_CGLUE::GetMovementComponent() const { try { return pyInst.attr("GetMovementComponent")().cast<UPawnMovementComponent*>(); } catchpy; return nullptr; }
 
 ACharacter_CGLUE::ACharacter_CGLUE() { PrimaryActorTick.bCanEverTick = true; PrimaryActorTick.bStartWithTickEnabled = false; }
 void ACharacter_CGLUE::BeginPlay() { try { pyInst.attr("BeginPlay")(); } catchpy; }
@@ -524,6 +526,12 @@ void UBoxComponent_CGLUE::EndPlay(const EEndPlayReason::Type reason) { try { pyI
 UBoxComponent_CGLUE::UBoxComponent_CGLUE() { PrimaryComponentTick.bCanEverTick = true; PrimaryComponentTick.bStartWithTickEnabled = false; }
 void UBoxComponent_CGLUE::OnRegister() { try { pyInst.attr("OnRegister")(); } catchpy ; }
 void UBoxComponent_CGLUE::TickComponent(float dt, ELevelTick type, FActorComponentTickFunction* func) { Super::TickComponent(dt, type, func); if (PYOK && tickAllowed) try { pyInst.attr("TickComponent")(dt, (int)type); } catchpy; }
+
+void UPawnMovementComponent_CGLUE::BeginPlay() { try { pyInst.attr("BeginPlay")(); } catchpy; }
+void UPawnMovementComponent_CGLUE::EndPlay(const EEndPlayReason::Type reason) { try { pyInst.attr("EndPlay")((int)reason); } catchpy; }
+UPawnMovementComponent_CGLUE::UPawnMovementComponent_CGLUE() { PrimaryComponentTick.bCanEverTick = true; PrimaryComponentTick.bStartWithTickEnabled = false; }
+void UPawnMovementComponent_CGLUE::OnRegister() { try { pyInst.attr("OnRegister")(); } catchpy ; }
+void UPawnMovementComponent_CGLUE::TickComponent(float dt, ELevelTick type, FActorComponentTickFunction* func) { Super::TickComponent(dt, type, func); if (PYOK && tickAllowed) try { pyInst.attr("TickComponent")(dt, (int)type); } catchpy; }
 
 void UVOIPTalker_CGLUE::OnTalkingBegin(UAudioComponent* AudioComponent) { try { pyInst.attr("OnTalkingBegin")(); } catchpy; }
 void UVOIPTalker_CGLUE::OnTalkingEnd() { try { pyInst.attr("OnTalkingEnd")(); } catchpy; }

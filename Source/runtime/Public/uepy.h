@@ -10,6 +10,7 @@
 #include <functional>
 #include "Components/BoxComponent.h"
 #include "GameFramework/Character.h"
+#include "GameFramework/PawnMovementComponent.h"
 #include "Net/VoiceConfig.h"
 #include "uepy.generated.h"
 
@@ -287,6 +288,7 @@ public:
     void SuperPostInitializeComponents() { Super::PostInitializeComponents(); }
     void SuperTick(float dt);
     void SuperSetupPlayerInputComponent(UInputComponent* comp);
+	//UPawnMovementComponent* SuperGetMovementComponent() const;
 
 protected:
     virtual void BeginPlay() override;
@@ -297,6 +299,7 @@ protected:
     virtual void PostInitializeComponents() override;
     virtual void PossessedBy(AController* NewController) override;
     virtual void UnPossessed() override;
+	//virtual UPawnMovementComponent* GetMovementComponent() const override;
 };
 
 UCLASS()
@@ -349,6 +352,24 @@ class UEPY_API UBoxComponent_CGLUE : public UBoxComponent, public IUEPYGlueMixin
     GENERATED_BODY()
 
     UBoxComponent_CGLUE();
+
+public:
+    bool tickAllowed = true;
+    void SuperBeginPlay() { Super::BeginPlay(); }
+    void SuperEndPlay(EEndPlayReason::Type reason) { Super::EndPlay(reason); }
+    void SuperOnRegister() { Super::OnRegister(); }
+    virtual void BeginPlay() override;
+    virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+    virtual void OnRegister() override;
+    virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction *ThisTickFunction) override;
+};
+
+UCLASS()
+class UEPY_API UPawnMovementComponent_CGLUE : public UPawnMovementComponent, public IUEPYGlueMixin
+{
+    GENERATED_BODY()
+
+    UPawnMovementComponent_CGLUE();
 
 public:
     bool tickAllowed = true;

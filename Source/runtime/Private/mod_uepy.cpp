@@ -36,6 +36,7 @@
 #include "ExternalAssets.h"
 #include "FileMediaSource.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "GameFramework/PawnMovementComponent.h"
 #include "GameFramework/GameMode.h"
 #include "GameFramework/GameState.h"
 #include "GameFramework/GameUserSettings.h"
@@ -535,6 +536,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def_static("PointPlaneDist", [](FVector& pt, FVector& planeBase, FVector& planeNormal) { return FVector::PointPlaneDist(pt, planeBase, planeNormal); })
         .def_static("Dist", [](FVector& V1, FVector& V2) { return FVector::Dist(V1, V2); })
         .def("RotateAngleAxis", [](FVector& self, float degrees, FVector& axis) { return self.RotateAngleAxis(degrees, axis); })
+        .def("GetClampedToMaxSize", [](FVector& self, float maxSize) { return self.GetClampedToMaxSize(maxSize); })
         ;
 
     py::class_<FRotator>(m, "FRotator")
@@ -617,6 +619,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def(py::init<FTransform>())
         .def_readonly_static("Identity", &FTransform::Identity)
         .def(py::init<>())
+        .def(py::init([](FVector& loc, FQuat& rot, FVector& scale) { return FTransform(rot, loc, scale); }))
         .def(py::init([](FVector& loc, FRotator& rot, FVector& scale) { return FTransform(rot, loc, scale); }))
         .def(py::init([](FVector& loc, FRotator& rot) { return FTransform(rot, loc, FVector(1)); }))
         .def(py::init([](FVector& loc) { return FTransform(FRotator(0), loc, FVector(1)); }))
@@ -625,6 +628,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def(py::self * py::self)
         .def("Inverse", [](FTransform& self) { return self.Inverse(); })
         .def("Rotator", [](FTransform& self) { return self.Rotator(); })
+        .def("AddToTranslation", [](FTransform& self, FVector& offset) { return self.AddToTranslation(offset); })
         .def("GetRotation", [](FTransform& self) { return self.GetRotation(); })
         .def("SetRotation", [](FTransform& self, FRotator& r) { FQuat q(r); self.SetRotation(q); })
         .def("SetRotation", [](FTransform& self, FQuat& q) { self.SetRotation(q); })
@@ -683,6 +687,8 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def(py::init([](bool init) { if (init) return FPlane(EForceInit::ForceInit); else return FPlane(); }))
         .def(py::init<FVector,FVector>()) // point in plane, plane normal vector
         .def("PlaneDot", [](FPlane& self, FVector& v) { return self.PlaneDot(v); })
+        .def("GetNormal", [](FPlane& self) { return self.GetNormal(); })
+        .def("GetOrigin", [](FPlane& self) { return self.GetOrigin(); })
         ;
 
     py::class_<FMatrix>(m, "FMatrix")	
@@ -1335,6 +1341,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
             }
             return self.SetStaticMesh(newMesh);
         })
+        .def("GetSocketByName", [](UStaticMeshComponent& self, std::string& name) { return self.GetSocketByName(FSTR(name)); }, py::return_value_policy::reference)
         .def_readwrite("StreamingDistanceMultiplier", &UStaticMeshComponent::StreamingDistanceMultiplier)
         ;
 
@@ -1395,6 +1402,10 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("SetGeometryMode", [](UWidgetComponent& self, int mode) { self.SetGeometryMode((EWidgetGeometryMode)mode); })
         .def("SetTwoSided", [](UWidgetComponent& self, bool two) { self.SetTwoSided(two); })
         .def("SetCylinderArcAngle", [](UWidgetComponent& self, float angle) { self.SetCylinderArcAngle(angle); })
+        .def("SetBlendMode", [](UWidgetComponent& self, int bm) { self.SetBlendMode((EWidgetBlendMode)bm); })
+        .def("SetBackgroundColor", [](UWidgetComponent& self, FLinearColor& c) { self.SetBackgroundColor(c); })
+        .def("SetTintColorAndOpacity", [](UWidgetComponent& self, FLinearColor& c) { self.SetTintColorAndOpacity(c); })
+        .def("SetOpacityFromTexture", [](UWidgetComponent& self, float o) { self.SetOpacityFromTexture(o); })
         ;
 
     UEPY_EXPOSE_CLASS(UWorld, UObject, m)
@@ -1540,6 +1551,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         }, [](FHitResult& self, UPrimitiveComponent* c) { self.Component = c; }, py::return_value_policy::reference)
         .def_readonly("Time", &FHitResult::Time)
         .def_readonly("Distance", &FHitResult::Distance)
+        .def("IsValidBlockingHit", [](FHitResult* self) { return self->IsValidBlockingHit(); })
         ;
 
     py::class_<UKismetRenderingLibrary, UObject, UnrealTracker<UKismetRenderingLibrary>>(m, "UKismetRenderingLibrary")
@@ -2353,6 +2365,13 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("SuperTick", [](AActor_CGLUE& self, float dt) { self.SuperTick(dt); })
         .def("OverrideTickAllowed", [](AActor_CGLUE& self, bool allowed) { self.tickAllowed = allowed; })
         .def("UpdateTickSettings", [](AActor_CGLUE& self, bool canEverTick, bool startWithTickEnabled) { self.PrimaryActorTick.bCanEverTick = canEverTick; self.PrimaryActorTick.bStartWithTickEnabled = startWithTickEnabled; })
+        .def("ActorLineTraceSingle", [](AActor_CGLUE& self, FVector& start, FVector& end, int channel)
+        {
+            FHitResult hitResult;
+            FCollisionQueryParams params;
+            bool hit = self.ActorLineTraceSingle(hitResult, start, end, (ECollisionChannel)channel, params);
+            return py::make_tuple(hitResult, hit);
+        }, py::return_value_policy::reference)
         ;
 
     py::class_<APawn, AActor, UnrealTracker<APawn>>(m, "APawn")
@@ -2374,14 +2393,32 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("GetController", [](APawn& self) { return self.GetController(); }, py::return_value_policy::reference)
         .def_property("AIControllerClass", [](APawn& self) { return self.AIControllerClass; }, [](APawn& self, py::object& _klass) { self.AIControllerClass = PyObjectToUClass(_klass); }, py::return_value_policy::reference)
         .def("SpawnDefaultController", [](APawn& self) { self.SpawnDefaultController(); })
+        .def("GetMovementComponent", [](APawn& self) { return self.GetMovementComponent(); }, py::return_value_policy::reference)
         ;
 
     UEPY_EXPOSE_CLASS(UMovementComponent, UActorComponent, m)
         .def_readwrite("Velocity", &UMovementComponent::Velocity)
+        .def("ShouldSkipUpdate", [](UMovementComponent* self, float dt) { return self->ShouldSkipUpdate(dt); })
+        .def("SetUpdatedComponent", [](UMovementComponent* self, USceneComponent* comp) { self->SetUpdatedComponent(comp); })
+        .def("GetUpdatedComponent", [](UMovementComponent* self) { return self->UpdatedComponent; }, py::return_value_policy::reference)
+        .def("SafeMoveUpdatedComponent", [](UMovementComponent* self, FVector& delta, FRotator& newRot, bool sweep)
+        {
+            FHitResult hitResult;
+            bool moved = self->SafeMoveUpdatedComponent(delta, newRot, sweep, hitResult);
+            return py::make_tuple(hitResult, moved);
+        }, py::return_value_policy::reference)
+        .def("SlideAlongSurface", [](UMovementComponent* self, FVector& delta, float time, FVector& normal, FHitResult& inHit)
+        {
+            float percMoved = self->SlideAlongSurface(delta, time, normal, inHit);
+            return py::make_tuple(inHit, percMoved);
+        }, py::return_value_policy::reference)
         ;
 
     UEPY_EXPOSE_CLASS(UNavMovementComponent, UMovementComponent, m);
-    UEPY_EXPOSE_CLASS(UPawnMovementComponent, UNavMovementComponent, m);
+    UEPY_EXPOSE_CLASS(UPawnMovementComponent, UNavMovementComponent, m)
+        .def("GetPawnOwner", [](UPawnMovementComponent* self) { return self->GetPawnOwner(); }, py::return_value_policy::reference)
+        .def("ConsumeInputVector", [](UPawnMovementComponent* self) { return self->ConsumeInputVector(); })
+        ;
 
     UEPY_EXPOSE_CLASS(UCharacterMovementComponent, UPawnMovementComponent, m)
         ENUM_PROP(MovementMode, EMovementMode, UCharacterMovementComponent)
@@ -2407,6 +2444,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("SuperTick", [](APawn_CGLUE& self, float dt) { self.SuperTick(dt); })
         .def("OverrideTickAllowed", [](APawn_CGLUE& self, bool allowed) { self.tickAllowed = allowed; })
         .def("SuperSetupPlayerInputComponent", [](APawn_CGLUE& self, UInputComponent* comp) { self.SuperSetupPlayerInputComponent(comp); })
+        //.def("SuperGetMovementComponent", [](APawn_CGLUE& self) { return self.SuperGetMovementComponent(); }, py::return_value_policy::reference)
         ;
 
     UEPY_EXPOSE_CLASS(ACharacter, APawn, m)
@@ -2430,6 +2468,13 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("SuperEndPlay", [](USceneComponent_CGLUE& self, int reason) { self.SuperEndPlay((EEndPlayReason::Type)reason); })
         .def("SuperOnRegister", [](USceneComponent_CGLUE& self) { self.SuperOnRegister(); })
         .def("OverrideTickAllowed", [](USceneComponent_CGLUE& self, bool allowed) { self.tickAllowed = allowed; })
+        ;
+
+    UEPY_EXPOSE_CLASS(UPawnMovementComponent_CGLUE, UPawnMovementComponent, glueclasses)
+        .def("SuperBeginPlay", [](UPawnMovementComponent_CGLUE& self) { self.SuperBeginPlay(); })
+        .def("SuperEndPlay", [](UPawnMovementComponent_CGLUE& self, int reason) { self.SuperEndPlay((EEndPlayReason::Type)reason); })
+        .def("SuperOnRegister", [](UPawnMovementComponent_CGLUE& self) { self.SuperOnRegister(); })
+        .def("OverrideTickAllowed", [](UPawnMovementComponent_CGLUE& self, bool allowed) { self.tickAllowed = allowed; })
         ;
 
     py::class_<USoundClass, UObject, UnrealTracker<USoundClass>>(m, "USoundClass")

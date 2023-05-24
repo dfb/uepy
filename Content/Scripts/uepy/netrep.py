@@ -207,6 +207,7 @@ class NRAppBridge:
         self.ChannelIDChanged = Event() # (client) fires (newchannelID) when it gets assigned on a client
         self.ClientJoined = Event() # (host) fires (clientChannelID) when a connection is added
         self.JoinedHost = Event() # (client) fires () when the client has received all the initial state from the host
+        self.OutgoingElementPropertyUpdated = Event() # fires (owner, fragmentName, elementIndex, propIndex, propValue) when a fragment element property change is initiated on this machine
         self.Reset()
 
     def Reset(self):
@@ -1241,13 +1242,32 @@ class NetReplicated(metaclass=NRTrackerMetaclass):
         frag.RegisterElement(element, syncPropNames)
         self._NRDeliverQueuedElementUpdates(element) # see if there were any updates we received but couldn't yet deliver
 
-    def NRUpdateElementProperty(self, fragmentName, elementIndex, propIndex, propValue, reliable, maxCallsPerSec):
-        '''Called by NRFragment when a sychronized element property is modified'''
+    def NRUpdateElementProperty(self, fragmentName, elementIndexOrName, propIndexOrName, propValue, reliable=True, maxCallsPerSec=-1, where=ENRWhere.NotMe):
+        '''Called by NRFragment when a sychronized element property is modified. In the (rare) case where a local caller wants to manually
+        trigger an update (Modus uses this for playing back recordings, for example), override 'where' to be ENRWhere.All.'''
         # This gets called for all changes, so we just ignore any if we're not the locally controlled copy
         if not self.NRIsLocallyControlled():
             return
         fragmentID = _bridge.GetFragmentID(fragmentName) # note that the return value may be a string still, don't assume it's an int!
-        self.NRCall(ENRWhere.NotMe, '_OnNRElementPropertyUpdated', fragmentID, elementIndex, propIndex, propValue, reliable=reliable, maxCallsPerSec=maxCallsPerSec)
+        fragment = self.nrFragments[fragmentName]
+
+        # over the wire, we always use elementIndex and propIndex, but in some special cases (Modus recordings) we store and play back names
+        if isinstance(elementIndexOrName, str):
+            elementIndex = fragment.elementNames.index(elementIndexOrName)
+            elementName = elementIndexOrName
+        else:
+            elementIndex = elementIndexOrName
+            elementName = fragment.elementNames[elementIndex]
+
+        if isinstance(propIndexOrName, str):
+            propIndex = fragment.propNameMaps[elementIndex][propIndexOrName]
+            propName = propIndexOrName
+        else:
+            propIndex = propIndexOrName
+            propName = fragment.propNameMaps[elementIndex].inv(propIndex)
+
+        _bridge.OutgoingElementPropertyUpdated.Fire(self, fragmentName, elementName, propName, propValue, reliable, maxCallsPerSec)
+        self.NRCall(where, '_OnNRElementPropertyUpdated', fragmentID, elementIndex, propIndex, propValue, reliable=reliable, maxCallsPerSec=maxCallsPerSec)
 
     def _OnNRElementPropertyUpdated(self, fragmentID, elementIndex, propIndex, propValue):
         '''Called when the locally controlled copy of this object on another machine has updated a property - causes the fragment element's
@@ -1464,6 +1484,7 @@ class NRFragment:
         self.owner = owner
         self.name = fragmentName
         self.elements = [] # each is a NRElement that has been added. TODO: should these be weakrefs?
+        self.elementNames = [] # name of the NRElement for a given elementIndex; just for faster lookup
         self.propNameMaps = [] # each is a BiDict of (propName -> propIndex)
         self.propValues = [] # each is a list of current values, in propIndex order
         # Note that we store current names/values on the NRFragment and not on the actual element, so that we can receive
@@ -1483,9 +1504,11 @@ class NRFragment:
             # BuildWidget is called multiple times, so when creating the child widgets, it will retrieve their existing element indices
             # and pass them in when creating the new instances, so that those bits of UI continue to sync properly.
             self.elements[element.nrElementIndex] = element
+            self.elementNames[element.nrElementIndex] = element.nrElementName
         else:
             element.nrElementIndex = len(self.elements) # for faster lookup later
             self.elements.append(element)
+            self.elementNames.append(element.nrElementName)
         propNameMap = BiDict()
         for i, name in enumerate(syncPropNames):
             propNameMap[name] = i
@@ -1544,6 +1567,7 @@ class NRElement:
     def __init__(self, *args, nrElementIndex=-1, **kwargs):
         self.nrElementIsRegistered = False # this is the only element property subclasses can safely inspect until its value becomes True
         self.nrElementIndex = nrElementIndex
+        self.nrElementName = '' # set during NRRegisterElement, because it's often much more convenient to do so there
         super().__init__(*args, **kwargs)
 
     def NRUpdateProperty(self, propName, value, reliable=True, maxCallsPerSec=-1):
@@ -1560,9 +1584,11 @@ class NRElement:
         copy (the autonomous proxy).'''
         pass
 
-    def NRRegisterElement(self, owner, fragmentName, syncPropNames):
+    def NRRegisterElement(self, owner, elementName, fragmentName, syncPropNames):
         '''Links this object into the replication system. owner is the NetReplicated object with which this object is
-        associated. fragmentName is the name of the cluster of elements grouped together, and syncPropNames is an ordered
-        list of properties on this object that will be kept in sync across the copy of this object running on each machine.'''
+        associated. fragmentName is the name of the cluster of elements grouped together, elementName is a name unique in that
+        fragment of the thing being registered (mostly for debugging, but also for Modus recordings), and syncPropNames is an
+        ordered list of properties on this object that will be kept in sync across the copy of this object running on each machine.'''
+        self.nrElementName = elementName
         owner._NRRegisterElement(weakref.proxy(self), fragmentName, syncPropNames)
 

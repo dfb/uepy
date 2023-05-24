@@ -520,6 +520,7 @@ class APawn_PGLUE(AActor_PGLUE):
     def GetPlayerState(self): return self.engineObj.GetPlayerState()
     def PossessedBy(self, pc): pass # C++ calls super
     def UnPossessed(self): pass # C++ calls super
+    def GetMovementComponent(self): return self.engineObj.GetMovementComponent()
 CPROPS(APawn_PGLUE, 'AIControllerClass', 'AutoPossessPlayer', 'AutoPossessAI')
 
 class ACharacter_PGLUE(APawn_PGLUE):
@@ -603,6 +604,19 @@ class UBoxComponent_PGLUE(UPrimitiveComponent):
     def SetBoxExtent(self, e): self.engineObj.SetBoxExtent(e)
     def GetUnscaledBoxExtent(self): return self.engineObj.GetUnscaledBoxExtent()
     def TickComponent(self, dt, tickType): pass # C++ calls super::TickComponent already
+
+class UPawnMovementComponent_PGLUE(UPrimitiveComponent):
+    def BeginPlay(self): self.engineObj.SuperBeginPlay()
+    def OnRegister(self): self.engineObj.SuperOnRegister()
+    def TickComponent(self, dt, tickType): pass # C++ calls super::TickComponent already
+    def ShouldSkipUpdate(self, dt): return self.engineObj.ShouldSkipUpdate(dt)
+    def SetUpdatedComponent(self, comp): return self.engineObj.SetUpdatedComponent(comp)
+    def GetUpdatedComponent(self): return self.engineObj.GetUpdatedComponent()
+    def SafeMoveUpdatedComponent(self, delta, newRot, sweep): return self.engineObj.SafeMoveUpdatedComponent(delta, newRot, sweep)
+    def SlideAlongSurface(self, delta, time, normal, collisionHit): return self.engineObj.SlideAlongSurface(delta, time, normal, collisionHit)
+    def GetPawnOwner(self): return self.engineObj.GetPawnOwner()
+    def ConsumeInputVector(self): return self.engineObj.ConsumeInputVector()
+CPROPS(UPawnMovementComponent_PGLUE, 'Velocity')
 
 class UVOIPTalker_PGLUE(metaclass=PyGlueMetaclass):
     @classmethod

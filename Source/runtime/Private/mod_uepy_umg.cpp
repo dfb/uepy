@@ -23,6 +23,7 @@
 #include "Components/OverlaySlot.h"
 #include "Components/PanelWidget.h"
 #include "Components/ProgressBar.h"
+#include "Components/RichTextBlock.h"
 #include "Components/ScaleBox.h"
 #include "Components/ScaleBoxSlot.h"
 #include "Components/SizeBox.h"
@@ -200,6 +201,7 @@ void _LoadModuleUMG(py::module& uepy)
         .def("SetBrushFromMaterial", [](UImage& self, UMaterialInterface* m) { self.SetBrushFromMaterial(m); })
         .def("SetBrushFromSprite", [](UImage& self, UPaperSprite* sprite, bool matchSize) { self.SetBrushFromAtlasInterface(sprite, matchSize); }) // this is a made-up method since we don't currently expose ISlateTextureAtlastInterface to Python
         .def("SetBrushResourceObject", [](UImage& self, UObject* resourceObj) { self.SetBrushResourceObject(resourceObj); })
+        .def("UnlinkColors", [](UImage& self) { self.Brush.UnlinkColors(); })
         ;
 
     UEPY_EXPOSE_CLASS(UUserWidget, UWidget, m)
@@ -320,6 +322,13 @@ void _LoadModuleUMG(py::module& uepy)
             sfi.Size = newSize;
             self.SetFont(sfi);
         })
+        ;
+
+    UEPY_EXPOSE_CLASS(UTextLayoutWidget, UWidget, m)
+        ;
+
+    UEPY_EXPOSE_CLASS(URichTextBlock, UTextLayoutWidget, m)
+        .def("SetText", [](URichTextBlock& self, std::string& newText) { self.SetText(FText::FromString(FSTR(newText))); })
         ;
 
     UEPY_EXPOSE_CLASS(UContentWidget, UPanelWidget, m)

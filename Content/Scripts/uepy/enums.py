@@ -203,4 +203,5 @@ class EWindowMode(Enum): Fullscreen, WindowedFullscreen, Windowed = range(3)
 class EAutoReceiveInput(Enum): Disabled,Player0,Player1,Player2,Player3,Player4,Player5,Player6,Player7 = range(9)
 class EAutoPossessAI(Enum): Disabled,PlacedInWorld,Spawned,PlacedInWorldOrSpawned = range(4)
 class ENiagaraTickBehavior(Enum): UsePrereqs, UseComponentTickGroup, ForceTickFirst, ForceTickLast = range(4)
+class EWidgetBlendMode(Enum): Opaque, Masked, Transparent = range(3)
 
