@@ -34,6 +34,8 @@ UTexture2D *TextureFromBGRA(uint8 *bgra, int32 width, int32 height);
 
 UTexture2D *LoadTextureFromFile(FString path); // DEPRECATED - use the async version!
 
+bool ConvertPNGtoJPG(FString pngPath, FString jpgPath, int quality);
+
 // given a cube texture render target, saves its contents to the given file. Returns true on success.
 bool SaveCubeRenderTargetToFile(UTextureRenderTargetCube* target, FString fullPathPrefix);
 

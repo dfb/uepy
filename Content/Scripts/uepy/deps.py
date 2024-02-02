@@ -15,12 +15,14 @@ def Package():
         shutil.rmtree(tempDir)
     os.mkdir(tempDir)
 
-    assert not os.system(r'c:\python387\scripts\pip.exe install -r requirements.txt --target ' + tempDir)
+    assert not os.system(r'c:\python3114\scripts\pip.exe install -r requirements.txt --target ' + tempDir)
 
     with open(os.path.join(tempDir, '__main__.py'), 'w') as f:
         f.write('print("hello")\n')
 
-    zipapp.create_archive(tempDir, outName)
+    def SkipSome(p):
+        return '__pycache__' not in str(p)
+    zipapp.create_archive(tempDir, outName, filter=SkipSome)
     shutil.rmtree(tempDir)
 
 def Discover(inDir):

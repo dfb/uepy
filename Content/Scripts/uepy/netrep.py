@@ -7,7 +7,7 @@ Python side of network replication (aka NetRep or NR) code. Misc info/notes:
     effectively BeginPlay (and they should generally not use BeginPlay at all).
 - Replicated objects can optionally declare that they depend on other replicated objects in order to function properly, in which case
     OnReplicated is not called until those other objects have fully replicated first. Use self.NRSetDependencies(*deps) where each
-    dependency can be a NetReplicatd object or the name of a property on self that holds a reference to a NetReplicated object. So the
+    dependency can be a NetReplicated object or the name of a property on self that holds a reference to a NetReplicated object. So the
     host might do something like the following in its OnReplicated method:
         self.foo = Foo() # Foo is a NetReplicated objects
         self.NRSetDependencies('foo')
@@ -42,7 +42,7 @@ Python side of network replication (aka NetRep or NR) code. Misc info/notes:
     events while the user interaction is underway, and then once the user is done, send a final, reliable, and unthrottled event so that
     everyone has the correct final value. In order to make this work (and because UE4 sends messages over UDP), application code needs to
     call NRStartMixedReliability once before the first intermediate/unreliable message goes out.
-- Non-Actor replicated objects should call self.NRUnregister() when they are being destroyed.
+- Non-Actor replicated objects must provide IsValid() and Destroy() methods, and should call self.NRUnregister() when they are being destroyed.
 
 The "core" replication stuff is patterned after UE4's native replication pretty closely, but we have some cases - especially with UI - where
 we need to keep information in sync between autonomous proxies and simulated proxies. For example, imagine a user that has a UMG widget
@@ -89,30 +89,19 @@ explanation is in terms of UI, but nothing in fragments/elements is specifically
     host sees a name being used instead of an ID, it will send an out of band message to that client informing it of the ID to use.
 - similarly, sometimes updates to elements arrive prior to the element being instantiated or registered, so when an update arrives for
     an unknown fragment element, we save it and deliver it once the element is registered.
+- For repProps that are lists, you can in some cases perform an NRUpdate without causing the entire list to be retransmitted over the
+    wire. Special modification operations are supported as NRUpdate parameters of the form <propName>__<action>=<value> as follows
+    (in the following examples, assume 'myList' is a repProp that is a list that is initially set to ['joe', 'frank', 'bob']
+    append: NRUpdate(myList__append='tom') --> ['joe', 'frank', 'bob', 'tom']
+    insert: NRUpdate(myList__insert=(1, 'tom') --> ['joe', 'tom', 'frank', 'bob']
+    replace: NRUpdate(myList__set=(2, 'tom') --> ['joe', 'frank', 'tom']
+    remove: NRUpdate(myList__pop=1) --> ['joe', 'bob']
 
 TODO:
 - with a lot of the binary data handling, we make unnecessary copies of the data - it'd be better to use byte arrays / memoryviews
     (or at the very least, struct.unpack_from)
 - figure out some way to do creation of dependent child objects that take init parameters.
-- splitting data marshalling into format type codes and encoded data blob has a low ROI. It would be better to keep the two merged. We probably
-    want it for array supoort anyway.
-- for data type codes, use an enum instead of a char, and then use a set high bit to mean "array" and add support for replicating arrays.
-    - probably ok to limit max len to 255
-    - probably /not/ ok to require all same type (think lists with None, but maybe that's the only exception?)
-    - the diff format could be something like <1B:action:add/update/remove><1B:index>[for add/update: <1B:datatype><1B marshalled value>]
-    - NRUpdate could detect the changes only if the caller doesn't modify the array exactly, e.g.
-        foo = self.nr.foo
-        foo.append(x)
-        self.NRUpdate(foo=foo)
-      wouldn't detect any changes, so we'd need to always use 'foo = self.nr.foo[:]' - maybe that's not too big a deal to require that?
-    - maybe we should instead (or additionally) support ways to tell NRUpdate the modification we want to make, e.g.
-        self.NRUpdate(foo__append=x)
-        self.NRUpdate(foo__pop=2)
-        self.NRUpdate(foo__remove=x)
-        self.NRUpdate(foo__set=(2,value)) # ugh
-        self.NRUpdate(foo=[1,2,3]) # still allow this, but doesn't try to diff and unconditionally resends all
-      we don't need to support every possible use of arrays; instead focus on likely/recommended uses of replicated arrays
-    - once you support arrays, might as well add support for dictionaries and sets! (and the var__action=X form would work well for them)
+- as with lists, support partial updates on sets/dicts/Bags/objects: add, replace, remove
 - when the host leaves, the clients don't clean up all the host-spawned objects (not really sure if they should or what)
 '''
 
@@ -120,7 +109,10 @@ from uepy import *
 from uepy.enums import *
 import struct, weakref, time, random, inspect, threading
 
-class ENRBridgeMessage(Enum): NONE, Hello, SigDef, SetChannelInfo, FragmentMapping, ObjInitialState, InitialStateComplete, Call, Unregister = range(9)
+class ENRBridgeMessage(Enum): NONE, Hello, SigDef, SetChannelInfo, FragmentMapping, ObjInitialState, InitialStateComplete, Call, Unregister, Update = range(10)
+
+# when doing an NRUpdate that modifies elements in a list repProp
+UPDATE_ACTIONS = BiDict({'set':'S', 'append':'A', 'insert':'I', 'pop':'P', 'remove': 'R'})
 
 class GV:
     trafficDumpF = None # if not None, an open file handle to which we'll dump all outgoing network traffic to
@@ -208,6 +200,8 @@ class NRAppBridge:
         self.ClientJoined = Event() # (host) fires (clientChannelID) when a connection is added
         self.JoinedHost = Event() # (client) fires () when the client has received all the initial state from the host
         self.OutgoingElementPropertyUpdated = Event() # fires (owner, fragmentName, elementIndex, propIndex, propValue) when a fragment element property change is initiated on this machine
+        self.ClientUpdateMessage = Event() # fires for each NRUpdate to clients
+        self.ClientCallMessage = Event() # fires for each NRCall to clients
         self.Reset()
 
     def Reset(self):
@@ -216,7 +210,7 @@ class NRAppBridge:
         self.channelID = 0 # aka playerID
         self.hostChannel = None # on clients, the UNRChannel to the host
         self.clientChannels = {} # on the host, all channels to connected clients, channelID -> UNRChannel instance
-        self.lastCallTimes = {} # sigDefStr -> timestamp of last time we issued a remote call for it
+        self.lastCallTimes = {} # (nrNetID, methodName) -> timestamp of last time we issued a remote call for it
         self.nextNetIDNum = 1 # the next net ID number we'll assign in a Register call. Only used on the host
         self.nextFakeNetGUID = -2 # these are always negative and go more negative
         self.netIDToNum = {} # netID name --> numerical ID (a uint32) - nobody outside of the AppBridge knows/cares about numerical ID mapping
@@ -225,7 +219,7 @@ class NRAppBridge:
         self.dependencyWaiters = {} # netIDNum -> [list of (netIDNum waiting on it, attrName to use when assigning it to the waiter or '')]
         self.unconsumedState = {} # netIDNum -> Bag(.propValues, .dependencies) of replication state we've received but not yet "delivered"
         self.waitingForNetIDNum = {} # on clients, netID -> obj instance that has registered but the mapping has not yet arrived from the server
-        self.deferredCalls = {} # unknown netIDNum -> [list of tuples of args for calling _ExecuteLocalCall for calls being held until the recipient replicates]
+        self.deferredActions = {} # unknown netIDNum -> [(bridgemsg.call|update, list of tuples of args for calling _DoLocal[Call|Update]FromData for actions being held until the recipient replicates)]
         self.fragmentNameToID = BiDict() # fragment name <--> fragment ID
 
     def AlreadyJoinedHost(self):
@@ -291,7 +285,7 @@ class NRAppBridge:
         self.objs[netID] = weakref.ref(obj)
         obj.nrNetID = netID
 
-        if spawnType == ENRSpawnReplicatedBy.App and not issubclass(type(obj.__class__), PyGlueMetaclass):
+        if spawnType != ENRSpawnReplicatedBy.Engine and not issubclass(type(obj.__class__), PyGlueMetaclass):
             obj._NRCheckStart() # otherwise, on the host, non-Actor subclasses will never call this
 
     def Unregister(self, *, netID=None, netIDNum=None):
@@ -304,7 +298,7 @@ class NRAppBridge:
             assert 0 # gotta supply one or the other
 
         if self.isHost:
-            # Notify all clients that this object is unregistering
+            # Notify all clients that this object is unregistering; this will trigger the obj to be destroyed on each machine
             payload = struct.pack('<BI', ENRBridgeMessage.Unregister, netIDNum)
             for chan in self.clientChannels.values():
                 _SendMessage(chan, payload, True)
@@ -317,13 +311,12 @@ class NRAppBridge:
         self.waitingForNetIDNum.pop(netID, None)
         ref = self.objs.pop(netID, None)
 
-        # On clients, we need to kill off objects that are Actor subclasses that were not spawned by the engine
+        # On clients, we need to kill off objects that were not spawned by the engine (non-AActor objs are required to impl both IsValid and Destroy,
+        # so the API calls are the same either way)
         if ref and not self.isHost:
             obj = ref()
             if obj and obj.nrSpawnType != ENRSpawnReplicatedBy.Engine and obj.IsValid():
-                klass = obj.__class__
-                if issubclass(klass, AActor) or issubclass(klass, AActor_PGLUE) or issubclass(type(klass), PyGlueMetaclass):
-                    obj.Destroy()
+                obj.Destroy()
 
     def _OnBridgeMessage_Unregister(self, chan, payload):
         nrNetIDNum = struct.unpack('<I', payload)[0]
@@ -392,9 +385,12 @@ class NRAppBridge:
         for fragmentName, frag in obj.nrFragments.items():
             fragmentID = self.GetFragmentID(fragmentName)
             for elIndex, propValues in enumerate(frag.propValues):
-                formatStr, propsBlob = ValuesToBin(propValues)
-                header = struct.pack('<HHHH', fragmentID, elIndex, len(formatStr), len(propsBlob))
-                entries.append((header, formatStr.encode('utf8'), propsBlob))
+                try:
+                    formatStr, propsBlob = ValuesToBin(propValues)
+                    header = struct.pack('<HHHH', fragmentID, elIndex, len(formatStr), len(propsBlob))
+                    entries.append((header, formatStr.encode('utf8'), propsBlob))
+                except:
+                    logTB()
         PA(struct.pack('<H', len(entries)))
         for header, format, props in entries:
             PA(header)
@@ -463,14 +459,54 @@ class NRAppBridge:
             # We are disconnecting, so now we are the host again (because we are now standalone), so we need to reset
             self.Reset()
 
-    def DoCall(self, recipient, where, methodName, args, reliable, maxCallsPerSec):
-        '''Used by NetReplicated to carry out the call logic'''
-        if where == ENRWhere.NONE:
-            log('WARNING: NRCall to nowhere', recipient, methodName, args)
-            return
+    def _CalcReceiveRouting(self, senderChannel, where):
+        '''used by _OnBridgeMessage_Call|Update to determine where an incoming message needs to be sent. Returns a tuple of
+            channels - the set of remote channels to receive the message
+            runLocal - True if the message should also be routed to this machine
+        '''
+        runLocal = False
+        channels = set()
+        if self.isHost:
+            # When a message is received on the host, valid outcomes are to run it locally, to forward it on to all channels
+            # except for the one that sent the message, or to forward it on to one specific channel
+            if where & ENRWhere.USER:
+                chanID = where - EWhere.USER
+                if chanID == self.channelID:
+                    runLocal = True
+                else:
+                    # The requested channel is some other machine, so forward it on
+                    chan = self.clientChannels.get(chanID)
+                    if chan: channels.append(chan)
+            else:
+                if where & ENRWhere.Local:
+                    runLocal = True
+                if where == ENRWhere.All:
+                    # forward it to all clients *except* the caller
+                    senderID = senderChannel.channelID
+                    for chanID, chan in self.clientChannels.items():
+                        if chanID != senderID:
+                            channels.append(chan)
+        else:
+            # When a message is received on a client, the only valid scenario is a command to run it locally
+            if where != ENRWhere.Local:
+                log('ERROR: client received a remote call with a non-local destination:', where)
+            else:
+                runLocal = True
+        return channels, runLocal
 
-        channels = set() # channels that will receive the message
-        outboundWhere = ENRWhere.NONE # If we do make a remote call, the 'where' value to send in that call
+    def _CalcSendRouting(self, recipient, methodName, where, reliable, maxCallsPerSec):
+        '''used by DoCall and DoUpdate to figure out where a message needs to be routed to, including whether or not the
+        message should be processed locally. Returns a tuple of:
+            channels - the set of remote channels to receive the message
+            outboundWhere - if a remote call needs to be made, the 'where' value to send in that call
+            runLocal - True if the message should also be routed to this machine
+            recipientID - the netID of the recipient
+            mixedSessionID - non-zero session ID to use if mixed reliability messaging is enabled
+        If it is determined that remote calls would normally be made but, due to throttling, the calls should be skipped,
+        channels will be empty.
+        '''
+        channels = set()
+        outboundWhere = ENRWhere.NONE
         runLocal = False
         if self.isHost:
             # When called on the host, the valid outcomes are a combination of running locally, telling all channels to run
@@ -514,43 +550,108 @@ class NRAppBridge:
             if callHost:
                 channels.add(self.hostChannel)
 
-        # Make any remote calls
+        mixedSessionID = 0
+        recipientID = 0
         if channels:
+            # Deterine recipient and mixed session info
             try:
                 recipientID = self.netIDToNum[recipient.nrNetID]
             except KeyError:
-                log('Failed to find netIDNum for', recipient.nrNetID, list(self.netIDToNum.keys()), 'isHost?', self.isHost)
-                raise
-            formatStr, blob = ValuesToBin(args)
-            fullSig = methodName + '|' + formatStr
+                log('_CalcSendRouting failed to find netIDNum for', recipient.nrNetID, 'isHost?', self.isHost)
+                return #raise <--- this is a big problem, but blowing up here doesn't really help
 
-            sendMessage = True
-            if maxCallsPerSec > 0:
+            mixedSessionID = recipient.NRGetMixedReliabilitySessionID(methodName, reliable)
+
+            # Determine if the message should be tossed due to throttling
+            if maxCallsPerSec > 0 and not mixedSessionID and not reliable:
                 # Caller wants throttling of remote calls enabled so as to not flood the network (local calls are
                 # never throttled though). Right now the throttling is pretty blunt and simply doesn't allow two
                 # calls to the same signature (method name + arg types) to happen within a timeframe that exceeds
                 # the overall rate, but if needed we could add something a bit smarter that e.g. allows some fast
                 # back-to-back calls as long as they don't exceed some number per second overall.
+                # NOTE: MixedReliability sends a single reliable last message that MUST get sent, so we exclude those
+                # from rate limiting explicitly.
                 now = time.time()
-                lastCall = self.lastCallTimes.get(fullSig, 0)
+                key = (recipient.nrNetID, methodName)
+                lastCall = self.lastCallTimes.get(key, 0)
                 nextAllowedTime = lastCall + 1.0/maxCallsPerSec
                 if now < nextAllowedTime:
-                    sendMessage = False
+                    channels.clear()
                 else:
-                    self.lastCallTimes[fullSig] = now
+                    self.lastCallTimes[key] = now
+        return channels, outboundWhere, runLocal, recipientID, mixedSessionID
 
-            if sendMessage:
-                mixedSessionID = recipient.NRGetMixedReliabilitySessionID(methodName, reliable)
-                for chan in channels:
-                    sigDefID = chan.sendSigDefs.IDForString(fullSig)
-                    payload = struct.pack('<BBHIBB', ENRBridgeMessage.Call, outboundWhere, sigDefID, recipientID, mixedSessionID, reliable) + blob
-                    _SendMessage(chan, payload, reliable)
-                    # (Yes, we really do want to pass reliable as a parameter to send in the call and also as a parameter *to* _Send)
+    def DoCall(self, recipient, where, methodName, args, reliable, maxCallsPerSec):
+        '''Used by NetReplicated to carry out the call logic'''
+        channels, outboundWhere, runLocal, recipientID, mixedSessionID = self._CalcSendRouting(recipient, methodName, where, reliable, maxCallsPerSec)
+
+        # Make any remote calls
+        if channels:
+            formatStr, blob = ValuesToBin(args)
+            fullSig = methodName + '|' + formatStr
+            for chan in channels:
+                sigDefID = chan.sendSigDefs.IDForString(fullSig)
+                payload = struct.pack('<BBHIBB', ENRBridgeMessage.Call, outboundWhere, sigDefID, recipientID, max(mixedSessionID, 0), reliable) + blob
+                _SendMessage(chan, payload, reliable)
+                # (Yes, we really do want to pass reliable as a parameter to send in the call and also as a parameter *to* _Send)
 
         # Call locally - we do this after any remote calls so that if the local call triggers more NR calls, they will also
         # be sent to the remote machines in the same order
         if runLocal:
-            self._DoLocalCall(recipient, methodName, args)
+            self._DoLocalCallFromArgs(recipient, methodName, args)
+
+    def DoUpdate(self, recipient, where, kwargs, reliable, maxCallsPerSec):
+        '''Used by NetReplicated to carry out the work of an NRUpdate'''
+        channels, outboundWhere, runLocal, recipientID, mixedSessionID = self._CalcSendRouting(recipient, 'NRUpdate', where, reliable, maxCallsPerSec) # TODO: use something instead of NRUpdate for the method name, as currently throttling gets applied too broadly
+
+        # Make any remote calls
+        if channels:
+            # The sigdef for an update is a string composed of two parts separated by a pipe
+            #   the indices of the properties being updated, in ascending order to increase the odds of sigdef reuse
+            #   the data types of the values being updated
+            propNames = [] # list of all the properties being updated
+            pairs = [] # (propIndex prefixed with any update action, new value)
+            invalidNames = []
+            for propName, value in kwargs.items():
+                # See if the caller is doing e.g. an array item update
+                updateAction = ''
+                if '__' in propName:
+                    propName, actionName = propName.split('__')
+                    updateAction = UPDATE_ACTIONS.get(actionName)
+                    assert updateAction, ('NRUpdate had invalid update action', propName, actionName)
+                    if actionName == 'set' or actionName == 'insert':
+                        assert isinstance(value, tuple), (propName, actionName, value)
+                    elif actionName == 'pop':
+                        assert isinstance(value, int), (propName, actionName, value)
+                propNames.append(propName)
+
+                try:
+                    propIndex = recipient.nrPropNames.index(propName)
+                    pairs.append((f'{updateAction}{propIndex}', value))
+                except ValueError:
+                    invalidNames.append(propName)
+                    continue
+            assert not invalidNames, 'NRUpdate called with one or more invalid property names: ' + repr(invalidNames)
+
+            indices = []
+            values = []
+            for propIndexInfo, value in sorted(pairs): # put them in index order. Well, any update modifiers will throw off the sort, but we don't actually care - we just want similar NRUpdates to make use of the same sigdef, that's all
+                indices.append(propIndexInfo)
+                values.append(value)
+            indicesStr = '_'.join(indices)
+            formatStr, valuesBlob = ValuesToBin(values)
+            fullSig = indicesStr + '|'+ formatStr
+
+            for chan in channels:
+                sigDefID = chan.sendSigDefs.IDForString(fullSig)
+                payload = struct.pack('<BBHIBB', ENRBridgeMessage.Update, outboundWhere, sigDefID, recipientID, max(mixedSessionID, 0), reliable) + valuesBlob
+                _SendMessage(chan, payload, reliable)
+                # (Yes, we really do want to pass reliable as a parameter to send in the call and also as a parameter *to* _Send)
+
+        # Call locally - we do this after any remote calls so that if the local call triggers more NR calls, they will also
+        # be sent to the remote machines in the same order
+        if runLocal:
+            self._DoLocalUpdateFromArgs(recipient, list(kwargs.items()))
 
     def _OnBridgeMessage_Hello(self, chan, payload):
         '''Called when we receive the hello message from the other side of the channel'''
@@ -681,45 +782,21 @@ class NRAppBridge:
         runLocal = False
         sigDef = senderChannel.recvSigDefs.StringForID(sigDefID)
         if not sigDef:
-            log(f"WARNING: Unknown sigdef id {sigDefID} received")
+            log(f"WARNING: Unknown sigdef id {sigDefID} received in _OnBridgeMessage_Call")
             return
-        if self.isHost:
-            # When a message is received on the host, valid outcomes are to run it locally, to forward it on to all channels
-            # except for the one that sent the message, or to forward it on to one specific channel
-            channels = [] # Channels we'll forward the message to
-            if where & ENRWhere.USER:
-                chanID = where - EWhere.USER
-                if chanID == self.channelID:
-                    runLocal = True
-                else:
-                    # The requested channel is some other machine, so forward it on
-                    chan = self.clientChannels.get(chanID)
-                    if chan: channels.append(chan)
-            else:
-                if where & ENRWhere.Local:
-                    runLocal = True
-                if where == ENRWhere.All:
-                    # forward it to all clients *except* the caller
-                    senderID = senderChannel.channelID
-                    for chanID, chan in self.clientChannels.items():
-                        if chanID != senderID:
-                            channels.append(chan)
+        channels, runLocal = self._CalcReceiveRouting(senderChannel, where)
 
-            # Tell the channels we're forwarding to to run it locally
+        if channels:
+            # Forward the message on to one or more other machines and tell them to run it locally
+            assert self.isHost
             for chan in channels:
                 sigDefID = chan.sendSigDefs.IDForString(sigDef)
                 payload = struct.pack('<BBHIBB', ENRBridgeMessage.Call, ENRWhere.Local, sigDefID, recipientID, mixedSessionID, reliable) + blob # we include 'reliable' here only cuz the msg format wants it
                 _SendMessage(chan, payload, reliable)
-        else:
-            # When a message is received on a client, the only valid scenario is a command to run it locally
-            if where != ENRWhere.Local:
-                log('ERROR: client received a remote call with a non-local destination:', where)
-            else:
-                runLocal = True
 
         if runLocal:
             # Find the recipient and call it, if it is known. If it is an unknown recipient, we assume the call is for an object
-            # that will be replicated soon, so we'll add it to a list of calls to delay until then.
+            # that will be replicated soon, so we'll add it to a list of actions to delay until then.
             recipientNetID = self.numToNetID.get(recipientID)
             if recipientNetID is None:
                 if self.isHost:
@@ -728,14 +805,47 @@ class NRAppBridge:
                 else:
                     # Defer the call til later
                     #log('Deferring call to', recipientID, sigDef)
-                    self.deferredCalls.setdefault(recipientID, []).append((recipientID, sigDef, mixedSessionID, reliable, bytes(blob)))
+                    self.deferredActions.setdefault(recipientID, []).append((ENRBridgeMessage.Call, (recipientID, sigDef, mixedSessionID, reliable, bytes(blob))))
             else:
-                self._ExecuteLocalCall(recipientID, sigDef, mixedSessionID, reliable, blob)
+                self._DoLocalCallFromData(recipientID, sigDef, mixedSessionID, reliable, blob)
 
-    def _ExecuteLocalCall(self, recipientID, sigDef, mixedSessionID, reliable, blob):
-        '''Helper used for running local function calls - broken out from _OnBridgeMessage_Call because we need to sometimes
-        defer function calls until after an object has fully replicated. And yes, it is annoying that we have both this and
-        _DoLocalCall.'''
+    def _OnBridgeMessage_Update(self, senderChannel, payload):
+        '''The receiving side of a NetReplicated.NRUpdate -> bridge.DoUpdate sequence. Runs it locally and/or passes it on to other clients.'''
+        where, sigDefID, recipientID, mixedSessionID, reliable = struct.unpack('<BHIBB', payload[:9])
+        blob = payload[9:]
+        runLocal = False
+        sigDef = senderChannel.recvSigDefs.StringForID(sigDefID)
+        if not sigDef:
+            log(f"WARNING: Unknown sigdef id {sigDefID} received in _OnBridgeMessage_Update")
+            return
+        channels, runLocal = self._CalcReceiveRouting(senderChannel, where)
+
+        if channels:
+            # Forward the message on to one or more other machines and tell them to run it locally
+            assert self.isHost
+            for chan in channels:
+                sigDefID = chan.sendSigDefs.IDForString(sigDef)
+                payload = struct.pack('<BBHIBB', ENRBridgeMessage.Update, ENRWhere.Local, sigDefID, recipientID, mixedSessionID, reliable) + blob # we include 'reliable' here only cuz the msg format wants it
+                _SendMessage(chan, payload, reliable)
+
+        if runLocal:
+            # Find the recipient and send it an update, if it is known. If it is an unknown recipient, we assume the update is for an object
+            # that will be replicated soon, so we'll add it to a list of actions to delay until then.
+            recipientNetID = self.numToNetID.get(recipientID)
+            if recipientNetID is None:
+                if self.isHost:
+                    # No point in deferring the call - we are the host, so maybe it's just a late call for a recently-deceased obj?
+                    log('ERROR: ignoring local update to unknown recipient', recipientID, sigDef)
+                else:
+                    # Defer the update til later
+                    #log('Deferring update to', recipientID, sigDef)
+                    self.deferredActions.setdefault(recipientID, []).append((ENRBridgeMessage.Update, (recipientID, sigDef, mixedSessionID, reliable, bytes(blob))))
+            else:
+                self._DoLocalUpdateFromData(recipientID, sigDef, mixedSessionID, reliable, blob)
+
+    def _DoLocalCallFromData(self, recipientID, sigDef, mixedSessionID, reliable, blob):
+        '''Helper used for running local function calls using the low-level binary blob of message data. This method is broken out from _OnBridgeMessage_Call
+        because we need to sometimes defer function calls until after an object has fully replicated.'''
         recipientNetID = self.numToNetID.get(recipientID)
         ref = self.objs.get(recipientNetID)
         if not ref:
@@ -745,7 +855,7 @@ class NRAppBridge:
             else:
                 # Ok, just add this message to the list of calls that we'll emit once it finishes spawning here
                 #log('XXX Recipient', recipientNetID, recipientID, 'is still in flight, deferring this call')
-                self.deferredCalls.setdefault(recipientID, []).append((recipientID, sigDef, mixedSessionID, reliable, bytes(blob)))
+                self.deferredActions.setdefault(recipientID, []).append((ENRBridgeMessage.Call, (recipientID, sigDef, mixedSessionID, reliable, bytes(blob))))
         else:
             obj = ref()
             if obj:
@@ -760,10 +870,10 @@ class NRAppBridge:
                         return
 
                 args = BinToValues(formatStr, blob)
-                self._DoLocalCall(obj, methodName, args)
+                self._DoLocalCallFromArgs(obj, methodName, args)
 
-    def _DoLocalCall(self, obj, methodName, args):
-        '''Helper for dispatching an NRCall to a NetReplicated object'''
+    def _DoLocalCallFromArgs(self, obj, methodName, args):
+        '''Helper for dispatching an NRCall to a NetReplicated object - basically a higher level version of _DoLocalCallFromData'''
         method = getattr(obj, methodName, None)
         if method is None:
             log('ERROR: NRCall to', obj, 'but it has no method named', methodName)
@@ -773,14 +883,130 @@ class NRAppBridge:
             except:
                 logTB()
 
+    def _DoLocalUpdateFromData(self, recipientID, sigDef, mixedSessionID, reliable, blob):
+        '''Helper used for running local NRUpdate calls using the low-level binary blob of message data. This method is broken out from _OnBridgeMessage_Update
+        because we need to sometimes defer updates until after an object has fully replicated.'''
+        recipientNetID = self.numToNetID.get(recipientID)
+        ref = self.objs.get(recipientNetID)
+        if not ref:
+            # We have no object to which we can send this message. See if it's an object that is in flight
+            if self.unconsumedState.get(recipientID) is None:
+                log('ERROR: non-existent recipient', recipientID, recipientNetID, sigDef)
+            else:
+                # Ok, just add this message to the list of actions that we'll emit once it finishes spawning here
+                self.deferredActions.setdefault(recipientID, []).append((ENRBridgeMessage.Update, (recipientID, sigDef, mixedSessionID, reliable, bytes(blob))))
+        else:
+            obj = ref()
+            if not obj:
+                # this is /probably/ a delayed message for an obj that has been deleted
+                return
+
+            # If a mixed reliability session is active, drop any messages that don't conform, as it indicates they
+            # are out of order/delayed messages that should be ignored
+            if mixedSessionID != 0:
+                expectedID = obj.NRGetMixedReliabilitySessionID('NRUpdate', reliable)
+                if expectedID != mixedSessionID:
+                    log('Tossing late mixed mode update for', obj, '(expected session %d, got %d, reliable:%s)' % (expectedID, mixedSessionID, reliable))
+                    return
+
+            # Decode the payload - indicesStr is a list of repProp indices in a _-separated string like '2_5_10', except each prop index can also
+            # have an action modifier if it is e.g. modifying a child element (such as one entry in a list).
+            indicesStr, formatStr = sigDef.split('|')
+            args = BinToValues(formatStr, blob)
+
+            # Build up a list of changes to apply
+            changes = []
+            for propIndexInfo, value in zip(indicesStr.split('_'), args):
+                # Convert the index to a prop name and update that property to its new value, and restore the action modifier if needed. We'll
+                # turn around and strip them back off in _DoLocalUpdateFromArgs, which is kinda silly, but it helps centralize the code that knows
+                # how to interpret modifiers.
+                try:
+                    updateAction = UPDATE_ACTIONS.inv(propIndexInfo[0])
+                    propIndex = int(propIndexInfo[1:]) # strip off the modifier
+                except KeyError:
+                    # This is the normal case - no modifier
+                    updateAction = None
+                    propIndex = int(propIndexInfo)
+
+                propName = obj.nrPropNames[propIndex]
+                if updateAction:
+                    propName = f'{propName}__{updateAction}'
+                changes.append((propName, value))
+            self._DoLocalUpdateFromArgs(obj, changes)
+
+    def _DoLocalUpdateFromArgs(self, obj, changes):
+        '''Helper for dispatching an NRUpdate to a NetReplicated object - basically a higher level version of _DoLocalUpdateFromData.
+        Changes is a list of (propName, propValue) tuples.'''
+        try:
+            # if any action modifiers were used (e.g. myList__append), we need to interpret them now. By the time we call OnNRUpdate, the
+            # key for each change needs to be a valid repProp name and the value needs to be the full, final value for that repProp.
+            finalChanges = []
+            for propName, value in changes:
+                if '__' in propName:
+                    propName, actionName = propName.split('__')
+                    curValue = obj.nr[propName]
+                    match actionName:
+                        case 'set':
+                            itemIndex, newValue = value
+                            curValue[itemIndex] = newValue
+                        case 'append':
+                            curValue.append(value)
+                        case 'insert':
+                            itemIndex, newValue = value
+                            curValue.insert(itemIndex, newValue)
+                        case 'pop':
+                            curValue.pop(value)
+                        case 'remove':
+                            curValue.remove(value)
+                        case _: assert 0, ('Invalid NRUpdate action found', propName, actionName, value)
+                    value = curValue
+                finalChanges.append((propName, value))
+
+            if obj.nrOnReplicatedCalled:
+                obj.OnNRUpdate(finalChanges)
+            else:
+                # obj hasn't replicated yet, so just apply the changes directly
+                for name, value in finalChanges:
+                    setattr(obj.nr, name, value)
+        except:
+            logTB()
+
+    def InjectLocalCall(self, recipientID, methodName, args):
+        '''helper to pair with ClientMessage - finds a recipient and calls _DoLocalCallFromArgs on it'''
+        ref = self.objs.get(recipientID)
+        obj = None
+        if ref:
+            obj = ref()
+        if obj:
+            self._DoLocalCallFromArgs(obj, methodName, args)
+        else:
+            log('ERROR: netrep.InjectLocalCall cannot find', recipientID, methodName, args)
+
+    def InjectLocalUpdate(self, recipientID, kwargs):
+        '''like InjectLocalCall, but for NRUpdate'''
+        ref = self.objs.get(recipientID)
+        obj = None
+        if ref:
+            obj = ref()
+        if obj:
+            self._DoLocalUpdateFromArgs(obj, list(kwargs.items()))
+        else:
+            log('ERROR: netrep.InjectLocalUpdate cannot find', recipientID, kwargs)
+
     def NoteObjectReplicated(self, obj):
         '''Called by NetReplicated._NRCheckStart once it has fully replicated on a client. Executes any differed calls, and also informs
         any objects waiting on this object to replicate that that dependency has been met.'''
         # Execute any NRCalls that arrived prior to the object being fully replicated
         netIDNum = self.netIDToNum[obj.nrNetID]
-        for args in self.deferredCalls.pop(netIDNum, []):
-            #log('Applying deferred call to', netIDNum, args)
-            self._ExecuteLocalCall(*args)
+        for action, args in self.deferredActions.pop(netIDNum, []):
+            if action == ENRBridgeMessage.Call:
+                #log('Applying deferred call to', netIDNum, args)
+                self._DoLocalCallFromData(*args)
+            elif action == ENRBridgeMessage.Update:
+                #log('Applying deferred update to', netIDNum, args)
+                self._DoLocalUpdateFromData(*args)
+            else:
+                assert 0, (action, args, obj)
 
         # Find all other objects that have been waiting on this object to finish replicating
         for waiterNetIDNum, attrName in self.dependencyWaiters.pop(netIDNum, []):
@@ -830,7 +1056,7 @@ class NRAppBridge:
                     if depObj and depObj.nrOnReplicatedCalled:
                         # Yay, this object has already fully replicated
                         if attrName:
-                            setattr(obj, attrName, depeObj) # this object wants a named reference to that other object
+                            setattr(obj, attrName, depObj) # this object wants a named reference to that other object
                         continue
 
             # Either the object doesn't exist yet or it does but it too is still replicating, so we'll wait to list this
@@ -904,6 +1130,7 @@ class NRAppBridge:
         except KeyError:
             if missingOk:
                 return None
+            log('Known fragments:', self.fragmentNameToID)
             raise
 
     def _SendFragmentMapping(self, fragmentName, fragmentID, chan):
@@ -1069,7 +1296,7 @@ class NetReplicated(metaclass=NRTrackerMetaclass):
         # remove the ID for use in future calls.
         if reliable:
             self.nrMixedSessionIDs.pop(methodName)
-            return 0
+            return -sessID # session exists and is closing
         return sessID
 
     def OnReplicated(self):
@@ -1083,62 +1310,37 @@ class NetReplicated(metaclass=NRTrackerMetaclass):
         pass
 
     def NRCall(self, where:ENRWhere, methodName, *args, reliable=True, maxCallsPerSec=-1):
-        '''Performs a replicated call to one or more machines. To send a message to a specific user, use ENRWhere.Only(playerID).'''
+        '''Performs a replicated method call to one or more machines. To send a message to a specific user, use ENRWhere.Only(playerID).'''
         if WITH_EDITOR: assert IsInGameThread()
+        if where == ENRWhere.NONE:
+            return log('WARNING: NRCall to nowhere', self, methodName, Callers())
         _bridge.DoCall(self, where, methodName, args, reliable, maxCallsPerSec)
+        if self.isHost and where & ENRWhere.NotHere and methodName != '_OnNRElementPropertyUpdated': # we handle NRUpdateElementProperty separately
+            _bridge.ClientCallMessage.Fire(self, where, methodName, args)
 
     def NRUpdate(self, where=ENRWhere.All, reliable=True, maxCallsPerSec=-1, **kwargs):
-        '''Replicates an update to one or more replicated properties (to all machines by default). As a special
-        case, if called from the constructor on the host, where is implicitly set to Local, as a way to override default values
+        '''Performs a replicated update of replicated properties to one or more machines (to all machines by default). As a special case
+        case, if called from the constructor on the host, 'where' is implicitly set to Local, as a way to override default values
         before the initial state is replicated to other machines.'''
+        if not kwargs: return
         if WITH_EDITOR: assert IsInGameThread()
-        if where == ENRWhere.NONE or not kwargs: return
-
-        # NRUpdate piggybacks on NRCall by sending a parameter that is a string holding a list of repprop indices, then all the
-        # values. We put the properties in order by their indices so that the same combination of parameters will use the same sigdef.
-        propNames = [] # list of all the properties being updated
-        pairs = [] # (propIndex, new value)
-        invalidNames = []
-        for propName, value in kwargs.items():
-            propNames.append(propName)
-            try:
-                propIndex = self.nrPropNames.index(propName)
-                pairs.append((propIndex, value))
-            except ValueError:
-                invalidNames.append(propName)
-                continue
-
-        assert not invalidNames, 'NRUpdate called with one or more invalid property names: ' + repr(invalidNames)
+        if where == ENRWhere.NONE:
+            return log('WARNING: NRUpdate to nowhere', self, Callers())
 
         if not self.nrOnReplicatedCalled:
-            # Probably just being called from the constructor on the host to override initial default values
+            # Handle the special constructor-on-host case - probably just overriding initial default values to be replicated
             assert self.isHost # clients shouldn't try to override defaults since their state will be immediately overwritten by the initial state from the host
             assert where in (ENRWhere.All, ENRWhere.Local)
-            for k,v in kwargs.items():
-                self.nr[k] = v
+            _bridge._DoLocalUpdateFromArgs(self, list(kwargs.items()))
         elif where == ENRWhere.Local:
-            # Special case but common enough that we want to handle it here: it's just a local update, so skip a whole bunch of extra work
-            self.OnNRUpdate(list(kwargs.items()))
+            # Handle the special but common case of a local-only update - handling it here allows us to skip a ton of extra work
+            _bridge._DoLocalUpdateFromArgs(self, list(kwargs.items()))
         else:
-            indices = []
-            values = []
-            for propIndex, value in sorted(pairs): # put them in index order
-                indices.append(str(propIndex))
-                values.append(value)
-            indicesStr = '_'.join(indices)
-            # At some point we could do like NRCall and combine the indicesStr with the method name so that it can be sent as a sigdef,
-            # though it'd require NRCall to handle NRUpdate as a special case.
-            self.NRCall(where, '_OnNRUpdate', indicesStr, *values, reliable=reliable, maxCallsPerSec=maxCallsPerSec)
+            # Handle the normal case
+            _bridge.DoUpdate(self, where, kwargs, reliable, maxCallsPerSec)
 
-    def _OnNRUpdate(self, indicesStr, *args):
-        '''The receiving end of NRUpdate'''
-        indices = [int(x) for x in indicesStr.split('_')] # indicesStr is a list of repprop indices in a _-separated string like '2_5_10'
-        changes = []
-        for propIndex, value in zip(indices, args):
-            # Convert the index to a prop name and update that property to its new value
-            propName = self.nrPropNames[propIndex]
-            changes.append((propName, value))
-        self.OnNRUpdate(changes)
+        if self.isHost and where & ENRWhere.NotHere:
+            _bridge.ClientUpdateMessage.Fire(self, where, kwargs)
 
     def OnNRUpdate(self, changes):
         '''Called anytime an NRUpdate has happend on this object. changes is a list of (name, value) of properties to update.
@@ -1363,7 +1565,8 @@ def ValueToBin(arg):
     if isinstance(arg, dict):
         #for dictionaries, make a list of [keys] + [values], and ValueToBin that
         formatStr, propsBlob = ValuesToBin([k for k in arg.keys()] + [v for v in arg.values()])
-        return 'D', F_Short.pack(len(formatStr)) + F_Short.pack(len(propsBlob)) + formatStr.encode('utf8') + propsBlob
+        typeCode = 'G' if isinstance(arg, Bag) else 'D' # Bags are passed as dicts but with a different type code
+        return typeCode, F_Short.pack(len(formatStr)) + F_Short.pack(len(propsBlob)) + formatStr.encode('utf8') + propsBlob
 
     if isinstance(arg, (list, tuple)):
         #L, I, S, and T are allready used, so is everything from "ARRAY" except Y, so Y it is!
@@ -1454,7 +1657,7 @@ def BinToValues(formatStr, blob):
             dataIndex += F_Short.size
             ret.append(LoadByRef(str(blob[dataIndex:dataIndex+sLen], 'utf8')))
             dataIndex += sLen
-        elif typeCode == 'D': # a dict
+        elif typeCode == 'D' or typeCode == 'G': # a dict or Bag
             fLen = F_Short.unpack_from(blob, dataIndex)[0]
             dataIndex += F_Short.size
             bLen = F_Short.unpack_from(blob, dataIndex)[0]
@@ -1462,7 +1665,8 @@ def BinToValues(formatStr, blob):
             items = BinToValues(str(blob[dataIndex:dataIndex+fLen], 'utf8'), blob[dataIndex+fLen:dataIndex+fLen+bLen])
             dataIndex += fLen + bLen
             n = len(items) // 2
-            ret.append(dict(zip(items[:n], items[n:])))
+            klass = Bag if typeCode == 'G' else dict
+            ret.append(klass(zip(items[:n], items[n:])))
         elif typeCode == 'Y': # a list
             fLen = F_Short.unpack_from(blob, dataIndex)[0]
             dataIndex += F_Short.size
@@ -1538,6 +1742,14 @@ class NRFragment:
         if propValue != self.EMPTY_PROP_VALUE:
             self.owner.NRUpdateElementProperty(self.name, elIndex, propIndex, propValue, reliable, maxCallsPerSec) # this won't do anything if we're not locally controlled (which is what we want)
 
+    def GetPropertyValue(self, elIndex, propName):
+        '''Called by NRElement.NRGetPropertyValue'''
+        propIndex = self.propNameMaps[elIndex][propName]
+        ret = self.propValues[elIndex][propIndex]
+        if ret == self.EMPTY_PROP_VALUE:
+            ret = None
+        return ret
+
     def OnPropertyUpdated(self, elIndex, propIndex, propValue):
         '''Called by the owning NetReplicated object when an element's property has changed'''
         if propValue == self.EMPTY_PROP_VALUE: return
@@ -1591,4 +1803,8 @@ class NRElement:
         ordered list of properties on this object that will be kept in sync across the copy of this object running on each machine.'''
         self.nrElementName = elementName
         owner._NRRegisterElement(weakref.proxy(self), fragmentName, syncPropNames)
+
+    def NRGetPropertyValue(self, propName):
+        '''returns the value previously set via NRUpdateProperty'''
+        return self.nrFragment.GetPropertyValue(self.nrElementIndex, propName)
 

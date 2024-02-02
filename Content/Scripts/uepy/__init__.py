@@ -127,6 +127,14 @@ def Caller(extraLevels=0):
     frame = stack[level]
     return '[%s:%s:%d]' % (os.path.basename(frame.filename), frame.function, frame.lineno)
 
+def Callers():
+    '''like Caller, but returns the call stack info from top to bottom (minus the call to this function itself)'''
+    stack = inspect.stack()
+    ret = []
+    for frame in stack[1:]:
+        ret.append('%s:%s:%d' % (os.path.basename(frame.filename), frame.function, frame.lineno))
+    return ' <- '.join(ret)
+
 class Event:
     '''Utility class for firing events locally among objects. Convention is for objects to declare a public event member variable that
     other objects access directly to add/remove listener callbacks. User Add/Remove to register/unregister a function to be called when
@@ -459,6 +467,8 @@ class AActor_PGLUE(metaclass=PyGlueMetaclass):
     def HasAuthority(self): return self.engineObj.HasAuthority()
     def EnableInput(self, pc): self.engineObj.EnableInput(pc)
     def DisableInput(self, pc): self.engineObj.DisableInput(pc)
+    def SetActorEnableCollision(self, e): self.engineObj.SetActorEnableCollision(e)
+    def GetActorEnableCollision(self): return self.engineObj.GetActorEnableCollision()
     def IsActorTickEnabled(self): return self.engineObj.IsActorTickEnabled()
     def SetActorTickEnabled(self, e): self.engineObj.SetActorTickEnabled(e)
     def SetActorTickInterval(self, i): self.engineObj.SetActorTickInterval(i)

@@ -28,15 +28,14 @@ static bool pyFinalized = false;
 
 // source code for a builtin import hook that allows applications to register modules instead of having to ship .py/.pyc files
 static std::string importHook = R"(
-import sys, marshal
+import sys, marshal, importlib.util
 from collections import namedtuple
 from importlib.machinery import SourcelessFileLoader
-from importlib.util import spec_from_loader
 
 ImportHookEntry = namedtuple('ImportHookEntry', 'code diskPath isPackage'.split())
 class UEPYImportHook(SourcelessFileLoader):
-    modules = {} # dotted name -> ImportHookEntry
-    # diskPath is what module.__file__ will be set to
+    modules = {} # dotted name -> ImportHookEntry, entry.diskPath is what module.__file__ will be set to
+    pyds = {} # dottedName -> fullPath to 3rd party .pyd file bundled with the app
 
     @staticmethod
     def Add(dottedName, code, diskPath, isPackage):
@@ -47,10 +46,14 @@ class UEPYImportHook(SourcelessFileLoader):
     def find_spec(dottedName, path, target=None):
         entry = UEPYImportHook.modules.get(dottedName)
         if entry:
-            ret = spec_from_loader(dottedName, UEPYImportHook(path, dottedName), is_package=entry.isPackage)
+            ret = importlib.util.spec_from_loader(dottedName, UEPYImportHook(path, dottedName), is_package=entry.isPackage)
             if entry.diskPath:
                 ret.origin = entry.diskPath
             return ret
+
+        fullPath = UEPYImportHook.pyds.get(dottedName)
+        if fullPath:
+            return importlib.util.spec_from_file_location(dottedName, fullPath)
         return None
 
     def get_code(self, dottedName):
@@ -536,6 +539,11 @@ void UPawnMovementComponent_CGLUE::TickComponent(float dt, ELevelTick type, FAct
 void UVOIPTalker_CGLUE::OnTalkingBegin(UAudioComponent* AudioComponent) { try { pyInst.attr("OnTalkingBegin")(); } catchpy; }
 void UVOIPTalker_CGLUE::OnTalkingEnd() { try { pyInst.attr("OnTalkingEnd")(); } catchpy; }
 
+std::string debugObj(py::object *o)
+{
+    std::string s = py::repr(*o);
+    return s;
+}
 
 UClass *PyObjectToUClass(py::object& klassThing)
 {   

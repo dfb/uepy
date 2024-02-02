@@ -68,6 +68,55 @@ bool LoadAndDecompressImage(IImageWrapperModule& imageWrapperModule, FString pat
     return imageWrapper->GetRaw(ERGBFormat::BGRA, 8, data);
 }
 
+bool ConvertPNGtoJPG(FString pngPath, FString jpgPath, int quality) // try 100 for quality
+{
+    // load the file's data from disk
+    if (!FPaths::FileExists(pngPath))
+    {
+        LERROR("File not found: %s", *pngPath);
+        return false;
+    }
+    TArray<uint8> fileData;
+    if (!FFileHelper::LoadFileToArray(fileData, *pngPath))
+    {
+        LERROR("Failed to load file %s", *pngPath);
+        return false;
+    }
+
+    IImageWrapperModule& iwm = FModuleManager::LoadModuleChecked<IImageWrapperModule>(TEXT("ImageWrapper"));
+
+    // Detect the image format and create an imageWrapper with its data
+    EImageFormat format = iwm.DetectImageFormat(fileData.GetData(), fileData.Num());
+    if (format == EImageFormat::Invalid)
+    {
+        LERROR("Unknown image format for %s", *pngPath);
+        return false;
+    }
+
+    TSharedPtr<IImageWrapper> reader = iwm.CreateImageWrapper(format);
+    if (!reader.IsValid() || !reader->SetCompressed(fileData.GetData(), fileData.Num()))
+    {
+        LERROR("Failed to create image wrapper for %s", *pngPath);
+        return false;
+    }
+
+    // Decompress the data into a raw buffer
+    TArray64<uint8> raw;
+    reader->GetRaw(ERGBFormat::BGRA, 8, raw);
+
+    TSharedPtr<IImageWrapper> writer = iwm.CreateImageWrapper(EImageFormat::JPEG);
+    if (!writer.IsValid())
+    {
+        LERROR("Failed to create image wrapper for format %s", format);
+        return false;
+    }
+
+    writer->SetRaw((void *)raw.GetData(), raw.Num(), reader->GetWidth(), reader->GetHeight(), ERGBFormat::BGRA, 8);
+    TArray64<uint8> compressed = writer->GetCompressed(quality);
+
+    return FFileHelper::SaveArrayToFile(compressed, *jpgPath);
+}
+
 // Note that this is the blocking API, so you should use UExternalTextureLoader most of the time
 UTexture2D *LoadTextureFromFile(FString path)
 {

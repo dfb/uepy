@@ -11,7 +11,7 @@ public class uepy : ModuleRules
         bUseRTTI = true;
         bEnableExceptions = true; // needed for clipper.cpp and pybind11
 
-        Definitions.Add("EIGEN_MPL2_ONLY=1"); // Keep eigen as pure MPL2
+        PublicDefinitions.Add("EIGEN_MPL2_ONLY=1"); // Keep eigen as pure MPL2
 
         PublicIncludePaths.AddRange(
             new string[] {
@@ -20,7 +20,7 @@ public class uepy : ModuleRules
                 Path.Combine(ModuleDirectory, "../../Eigen"),
             });
         //PublicLibraryPaths.Add(Path.Combine(ModuleDirectory, "../../python/libs"));
-        PublicAdditionalLibraries.Add(Path.Combine(ModuleDirectory, "../../python/libs/python38.lib"));
+        PublicAdditionalLibraries.Add(Path.Combine(ModuleDirectory, "../../python/libs/python311.lib"));
 
 
         PrivateIncludePaths.AddRange(

@@ -11,12 +11,13 @@
 #include "Components/BoxComponent.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/PawnMovementComponent.h"
+#include "Components/WidgetInteractionComponent.h"
 #include "Net/VoiceConfig.h"
 #include "uepy.generated.h"
 
 // pybind11 lets python exceptions bubble up to be C++ exceptions, which is rarely what we want, so
 // instead do try { ... } catchpy
-#define catchpy catch (std::exception e) { LERROR("%s", UTF8_TO_TCHAR(e.what())); }
+#define catchpy catch (py::error_already_set e) { LERROR("%s", UTF8_TO_TCHAR(e.what())); }
 
 #define VALID(obj) (IsValid(obj) && obj->IsValidLowLevel())
 
@@ -61,11 +62,12 @@
 #define ENUM_PROP(propName, propType, className)\
 .def_property(#propName, [](className& self) { return (int)self.propName; }, [](className& self, int v) { self.propName = (propType)v; })
 
-#define UEPY_EXPOSE_CLASS(className, parentClassName, inModule)\
-    py::class_<className, parentClassName, UnrealTracker<className>>(inModule, #className)\
+#define UEPY_EXPOSE_CLASS_EX(className, parentClassName, inModule, exposedName)\
+    py::class_<className, parentClassName, UnrealTracker<className>>(inModule, #exposedName)\
         .def_static("StaticClass", []() { return className::StaticClass(); }, py::return_value_policy::reference)\
         .def_static("Cast", [](UObject *w) { return VALID(w) ? Cast<className>(w) : nullptr; }, py::return_value_policy::reference)\
         .def("__repr__", [](className* self) { py::str name = PYSTR(self->GetName()); return py::str("<{} {:X}>").format(name, (unsigned long long)self); })
+#define UEPY_EXPOSE_CLASS(className, parentClassName, inModule) UEPY_EXPOSE_CLASS_EX(className, parentClassName, inModule, className)
 
 // in order to be able pass from BP to Python any custom (game-specific) structs, the game has to provide a conversion function for them
 typedef std::function<py::object(UScriptStruct* s, void *value)> BPToPyFunc;
@@ -390,6 +392,30 @@ class UEPY_API  UVOIPTalker_CGLUE : public UVOIPTalker, public IUEPYGlueMixin
 public:
     virtual void OnTalkingBegin(UAudioComponent* AudioComponent) override;
     virtual void OnTalkingEnd() override;
+};
+
+UCLASS()
+class UEPY_API UCustomWidgetInteractionComponent : public UWidgetInteractionComponent
+{
+    GENERATED_BODY()
+
+    UCustomWidgetInteractionComponent() : UWidgetInteractionComponent() {}
+
+public:
+	void ClearPointerKey(FKey Key)
+    {
+        if (PressedKeys.Contains(Key))
+            ReleasePointerKey(Key);
+    }
+	virtual void PressPointerKey(FKey Key) override
+    {
+        // we never want a PressPointerKey call to be ignored, so this is a stop-gap to make it go through, but really
+        // we should prevent this situation by always calling ReleasePointerKey at the right time or, if that's not
+        // always possible, by calling ClearPointerKey instead.
+        if (PressedKeys.Contains(Key))
+            ReleasePointerKey(Key);
+        Super::PressPointerKey(Key);
+    }
 };
 
 // helper class for any API that accepts as an argument a UClass parameter. Allows the caller to pass in

@@ -28,6 +28,7 @@
 #include "Engine/GameInstance.h"
 #include "Engine/NetConnection.h"
 #include "Engine/PackageMapClient.h"
+#include "Engine/PostProcessVolume.h"
 #include "Engine/StaticMeshSocket.h"
 #include "Engine/TextureCube.h"
 #include "Engine/TextureRenderTarget2D.h"
@@ -218,16 +219,15 @@ struct FHackyAttenuationSettings
 };
 
 static std::map<FString, py::object> pyClassMap; // class name --> python class
-static py::dict spawnArgs; // see RegisterPythonSubclass, SpawnActor_, and NewObject
 void SetInternalSpawnArgs(py::dict& kwargs)
 {
     if (py::len(kwargs) > 0) // only set them if they have a value; sometimes we have cases where an outer object sets them, e.g. CreateWidget -> NewObject
-        spawnArgs = kwargs;
+        py::module::import("_uepy").attr("spawnArgs") = kwargs;
 }
 
 void ClearInternalSpawnArgs()
 {
-    spawnArgs.clear();
+    py::module::import("_uepy").attr("spawnArgs").attr("clear")();
 }
 
 py::object GetPyClassFromName(FString& name)
@@ -245,6 +245,8 @@ using namespace pybind11::literals;
 PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module uses _<name> and then we provide a <name> .py wrapper for additional stuffs
     // ALL Python-subclassable classes should live here (i.e. all C++ _CGLUE classes should be exposed via this submodule)
     py::module glueclasses = m.def_submodule("glueclasses");
+
+    m.attr("spawnArgs") = py::dict();
 
     // note that WITH_EDITOR does not necessarily mean that the uepyEditor module will be loaded
 #if WITH_EDITOR
@@ -296,7 +298,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
                 objs.append(obj);
         }
         return objs;
-    });
+    }, py::return_value_policy::reference);
 
     m.def("DumpUObjectList", [](std::string& filename, bool full)
     {
@@ -827,6 +829,10 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def_static("ProjectLogDir", []() { return PYSTR(FPaths::ProjectLogDir()); })
         ;
 
+    py::class_<FPlatformProcess>(m, "FPlatformProcess")
+        .def_static("BaseDir", []() { return std::string(TCHAR_TO_UTF8(FPlatformProcess::BaseDir())); })
+        ;
+
     py::class_<UObject, UnrealTracker<UObject>>(m, "UObject")
         .def_static("StaticClass", []() { return UObject::StaticClass(); }, py::return_value_policy::reference)
         .def("__repr__", [](UObject* self) { py::str name = PYSTR(self->GetName()); return py::str("<{} {:X}>").format(name, (unsigned long long)self); })
@@ -1073,6 +1079,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("SetWorldRotation", [](USceneComponent& self, FQuat& rot) { self.SetWorldRotation(rot); })
         .def("SetWorldTransform", [](USceneComponent& self, FTransform& t) { self.SetWorldTransform(t); })
         .def("SetWorldScale3D", [](USceneComponent& self, FVector& s) { self.SetWorldScale3D(s); })
+        .def("UpdateComponentToWorld", [](USceneComponent& self) { self.UpdateComponentToWorld(EUpdateTransformFlags::PropagateFromParent); })
         .def("GetSocketTransform", [](USceneComponent& self, std::string& name, int transformSpace) { return self.GetSocketTransform(FSTR(name), (ERelativeTransformSpace)transformSpace); }, py::arg("name"), py::arg("transformSpace")=(int)ERelativeTransformSpace::RTS_World)
         .def("GetSocketLocation", [](USceneComponent& self, std::string& name) { return self.GetSocketLocation(FSTR(name)); })
         .def("GetSocketRotation", [](USceneComponent& self, std::string& name) { return self.GetSocketRotation(FSTR(name)); })
@@ -1199,6 +1206,8 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("SetAsset", [](UNiagaraComponent& self, UNiagaraSystem* inAsset, bool reset) { self.SetAsset(inAsset, reset); })
         .def("DeactivateImmediate", [](UNiagaraComponent& self) { self.DeactivateImmediate(); })
         .def("SetPaused", [](UNiagaraComponent& self, bool bInPaused) { self.SetPaused(bInPaused); })
+        .def("DestroyInstance", [](UNiagaraComponent& self) { self.DestroyInstance(); })
+        .def("InitializeSystem", [](UNiagaraComponent& self) { self.InitializeSystem(); })
         .def("ResetSystem", [](UNiagaraComponent& self) { self.ResetSystem(); })
         .def("ReinitializeSystem", [](UNiagaraComponent& self) { self.ReinitializeSystem(); })
         .def("SetTickBehavior", [](UNiagaraComponent& self, int t) { self.SetTickBehavior((ENiagaraTickBehavior)t); })
@@ -1406,6 +1415,8 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("SetBackgroundColor", [](UWidgetComponent& self, FLinearColor& c) { self.SetBackgroundColor(c); })
         .def("SetTintColorAndOpacity", [](UWidgetComponent& self, FLinearColor& c) { self.SetTintColorAndOpacity(c); })
         .def("SetOpacityFromTexture", [](UWidgetComponent& self, float o) { self.SetOpacityFromTexture(o); })
+        .def("GetTickWhenOffscreen", [](UWidgetComponent& self) { return self.GetTickWhenOffscreen(); })
+        .def("SetTickWhenOffscreen", [](UWidgetComponent& self, bool t) { self.SetTickWhenOffscreen(t); })
         ;
 
     UEPY_EXPOSE_CLASS(UWorld, UObject, m)
@@ -1469,6 +1480,16 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
                 for (AActor *a : actors)
                     ret.append(a);
             }
+            return ret;
+        }, py::return_value_policy::reference)
+        .def_static("GetAllActorsWithTag", [](UWorld *world, std::string& _tag)
+        {
+            TArray<AActor*> actors;
+            py::list ret;
+            FName tag = FSTR(_tag);
+            UGameplayStatics::GetAllActorsWithTag(world, tag, actors);
+            for (AActor *a : actors)
+                ret.append(a);
             return ret;
         }, py::return_value_policy::reference)
         .def_static("GetPlayerController", [](UObject *worldCtx, int playerIndex) { return UGameplayStatics::GetPlayerController(worldCtx, playerIndex); }, py::return_value_policy::reference)
@@ -1942,7 +1963,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("SetReplicates", [](AActor& self, bool b) { self.SetReplicates(b); })
         //.def("GetIsReplicated", [](AActor& self) { return self.GetIsReplicated(); }) <--- doesn't work with NR
         .def("SetCanBeDamaged", [](AActor& self, bool b) { self.SetCanBeDamaged(b); })
-        .def_readwrite("InputComponent", &AActor::InputComponent)
+        .def_readwrite("InputComponent", &AActor::InputComponent, py::return_value_policy::reference)
         BIT_PROP(bAlwaysRelevant, AActor)
         ENUM_PROP(SpawnCollisionHandlingMethod, ESpawnActorCollisionHandlingMethod, AActor)
         .def("GetWorld", [](AActor& self) { return self.GetWorld(); }, py::return_value_policy::reference)
@@ -1986,6 +2007,8 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("RemoveTag", [](AActor& self, std::string& tag) { self.Tags.Remove(FName(FSTR(tag))); })
         .def("EnableInput", [](AActor& self, APlayerController* pc) { self.EnableInput(pc); })
         .def("DisableInput", [](AActor& self, APlayerController* pc) { self.DisableInput(pc); })
+        .def("SetActorEnableCollision", [](AActor& self, bool enable) { self.SetActorEnableCollision(enable); })
+        .def("GetActorEnableCollision", [](AActor& self) { return self.GetActorEnableCollision(); })
         .def_property("Tags", [](AActor& self)
             {
                 py::list ret;
@@ -2137,6 +2160,15 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("SetManualCameraFade", [](APlayerCameraManager& self, float level, FLinearColor color) { self.SetManualCameraFade(level, color, false); })
         ;
 
+    UEPY_EXPOSE_CLASS(ABrush, AActor, m)
+        ;
+    UEPY_EXPOSE_CLASS(AVolume, ABrush, m)
+        ;
+    UEPY_EXPOSE_CLASS(APostProcessVolume, AVolume, m)
+        .def_readwrite("Settings", &APostProcessVolume::Settings, py::return_value_policy::reference)
+        BIT_PROP(bUnbound, APostProcessVolume)
+        ;
+
     UEPY_EXPOSE_CLASS(USplineComponent, UPrimitiveComponent, m)
         .def("ClearSplinePoints", [](USplineComponent& self, bool bUpdateSpline) { self.ClearSplinePoints(bUpdateSpline); })
         .def("AddSplinePoint", [](USplineComponent& self, const FVector &Position, int CoordinateSpace, bool bUpdateSpline) { self.AddSplinePoint(Position, (ESplineCoordinateSpace::Type)CoordinateSpace, bUpdateSpline); })
@@ -2192,6 +2224,12 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         return LoadTextureFromFile(FSTR(path));
     }, py::return_value_policy::reference);
 
+    m.def("ConvertPNGtoJPG", [](std::string& pngPath, std::string& jpgPath, int quality)
+    {
+        std::string p1 = pngPath, p2 = jpgPath;
+        return ConvertPNGtoJPG(FSTR(p1), FSTR(p2), quality);
+    });
+
     m.def("TextureFromBGRA", [](const char *bgra, int width, int height) -> UTexture2D*
     {
         return TextureFromBGRA((uint8 *)bgra, width, height);
@@ -2243,6 +2281,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
                 IUEPYGlueMixin *p = Cast<IUEPYGlueMixin>(engineObj);
                 FString className = engineObj->GetClass()->GetName();
                 py::object& pyClass = pyClassMap[className];
+                py::dict spawnArgs = py::module::import("_uepy").attr("spawnArgs");
                 pyClass(engineObj, **spawnArgs); // the metaclass in uepy.__init__ requires engineObj to be passed as the first param; it gobbles it up and auto-sets self.engineObj on the new instance
                 ClearInternalSpawnArgs();
             } catchpy;
@@ -2736,6 +2775,7 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
 
     py::class_<FPostProcessSettings>(m ,"FPostProcessSettings")
         .def(py::init<>())
+        .def("AddBlendable", [](FPostProcessSettings& self, UObject* blendableObject, float weight) { self.AddBlendable(blendableObject, weight); })
         BIT_PROP(bOverride_AutoExposureBias, FPostProcessSettings)
         .def_readwrite("AutoExposureBias", &FPostProcessSettings::AutoExposureBias) // 'Exposure Compensation'
         BIT_PROP(bOverride_ScreenPercentage, FPostProcessSettings)
@@ -2821,14 +2861,15 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def_readwrite("FocusSettings", &UCineCameraComponent::FocusSettings, py::return_value_policy::reference)
         ;
 
-    UEPY_EXPOSE_CLASS(UWidgetInteractionComponent, USceneComponent, m)
-        .def_readwrite("VirtualUserIndex", &UWidgetInteractionComponent::VirtualUserIndex)
-        .def_readwrite("PointerIndex", &UWidgetInteractionComponent::PointerIndex)
-        ENUM_PROP(InteractionSource, EWidgetInteractionSource, UWidgetInteractionComponent)
-        .def("SetCustomHitResult", [](UWidgetInteractionComponent& self, FHitResult& hr) { self.SetCustomHitResult(hr); })
-        .def("PressPointerKey", [](UWidgetInteractionComponent& self, std::string& keyName) { FKey key(keyName.c_str()); self.PressPointerKey(key); })
-        .def("ReleasePointerKey", [](UWidgetInteractionComponent& self, std::string& keyName) { FKey key(keyName.c_str()); self.ReleasePointerKey(key); })
-        .def("ScrollWheel", [](UWidgetInteractionComponent& self, float scrollDelta) { self.ScrollWheel(scrollDelta); })
+    UEPY_EXPOSE_CLASS_EX(UCustomWidgetInteractionComponent, USceneComponent, m, UWidgetInteractionComponent) // we expose a customized version but name it the same as the original
+        .def_readwrite("VirtualUserIndex", &UCustomWidgetInteractionComponent::VirtualUserIndex)
+        .def_readwrite("PointerIndex", &UCustomWidgetInteractionComponent::PointerIndex)
+        ENUM_PROP(InteractionSource, EWidgetInteractionSource, UCustomWidgetInteractionComponent)
+        .def("SetCustomHitResult", [](UCustomWidgetInteractionComponent& self, FHitResult& hr) { self.SetCustomHitResult(hr); })
+        .def("PressPointerKey", [](UCustomWidgetInteractionComponent& self, std::string& keyName) { FKey key(keyName.c_str()); self.PressPointerKey(key); })
+        .def("ReleasePointerKey", [](UCustomWidgetInteractionComponent& self, std::string& keyName) { FKey key(keyName.c_str()); self.ReleasePointerKey(key); })
+        .def("ClearPointerKey", [](UCustomWidgetInteractionComponent& self, std::string& keyName) { FKey key(keyName.c_str()); self.ClearPointerKey(key); })
+        .def("ScrollWheel", [](UCustomWidgetInteractionComponent& self, float scrollDelta) { self.ScrollWheel(scrollDelta); })
         ;
 
     UEPY_EXPOSE_CLASS(UPostProcessComponent, USceneComponent, m)
@@ -2916,8 +2957,10 @@ PYBIND11_EMBEDDED_MODULE(_uepy, m) { // note the _ prefix, the builtin module us
         .def("ApplySettings", [](UGameUserSettings& self, bool checkCLIOverrides) { self.ApplySettings(checkCLIOverrides); }) // note that this persists them also
         .def("SetWindowPosition", [](UGameUserSettings& self, int x, int y) { self.SetWindowPosition(x, y); })
         .def("SetFrameRateLimit", [](UGameUserSettings& self, float fps) { self.SetFrameRateLimit(fps); })
+        .def("GetFrameRateLimit", [](UGameUserSettings& self) { return self.GetFrameRateLimit(); })
         .def("SetFullscreenMode", [](UGameUserSettings& self, int mode) { self.SetFullscreenMode((EWindowMode::Type)mode); })
         .def("SetScreenResolution", [](UGameUserSettings& self, int w, int h) { self.SetScreenResolution(FIntPoint(w,h)); })
+        .def("SetVSyncEnabled", [](UGameUserSettings& self, bool enabled) { self.SetVSyncEnabled(enabled); })
         ;
 
     // net rep stuff

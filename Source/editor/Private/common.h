@@ -10,7 +10,7 @@ DECLARE_LOG_CATEGORY_EXTERN(UEPYED, Log, All);
 #pragma push_macro("check")
 #undef check
 #define PY_MAJOR_VERSION 3
-#define PY_MINOR_VERSION 8
+#define PY_MINOR_VERSION 11
 #include <pybind11/pybind11.h>
 #include <pybind11/embed.h>
 #include <pybind11/operators.h>
